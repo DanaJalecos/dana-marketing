@@ -9611,9 +9611,10 @@ const ADMIN_ONLY_VIEWS = ['admin'];
 // frustrante porque nao era a tela principal do trabalho deles.
 function firstAllowedView() {
   if (currentProfile?.cargo === 'admin') return 'home';
-  // Vendedor: principal e a carteira/cliente360. So cai aqui se houver perm.
+  // Vendedor: principal e o C360 (que internamente abre a aba "Meus Clientes"
+  // pra cargo vendedor automaticamente). NAO existe mais view-meus_clientes
+  // standalone — virou aba dentro do C360.
   if (currentProfile?.cargo === 'vendedor') {
-    if (userPermissoes['meus_clientes'] !== false) return 'meus_clientes';
     if (userPermissoes['cliente360'] !== false) return 'cliente360';
     return 'perfil';
   }
@@ -18338,9 +18339,17 @@ async function doLogin() {
       let salva = localStorage.getItem('dms-active-view');
       // Override antibug: se o ultimo localStorage foi cliente360 e o cargo
       // NAO e vendedor, ignora (vai pra firstAllowedView). Isso evita ficar
-      // preso no C360 quando o user caiu la por engano em sessao anterior
-      // — common case quando o usuario abandonou a sessao logado em C360.
+      // preso no C360 quando o user caiu la por engano em sessao anterior.
       if (salva === 'cliente360' && currentProfile?.cargo !== 'vendedor') {
+        salva = null;
+        localStorage.removeItem('dms-active-view');
+      }
+      // Override antibug 2: se a view salva nao existe mais no DOM (foi
+      // removida ou renomeada — ex: meus_clientes virou aba interna do C360),
+      // descarta e cai em firstAllowedView. Antes deixava o user numa tela
+      // em branco com o hash apontando pra view morta.
+      if (salva && !document.getElementById('view-' + salva) && salva !== 'perfil') {
+        console.warn('[init] view salva "' + salva + '" nao existe no DOM, ignorando');
         salva = null;
         localStorage.removeItem('dms-active-view');
       }
