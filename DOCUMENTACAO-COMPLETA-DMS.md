@@ -1,6 +1,6 @@
 # DOCUMENTAÇÃO COMPLETA — DMS (Dana Marketing System)
 
-> **Última atualização:** 28/04/2026 noite — ciclo 39 (insight C360 + WhatsApp)
+> **Última atualização:** 28/04/2026 noite-late — ciclo 40 (quota prospecção + perms UI)
 > **Repo GitHub:** https://github.com/DanaComercial/dana-marketing
 > **Site público:** https://danadash.netlify.app/ (auto-deploy via Netlify)
 > **Supabase:** `wltmiqbhziefusnzmmkt`
@@ -3743,3 +3743,75 @@ Pendência fechada: ✅ migrar `cliente360-insight` pro `gemini-proxy` (era a ú
 ---
 
 **Fim da documentação · Atualizado em 28/04/2026 noite — ciclo 39 (insight v13 + WhatsApp + Kanban fix) · v4.3**
+
+---
+
+## 40. CICLO 28/04/2026 NOITE-LATE — Quota Prospecção + UI Permissões
+
+### 40.1 Limite diário pra Prospecção IA
+
+Antes só tinha limite **por busca** (admin 30 / demais 10 leads), sem teto diário/mensal — qualquer vendedor podia rodar 100 buscas/dia → R$ 18-20/dia/vendedor de gasto descontrolado na key paga.
+
+**SQL aplicada:**
+```sql
+CREATE TABLE prospeccao_config (
+  id=1, ativo bool, limite_diario_vendedor int=5,
+  limite_diario_gerente int=10, limite_mensal_reais numeric=100,
+  custo_estimado_por_busca_reais numeric=0.18,
+  pausado_por_limite bool, pausado_manual bool, ...
+);
+CREATE FUNCTION prospeccao_count_hoje(uid) → INT;
+CREATE FUNCTION prospeccao_gasto_mes() → NUMERIC;
+```
+
+Espelha exatamente o padrão do `cliente_insights_config`. RLS: read aberto, write só admin.
+
+### 40.2 prospectar v9 ACTIVE
+
+Antes do `callGeminiWithSearch`, valida (admin é ilimitado, pula tudo):
+1. **Kill-switches**: `pausado_manual` (admin define via SQL/painel) e `pausado_por_limite` (auto-set quando bate teto mensal)
+2. **Limite mensal**: lê `prospeccao_gasto_mes()` — se >= R$ 100, auto-pausa e retorna 403
+3. **Limite diário**: vendedor 5/dia, gerente 10/dia. Conta via `prospeccao_count_hoje(uid)`. 429 quando estoura.
+
+Resposta passa a incluir `quota: { usados, limite, restante }` pra UI mostrar contador "3/5" igual o insight.
+
+### 40.3 Reorganização do painel Permissões (admin)
+
+Antes a categoria "📌 Outros" amontoava 11 chaves (avatares_ia_gerar, branding, campanhas_internas, comunidade, prospeccao*, provasocial_*, estudio) sem label descritivo, só com a chave bruta — confuso saber o que cada toggle fazia.
+
+**Mudanças em `PERM_GROUPS`** (`index.html` linha ~19235):
+- 💰 Vendas: + `comunidade`, `prospeccao`, `prospeccao_buscar`, `prospeccao_editar`
+- 📣 Marketing: + `campanhas_internas` (legada), `branding`, `provasocial_aprovar/criar/excluir`
+- 🤖 IA Gerativa: NOVA categoria com `estudio`, `avatares_ia_gerar`
+
+**Labels descritivas adicionadas em `secaoLabels`** — ex:
+- `prospeccao_buscar` → "🚀 Prospecção · Buscar leads (Google + Gemini)"
+- `provasocial_aprovar` → "✅ Prova Social · Aprovar conteúdo UGC"
+- `estudio` → "🎬 Estúdio IA · Banner/Post/Story/Anúncio"
+- `campanhas_internas` (com underscore) → "📋 Campanhas Internas · Acessar (legada — duplicata histórica)"
+- `campanhas-internas` (com hífen) → "📋 Campanhas Internas · Acessar (preferida)"
+
+⚠ **Nada foi desmarcado** — só reorganizado e renomeado. Todos os toggles continuam fazendo exatamente o que faziam antes.
+
+### 40.4 Edge Functions estado final
+
+| Função | Versão | Mudou? |
+|---|---|---|
+| **prospectar** | **v9** | **NOVO ciclo 40 (quota diária + mensal)** |
+| Demais | (sem mudanças desde ciclo 39) | |
+
+### 40.5 Pendências atualizadas
+
+- 🟡 PASS 2 (itens 2024) ainda em background
+- 🟡 Liberar Estúdio IA pros cargos `designer` e `gerente_marketing`
+- 🟢 Inconsistência `campanhas_internas` vs `campanhas-internas` (ainda 2 chaves duplicadas — mas agora pelo menos com label deixando claro qual é qual)
+- 🟢 Sync inicial das ~4.7k imagens dos produtos pro Storage
+- 🟢 Migração R2 (plano salvo em `steady-imagining-charm.md`)
+
+### 40.6 Onde paramos
+
+prospectar v9 ACTIVE com quota. Painel admin de permissões reorganizado. Próxima sessão: pode rodar `loadAdminPermissoes()` no admin → dropdown "vendedor" → ver os toggles agora arrumados em 💰 Vendas / 📣 Marketing / 🤖 IA Gerativa em vez de "Outros".
+
+---
+
+**Fim da documentação · Atualizado em 28/04/2026 noite-late — ciclo 40 (quota prospecção + perms UI) · v4.4**

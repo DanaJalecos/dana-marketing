@@ -19231,13 +19231,18 @@ async function updateUserCargo(userId, novoCargo) {
 
 // ── ADMIN: grid de permissoes ──
 let _permData = [];
-// Grupos de seções (header → lista de secoes)
+// Grupos de seções (header → lista de secoes).
+// Adicionei chaves que antes caiam em "Outros" (categoria fallback) nos
+// grupos certos, mas mantive os nomes ORIGINAIS — toggle continua fazendo
+// exatamente o que fazia antes, so ficou organizado e com label legivel
+// (ver `secaoLabels` mais abaixo).
 const PERM_GROUPS = [
   ['📊 Visão Geral', ['home','analytics','relatorio']],
-  ['💰 Vendas',      ['ecommerce','lojafisica','marketplaces','canaisvendas','cliente360']],
+  ['💰 Vendas',      ['ecommerce','lojafisica','marketplaces','canaisvendas','cliente360','comunidade','prospeccao','prospeccao_buscar','prospeccao_editar']],
   ['🏦 Financeiro',  ['financeiro','projecoes','roi']],
-  ['📣 Marketing',   ['canaisaquisicao','campanhas','campanhas-internas','construtor','criativos','briefingvisual','influenciadores','provasocial']],
+  ['📣 Marketing',   ['canaisaquisicao','campanhas','campanhas-internas','campanhas_internas','construtor','criativos','briefingvisual','branding','influenciadores','provasocial','provasocial_aprovar','provasocial_criar','provasocial_excluir']],
   ['🎯 Inteligência',['personas','keywords','mercado','referencias','performance']],
+  ['🤖 IA Gerativa', ['estudio','avatares_ia_gerar']],
   ['✅ Produtividade',['tarefas','calendario']],
   ['👤 Cliente 360 · Abas', [
     'c360_dashboard','c360_clientes','meus_clientes','c360_segmentacao',
@@ -19296,6 +19301,20 @@ async function loadAdminPermissoes() {
     c360_configuracoes: '⚙ Configurações',
     c360_logs: '📋 Logs',
     meus_clientes: '👤 Meus Clientes (carteira por vendedor)',
+    // Labels descritivas pras chaves que antes caiam em "Outros"
+    prospeccao: '🔎 Prospecção IA · Acessar tela',
+    prospeccao_buscar: '🚀 Prospecção · Buscar leads (Google + Gemini)',
+    prospeccao_editar: '✏️ Prospecção · Editar/excluir leads salvos',
+    comunidade: '🤝 Comunidade · Revendas/parceiros',
+    branding: '🎨 Brand Kit · Acessar a aba',
+    provasocial: '⭐ Prova Social · Acessar a aba',
+    provasocial_aprovar: '✅ Prova Social · Aprovar conteúdo UGC',
+    provasocial_criar: '✏️ Prova Social · Adicionar conteúdo',
+    provasocial_excluir: '🗑 Prova Social · Excluir conteúdo',
+    'campanhas-internas': '📋 Campanhas Internas · Acessar (preferida)',
+    campanhas_internas: '📋 Campanhas Internas · Acessar (legada — duplicata histórica)',
+    estudio: '🎬 Estúdio IA · Banner/Post/Story/Anúncio',
+    avatares_ia_gerar: '🖼 Avatar IA · Gerar imagem (mockup/persona)',
   };
 
   // State em memoria por cargo (pra nao perder ao trocar no dropdown)
