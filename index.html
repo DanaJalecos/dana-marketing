@@ -9769,13 +9769,16 @@ function go(el, viewId) {
     loadOnce('provasocial', () => typeof loadProvaSocial === 'function' && loadProvaSocial());
   }
   if (viewId === 'canaisvendas') {
-    // Tem 3 widgets independentes na view: Top Clientes (loadMarketplaces),
-    // Canais de Venda (loadCanaisVenda) e Revendas Nacionais/Internacionais
-    // (loadRevendasParceiros). Antes so loadCanaisVenda era chamada — os
-    // outros 2 ficavam travados em "Carregando...".
+    // Tem 3 widgets independentes na view:
+    //  - Top Clientes por Volume (#mp-top-clientes) — populado por loadMarketplacesExtras
+    //  - Canais de Venda (#cv-canais-tbody) — populado por loadCanaisVenda
+    //  - Revendas Nacionais/Internacionais — populado por loadRevendasParceiros
+    // Antes so loadCanaisVenda era chamada → os outros 2 travavam em "Carregando...".
+    // Note: loadMarketplaces() (sem Extras) NAO popula mp-top-clientes — cuida de
+    // outros widgets do view-marketplaces. So o Extras escreve em mp-top-clientes.
     loadOnce('canaisvendas', () => {
       if (typeof loadCanaisVenda === 'function') loadCanaisVenda('30d');
-      if (typeof loadMarketplaces === 'function') loadMarketplaces();
+      if (typeof loadMarketplacesExtras === 'function') loadMarketplacesExtras();
       if (typeof loadRevendasParceiros === 'function') loadRevendasParceiros();
     });
   }
