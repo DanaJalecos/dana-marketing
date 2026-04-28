@@ -3,9 +3,6 @@
   "buildCommand": null,
   "outputDirectory": ".",
   "framework": null,
-  "rewrites": [
-    { "source": "/cliente-360", "destination": "/cliente-360.html" }
-  ],
   "headers": [
     {
       "source": "/(.*)",

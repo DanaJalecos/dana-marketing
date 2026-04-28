@@ -9603,19 +9603,32 @@ const ADMIN_ONLY_VIEWS = ['admin'];
 // Retorna o primeiro viewId que o usuario logado tem permissao pra acessar.
 // Usado no login inicial (sem hash/localStorage) e como fallback quando go()
 // bloqueia uma navegacao negada.
+//
+// Ordem prioriza HOME (Dashboard DMS) pra todos os cargos com acesso. Cliente360
+// so vira fallback pra vendedor (que tipicamente NAO tem home, e o C360 e a
+// area principal de trabalho dele). Antes a ordem comecava por cliente360, o
+// que fazia gerentes/designers caírem no iframe do C360 logo apos login —
+// frustrante porque nao era a tela principal do trabalho deles.
 function firstAllowedView() {
+  if (currentProfile?.cargo === 'admin') return 'home';
+  // Vendedor: principal e a carteira/cliente360. So cai aqui se houver perm.
+  if (currentProfile?.cargo === 'vendedor') {
+    if (userPermissoes['meus_clientes'] !== false) return 'meus_clientes';
+    if (userPermissoes['cliente360'] !== false) return 'cliente360';
+    return 'perfil';
+  }
+  // Demais cargos (gerente, designer, etc): home primeiro, c360 so se nao tiver outras opcoes
   const ordem = [
-    'cliente360',   // principal pra vendedores (escopo interno)
-    'home',
+    'home',          // Dashboard DMS — preferencia geral
     'tarefas','calendario',
     'relatorio','analytics',
     'ecommerce','lojafisica','marketplaces','canaisvendas',
     'financeiro','projecoes','roi',
     'canaisaquisicao','campanhas','construtor','criativos','briefingvisual','influenciadores','provasocial',
     'personas','keywords','mercado','referencias','performance',
+    'cliente360',    // fallback antes de apis
     'apis',
   ];
-  if (currentProfile?.cargo === 'admin') return 'home';
   for (const v of ordem) {
     if (userPermissoes[v] !== false) return v;
   }
