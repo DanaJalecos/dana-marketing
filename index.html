@@ -9737,11 +9737,18 @@ function go(el, viewId) {
     // Card "Previsao de Receita" (regressao linear nos ultimos 6 meses)
     loadOnce('previsao-receita', () => typeof loadPrevisaoReceita === 'function' && loadPrevisaoReceita());
   }
-  if (viewId === 'kanban') {
+  if (viewId === 'tarefas' || viewId === 'kanban') {
+    // ID real e 'tarefas' (sidebar usa go(this,'tarefas') e o div e view-tarefas).
+    // 'kanban' fica como alias pra robustez, caso algum link antigo use.
+    //
     // NAO usar loadOnce aqui: o div #kanban-board so existe quando esta
     // view ta visivel. Se o dashboard chamou loadTarefas antes, o early-return
     // (if !board) deixou o cache marcado como carregado, e o Kanban nunca renderizava.
-    // Sempre re-chamar loadTarefas ao entrar no Kanban (1 SELECT leve, idempotente).
+    // Sempre re-chamar loadTarefas ao entrar (1 SELECT leve, idempotente).
+    //
+    // Bug pra cargo=designer (e qualquer cargo que nao passa por home antes
+    // de cair em tarefas): antes o handler so reagia a 'kanban', entao o board
+    // ficava travado em "Carregando quadro..." porque loadTarefas nunca rodava.
     if (typeof loadTarefas === 'function') loadTarefas();
   }
   if (viewId === 'calendario') {
