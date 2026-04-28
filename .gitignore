@@ -1,0 +1,43 @@
+# Tokens e credenciais — NUNCA commitar
+*TOKEN*.txt
+*TOKEN*.md
+*token*.txt
+*token*.json
+*AI_KEYS*
+*api_keys*
+*SERVICE_KEY*
+*service_role*
+TOKENS/
+.env
+.env.*
+*.pem
+*.key
+
+# Dumps Bling com PII
+bling-matriz/
+bling_*.json
+bling_*.csv
+
+# Backups e migrações locais
+*.html.backup-*
+*.sql.gz
+*.gz
+*.zip
+backups/
+_backfill_*.py
+_backup_*.py
+_dump_*.py
+_migrate_*.py
+_run-backfill.*
+_update_*.py
+
+# Workspace local
+.claude/
+.vscode/
+.idea/
+.DS_Store
+node_modules/
+*.log
+
+# Outputs ad-hoc
+_staging-*/
