@@ -17968,7 +17968,15 @@ async function loadMarketplacesExtras() {
           totals[n] = (totals[n] || 0) + (d.total || 0);
         }
       });
-      const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+      // Ordena por pedidos DESC, desempata por faturamento DESC.
+      // Antes era so contagem → quando varios clientes tinham mesmo numero de
+      // pedidos, JS sort vira indeterminado e clientes pequenos podiam aparecer
+      // na frente de clientes B2B grandes (ex: Willian Hara R$901 antes de LSI
+      // S.A R$38k, ambos com 3 pedidos).
+      const sorted = Object.entries(counts).sort((a, b) => {
+        if (b[1] !== a[1]) return b[1] - a[1];
+        return (totals[b[0]] || 0) - (totals[a[0]] || 0);
+      }).slice(0, 10);
       const maxV = sorted[0]?.[1] || 1;
 
       clienteEl.innerHTML = `<table style="width:100%"><thead><tr><th>#</th><th>Cliente</th><th>Ped.</th><th>Total</th><th style="width:80px"></th></tr></thead><tbody>
