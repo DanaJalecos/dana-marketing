@@ -1602,13 +1602,41 @@
         .select('*')
         .eq('empresa', state.empresa)
         .maybeSingle();
-      if (error || !data) {
-        console.warn('[c360] dash resumo erro:', error);
+      if (error) {
+        console.warn('[c360] dash resumo erro:', error?.message || error);
+        renderDashboardErro(error?.message || 'Erro ao carregar resumo');
         return;
       }
+      if (!data) {
+        console.warn('[c360] dash resumo SEM DADOS (empresa=' + state.empresa + ')');
+        renderDashboardErro('Sem dados pra empresa "' + state.empresa + '" na view cliente_scoring_resumo. A view existe mas nao retornou linhas — pode ser RLS ou empresa errada.');
+        return;
+      }
+      console.log('[c360] dash resumo OK:', data);
       dashCache[state.empresa] = { data, ts: Date.now() };
       renderDashboard(data);
-    } catch (e) { console.error('[c360] dash exception:', e); }
+    } catch (e) {
+      console.error('[c360] dash exception:', e);
+      renderDashboardErro('Exception: ' + (e?.message || e));
+    }
+  }
+
+  // Renderiza um placeholder claro quando o resumo falha — substitui a tela
+  // demo "antiga" que vinha do cliente-360.html base e ficava travada em
+  // "Carregando..." quando renderDashboard nao era chamado.
+  function renderDashboardErro(msg) {
+    const page = document.getElementById('page-dashboard');
+    if (!page) return;
+    page.innerHTML = `
+      <div style="padding:32px;max-width:900px;margin:0 auto">
+        <h1 style="margin:0 0 6px;font-size:28px;font-weight:700;color:#f1f5f9;font-family:'Playfair Display',serif">Dashboard</h1>
+        <div style="font-size:13px;color:#94a3b8;margin-bottom:24px">Visao executiva do relacionamento com clientes — ${EMPRESA_LABELS[state.empresa] || state.empresa}</div>
+        <div style="background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.25);border-radius:12px;padding:20px;color:#fca5a5">
+          <div style="font-size:14px;font-weight:600;margin-bottom:6px">Nao foi possivel carregar o dashboard</div>
+          <div style="font-size:12.5px;color:#fecaca;line-height:1.5">${escapeHtml(String(msg || ''))}</div>
+          <button onclick="window.c360ReloadDashboard && window.c360ReloadDashboard()" style="margin-top:12px;padding:8px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:#e2e8f0;cursor:pointer;font-size:13px">Tentar de novo</button>
+        </div>
+      </div>`;
   }
 
   function renderDashboard(r) {

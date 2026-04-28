@@ -18335,7 +18335,15 @@ async function doLogin() {
         setTimeout(() => showToast('👋 Bem-vinda! Troque sua senha temporaria aqui em Perfil.'), 400);
       }
     } else {
-      const salva = localStorage.getItem('dms-active-view');
+      let salva = localStorage.getItem('dms-active-view');
+      // Override antibug: se o ultimo localStorage foi cliente360 e o cargo
+      // NAO e vendedor, ignora (vai pra firstAllowedView). Isso evita ficar
+      // preso no C360 quando o user caiu la por engano em sessao anterior
+      // — common case quando o usuario abandonou a sessao logado em C360.
+      if (salva === 'cliente360' && currentProfile?.cargo !== 'vendedor') {
+        salva = null;
+        localStorage.removeItem('dms-active-view');
+      }
       const naoTem = (v) => v && v !== 'perfil' && userPermissoes[v] === false;
       const adminBloq = (v) => v && ADMIN_ONLY_VIEWS.includes(v) && currentProfile?.cargo !== 'admin';
       let target = salva;
