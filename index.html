@@ -9734,6 +9734,8 @@ function go(el, viewId) {
   if (viewId === 'home' || viewId === 'dashboard') {
     // Dashboard widgets dependem de Kanban tarefas (cards "Tarefas Hoje" etc)
     loadOnce('tarefas', () => typeof loadTarefas === 'function' && loadTarefas());
+    // Card "Previsao de Receita" (regressao linear nos ultimos 6 meses)
+    loadOnce('previsao-receita', () => typeof loadPrevisaoReceita === 'function' && loadPrevisaoReceita());
   }
   if (viewId === 'kanban') {
     // NAO usar loadOnce aqui: o div #kanban-board so existe quando esta
@@ -9767,7 +9769,15 @@ function go(el, viewId) {
     loadOnce('provasocial', () => typeof loadProvaSocial === 'function' && loadProvaSocial());
   }
   if (viewId === 'canaisvendas') {
-    loadOnce('canaisvendas', () => typeof loadCanaisVenda === 'function' && loadCanaisVenda('30d'));
+    // Tem 3 widgets independentes na view: Top Clientes (loadMarketplaces),
+    // Canais de Venda (loadCanaisVenda) e Revendas Nacionais/Internacionais
+    // (loadRevendasParceiros). Antes so loadCanaisVenda era chamada — os
+    // outros 2 ficavam travados em "Carregando...".
+    loadOnce('canaisvendas', () => {
+      if (typeof loadCanaisVenda === 'function') loadCanaisVenda('30d');
+      if (typeof loadMarketplaces === 'function') loadMarketplaces();
+      if (typeof loadRevendasParceiros === 'function') loadRevendasParceiros();
+    });
   }
   if (viewId === 'relatorio') {
     loadOnce('relatorio', () => typeof loadRelatorio === 'function' && loadRelatorio());
