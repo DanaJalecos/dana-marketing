@@ -1,6 +1,6 @@
 # DOCUMENTAÇÃO COMPLETA — DMS (Dana Marketing System)
 
-> **Última atualização:** 28/04/2026 madrugada — ciclos 41-43 (login bugs, Vercel, lazy-load fixes, VIP)
+> **Última atualização:** 29/04/2026 — ciclo 42 (sync histórico Bling 2018-2023, bugfixes, prospecção UX, gap RD Station)
 > **Repo GitHub:** https://github.com/DanaComercial/dana-marketing
 > **Site público:** https://danadash.netlify.app/ (auto-deploy via Netlify)
 > **Supabase:** `wltmiqbhziefusnzmmkt`
@@ -3954,3 +3954,133 @@ Background task da Section 38 completou: 98.6% Matriz + 98.8% BC dos pedidos 202
 ---
 
 **Fim da documentação · Atualizado em 28/04/2026 madrugada — ciclos 41-43 consolidados · v4.5**
+
+---
+
+## 42. CICLO 29/04/2026 — SYNC HISTÓRICO + BUGFIXES + PROSPECÇÃO + RD STATION GAP
+
+### 42.1 Sync histórico Bling 2018-2023 (matriz) + 2020-2023 (BC)
+
+Script `_apply` existente (`sync-pedidos-historico-2024`) clonado pra `sync-pedidos-historico-2018-2023`. Range parametrizável por empresa.
+- Matriz: 6 anos (2018-2023) → +30.582 pedidos
+- BC: 4 anos (2020-2023) → +8.369 pedidos
+- **Total inserido: +38.951 pedidos**, 4.7 min execução paralela
+- Pós-sync: 48.058 matriz + 15.456 BC = **~33k clientes únicos** (Dana esperava 80k — diferença é mistura de leads/fornecedores na base bling, e pré-2018 não existe no Bling)
+- Distribuição cliente_scoring: 65 VIPs, 148 Frequentes, 1.030 Ocasionais, 8.075 Em Risco, 23.617 Inativos
+
+### 42.2 C360 Insight: bug do placeholder "Fase 3"
+
+Toda vez que abria a aba Insights de um cliente, aparecia *"Insights IA — em breve / Disponível na Fase 3"* por ~ms até `renderInsightsTab` substituir.
+
+Causa: template inicial de `c360-tabpanel-insights` no HTML tinha esse placeholder antigo hardcoded.
+
+Fix: trocou por loader silencioso `⏳ Carregando insights...` (mesmo padrão da aba Notas).
+
+Commits: `591a90f` DanaComercial, `eb0f921` DanaJalecos.
+
+### 42.3 Prospecção: 4 melhorias UX
+
+User reportou que ao buscar com IA aparecia leads "Contatado" misturados com novos.
+
+**B. Filtro padrão "Novos"**: select de status default vira `🆕 Novos` (era "Todos status"). Vendedor abre página → vê só atacáveis.
+
+**C. Ordenação**: novo → em_negociacao → contatado → convertido → descartado. Dentro de cada grupo, mais recente primeiro. Aplica mesmo com filtro "Todos".
+
+**D. Botão WhatsApp distinto**:
+- Lead novo: `💬 WhatsApp` verde
+- Lead contatado: `✅ Já contatado` cinza com tooltip da data. Continua clicável.
+
+**E. IA recebe blacklist completa**:
+- Frontend: enviava 30 nomes truncados, agora envia TODOS leads do mesmo segmento+região
+- Edge function `prospectar` v10: cap aumentado 30→80, blacklist numerada com header explícito, instrução reforçada *"REGRA OBRIGATÓRIA: ignore qualquer empresa da BLACKLIST. Se só achar repetidas, retorne lista vazia"*
+
+Commits: `3d3e042` DanaComercial, `2176c7d` DanaJalecos.
+
+### 42.4 Bug Criativos: constraint `criativos_tipo_check`
+
+Designer recebia erro: *"new row for relation criativos violates check constraint criativos_tipo_check"*.
+
+**Causa:** ao escolher modo "Link" (cola URL ao invés de upload), `detectTipoMaterial(url)` retornava `'link'`. Mas constraint só aceitava `imagem|video|pdf|outro`. Inconsistência histórica — `materiais_briefing` e `brandkit_itens` já aceitavam `link`, só `criativos` ficou de fora.
+
+**Fix SQL:**
+```sql
+ALTER TABLE criativos DROP CONSTRAINT criativos_tipo_check;
+ALTER TABLE criativos ADD CONSTRAINT criativos_tipo_check
+  CHECK (tipo IN ('imagem','video','pdf','link','outro'));
+```
+
+Não precisou mexer no frontend — só no banco. Aplicado direto no projeto DMS Supabase.
+
+### 42.5 Análise RD Station — gap identificado pra próximas ondas
+
+Usuário pediu pra ler `Engenharia_Reversa_e_Análise_Arquitetural_do_Ecossistema_RD_Station.docx` e dizer o que falta no DMS.
+
+**Gaps relevantes pro caso Dana (priorizados):**
+
+| Onda | Feature | Esforço | Custo recorrente |
+|---|---|---|---|
+| **1** | Funil Kanban dos prospects (já tem dados, falta UI) | 3-4h | R$ 0 |
+| **2** | Timeline unificada do C360 (cliente_eventos + view + UI) | 6h | R$ 0 |
+| **3** | Listas dinâmicas + API captura de leads (FB Ads/forms externos) | 8h | R$ 0 |
+| **4** | Provedor email (Resend free tier 100/dia) + automação básica | 16h | R$ 0 (free tier) |
+| **5** | WhatsApp Omnichannel (Meta API ou Z-API) | 30h+ | R$ 50-300/mês |
+
+**Não vale a pena pra Dana:**
+- Construtor LP (GrapesJS): Dana usa Shopify + 70 canais Bling
+- Lead Tracking script: sem volume de tráfego anônimo significativo
+- Filas Redis/Kafka: cron + edge functions cobrem
+- iPaaS: Dana não vende integrações
+- Construtor visual de e-mails (Unlayer): templates simples bastam
+
+**O que Dana JÁ tem do paradigma RD:**
+- Cliente Scoring composto ✅
+- Segmentação básica (VIP/Frequente/etc) ✅
+- Webhooks de entrada (Bling) ✅
+- Sync automático ✅
+- Bot IA com 38 tools ✅
+- Insights IA + WhatsApp pré-pronto ✅
+- Permissões granulares ✅
+
+User vai dar `/compact` e retomar com Onda 1 depois.
+
+### 42.6 Edge Functions estado atual
+
+| Função | Versão | Mudou? |
+|---|---|---|
+| **prospectar** | **v10** | **NOVO ciclo 42 (blacklist reforçada)** |
+| ai-chat | v20 | (sem mudança) |
+| construtor-ai | v7 | (sem mudança) |
+| gerar-peca-ia | v11 | (sem mudança) |
+| gerar-prompt-visual | v3 | (sem mudança) |
+| gerar-avatar-ia | v15 | (sem mudança) |
+| cliente360-insight | v14 | (sem mudança) |
+| gemini-proxy | v1 | (sem mudança) |
+| sync-imagens-produtos | v2 | (sem mudança) |
+
+### 42.7 Pendências atualizadas
+
+| Item | Status |
+|---|---|
+| Onda 1 (Funil Kanban Prospects) | 🟢 Pronto pra começar — dados existem |
+| Onda 2 (Timeline unificada C360) | 🟢 Pronto |
+| Onda 3 (API captura leads + listas dinâmicas) | 🟢 Pronto |
+| Onda 4 (provedor email + automação) | 🟡 Aguardando assinatura Resend (gratuito) |
+| Onda 5 (WhatsApp Omnichannel) | 🟡 Decisão da Manu — só vale se centralizar atendimento |
+| Migração R2 storage | 🟢 Plano salvo, baixa prioridade |
+| Liberar Estúdio IA pros cargos designer/gerente_marketing | 🟡 Manu precisa aprovar |
+| Sync inicial 4.7k imagens produtos pro Storage | 🟢 Quando der |
+
+### 42.8 Onde paramos
+
+User pediu `/compact` pra continuar com as ondas RD Station depois.
+
+**Commits do dia 29/04:**
+- `591a90f` C360 Insights placeholder fix (DanaComercial)
+- `eb0f921` Mesma coisa (DanaJalecos)
+- `3d3e042` Prospecção 4 melhorias (DanaComercial)
+- `2176c7d` Mesma coisa (DanaJalecos)
+- (sem commit) ALTER TABLE criativos no banco
+
+---
+
+**Fim da documentação · Atualizado em 29/04/2026 — ciclo 42 (sync histórico + bugfixes + RD gaps) · v4.6**
