@@ -964,8 +964,45 @@
 
   window.c360TimelineFiltro = function(tipo) {
     window._c360TimelineFiltro = tipo;
+    window._c360TimelinePage = 1; // reset paginacao ao trocar filtro
     _renderTimeline(window._c360TimelineCache || []);
   };
+
+  window.c360TimelinePage = function(p) {
+    window._c360TimelinePage = p;
+    _renderTimeline(window._c360TimelineCache || []);
+    // Scroll suave pro topo da timeline
+    const panel = document.getElementById('c360-tabpanel-timeline');
+    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  function _renderTimelinePagBar(totalItens, page, perPage) {
+    const totalPages = Math.max(1, Math.ceil(totalItens / perPage));
+    if (totalPages <= 1) return '';
+    page = Math.min(Math.max(1, page), totalPages);
+    // Janela de páginas: mostra 1 ... N-1 N N+1 ... LAST
+    const pages = new Set([1, totalPages, page, page-1, page+1]);
+    const arr = [...pages].filter(p => p >= 1 && p <= totalPages).sort((a,b) => a-b);
+    let html = '';
+    let last = 0;
+    for (const p of arr) {
+      if (p - last > 1) html += `<span style="padding:6px 4px;color:rgba(255,255,255,0.3);font-size:12px">…</span>`;
+      const ativo = p === page;
+      html += `<button onclick="c360TimelinePage(${p})" style="min-width:32px;padding:6px 10px;background:${ativo?'rgba(255,255,255,0.08)':'transparent'};border:1px solid ${ativo?'rgba(255,255,255,0.25)':'rgba(255,255,255,0.1)'};border-radius:6px;color:${ativo?'#e2e8f0':'rgba(255,255,255,0.6)'};font-size:12px;cursor:pointer;font-weight:${ativo?'700':'400'}">${p}</button>`;
+      last = p;
+    }
+    const fromIdx = (page-1)*perPage + 1;
+    const toIdx = Math.min(page*perPage, totalItens);
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06);flex-wrap:wrap;gap:10px">
+        <div style="font-size:11.5px;color:rgba(255,255,255,0.5)">Exibindo ${fromIdx}–${toIdx} de ${totalItens}</div>
+        <div style="display:flex;gap:4px;align-items:center">
+          <button onclick="c360TimelinePage(${Math.max(1, page-1)})" ${page===1?'disabled':''} style="padding:6px 10px;background:transparent;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:${page===1?'rgba(255,255,255,0.2)':'rgba(255,255,255,0.6)'};font-size:12px;cursor:${page===1?'not-allowed':'pointer'}">← Ant</button>
+          ${html}
+          <button onclick="c360TimelinePage(${Math.min(totalPages, page+1)})" ${page===totalPages?'disabled':''} style="padding:6px 10px;background:transparent;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:${page===totalPages?'rgba(255,255,255,0.2)':'rgba(255,255,255,0.6)'};font-size:12px;cursor:${page===totalPages?'not-allowed':'pointer'}">Próx →</button>
+        </div>
+      </div>`;
+  }
 
   function _renderTimeline(eventos) {
     const panel = document.getElementById('c360-tabpanel-timeline');
@@ -984,9 +1021,18 @@
       return;
     }
 
-    // Agrupa por data (yyyy-mm-dd)
+    // Paginacao: 20/pag
+    const PER_PAGE = 20;
+    const page = Math.max(1, window._c360TimelinePage || 1);
+    const totalPages = Math.max(1, Math.ceil(visiveis.length / PER_PAGE));
+    const safePage = Math.min(page, totalPages);
+    if (safePage !== page) window._c360TimelinePage = safePage;
+    const startIdx = (safePage - 1) * PER_PAGE;
+    const pageSlice = visiveis.slice(startIdx, startIdx + PER_PAGE);
+
+    // Agrupa por data (yyyy-mm-dd) — apenas a página atual
     const grupos = {};
-    for (const e of visiveis) {
+    for (const e of pageSlice) {
       const data = (e.data_evento || '').slice(0, 10);
       if (!grupos[data]) grupos[data] = [];
       grupos[data].push(e);
@@ -1028,6 +1074,7 @@
       </div>
       ${filtrosHtml}
       ${corpo}
+      ${_renderTimelinePagBar(visiveis.length, safePage, PER_PAGE)}
     `;
   }
 
@@ -1051,6 +1098,7 @@
       if (error) throw error;
       window._c360TimelineCache = data || [];
       window._c360TimelineLoaded = true;
+      window._c360TimelinePage = 1; // reset paginacao
       _renderTimeline(data || []);
     } catch (e) {
       console.error('[c360 timeline] erro:', e);
