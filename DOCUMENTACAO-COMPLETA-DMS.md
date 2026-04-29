@@ -4398,4 +4398,78 @@ User decide entre **#2 Timeline C360** (6h, modelagem polimórfica) ou ir direto
 
 ---
 
-**Fim da documentação · Atualizado em 29/04/2026 noite — ciclo 45 (Onda #3 captura de leads) · v4.9**
+---
+
+## 46. CICLO 29/04/2026 (NOITE-2) — REVERT PARCIAL DA ONDA #3
+
+**Decisão de produto:** user questionou o valor real do endpoint público pra Dana hoje. Reflexão sincera:
+- Vendedora já usa "Buscar com IA" no Prospecção e funciona
+- Manu nunca pediu FB Lead Ads / formulário de revendedoras / Zapier
+- Endpoint ficaria parado igual a página Vínculos MP→Ficha (ciclo 20.3)
+
+**Aprendizado:** validar com stakeholder ANTES de implementar features que parecem "boa ideia técnica" mas não têm demanda real.
+
+### 46.1 O que foi removido
+
+**Backend (Supabase DMS):**
+- ✅ Edge function `captura-lead` v1 → DELETADA
+- ✅ Edge function `get-capture-token` v1 → DELETADA
+- ✅ Secret `CAPTURE_LEAD_TOKEN` → REMOVIDO
+
+**Frontend:**
+- ✅ Aba "🎯 Captura de Leads" em view-admin → REMOVIDA
+- ✅ Botão "🧪 Enviar lead de teste" → REMOVIDO
+- ✅ Funções JS: `loadOrigensLeads`, `_fetchCaptureToken`, `revelarToken`, `copiarToken`, `enviarLeadDeTeste`, `copiarExemploCurl` → REMOVIDAS (177 linhas)
+
+**Local:**
+- ✅ Source TS `.claude/scripts/captura-lead/index.ts` → APAGADO
+- ✅ Source TS `.claude/scripts/get-capture-token/index.ts` → APAGADO
+- ✅ Deploy scripts `deploy-captura-lead.py` + `deploy-get-capture-token.py` → APAGADOS
+- ✅ `.claude/tokens/CAPTURE_LEAD_TOKEN.txt` → APAGADO
+
+### 46.2 O que SOBROU (porque vale a pena)
+
+**Schema:**
+- ✅ `prospects.origem` (text, default 'manual')
+- ✅ `prospects.email` (text)
+- ✅ `prospects.dados_extras` (jsonb)
+- ✅ Index `idx_prospects_origem`
+- ✅ Backfill: 5 leads existentes marcados como `ia_prospectar`
+
+**Frontend (Prospecção):**
+- ✅ Filtro "📍 Origem" no topbar (select dinâmico baseado em valores únicos do cache)
+- ✅ Filtro "📱 Canal" (whatsapp / email / sem)
+- ✅ Função `_prospFiltrosCacheFiltrado()` reusada por Lista e Kanban
+- ✅ Função `_prospAtualizarFiltroOrigem()` popula select dinâmico
+
+Razão: filtros + colunas servem pra ondas futuras (Onda #4 email vai usar `email`; Onda #2 timeline pode usar `origem` pra mostrar de onde veio).
+
+### 46.3 Estado dos dados
+
+```sql
+SELECT origem, COUNT(*) FROM prospects GROUP BY origem;
+-- ia_prospectar: 5 (todos vieram do botao "Buscar com IA")
+```
+
+Quando Manu adicionar novos leads manualmente pelo "+ Adicionar manual" do Prospecção, eles virão com `origem = 'manual'` (default).
+
+### 46.4 Edge Functions estado (após revert)
+
+| Função | Versão | Status |
+|---|---|---|
+| sync-retry-processor | v2 | (Onda #0) |
+| ~~captura-lead~~ | — | **DELETADA** |
+| ~~get-capture-token~~ | — | **DELETADA** |
+| outras 27 | — | sem mudança |
+
+Total: 28 functions ativas (era 30).
+
+### 46.5 Próxima onda
+
+User decide qual fazer:
+- **#2 Timeline unificada do C360** (6h) — modelagem polimórfica de eventos
+- **#4 Resend + automação email** (8h) — campanhas usando o `prospects.email` que sobrou
+
+---
+
+**Fim da documentação · Atualizado em 29/04/2026 noite-2 — ciclo 46 (revert parcial Onda #3) · v5.0**
