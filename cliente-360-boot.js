@@ -852,10 +852,8 @@
       <button id="c360-tab-notas" onclick="c360SwitchTab('notas')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">💬 Notas</button>
     </div>
     <div id="c360-tabpanel-pedidos" style="padding:16px">${pedidosHtml}</div>
-    <div id="c360-tabpanel-insights" style="padding:40px;display:none;text-align:center;color:#64748b">
-      <div style="font-size:32px;margin-bottom:8px">◆</div>
-      <div style="font-size:14px;margin-bottom:4px;color:#e2e8f0">Insights IA — em breve</div>
-      <div style="font-size:12px">Esta aba vai gerar análises automáticas via IA sobre comportamento, oportunidades e recomendações específicas deste cliente. Disponível na Fase 3.</div>
+    <div id="c360-tabpanel-insights" style="padding:20px;display:none;color:#64748b">
+      <div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando insights...</div>
     </div>
     <div id="c360-tabpanel-notas" style="padding:20px;display:none;color:#64748b">
       <div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando notas...</div>
