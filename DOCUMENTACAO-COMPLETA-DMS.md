@@ -4195,4 +4195,87 @@ Funções JS adicionadas em `index.html` (~linha 18590):
 
 ---
 
-**Fim da documentação · Atualizado em 29/04/2026 tarde — ciclo 43 (Onda #0 sync retries) · v4.7**
+## 44. CICLO 29/04/2026 (TARDE-2) — ONDA #1: FUNIL KANBAN DOS PROSPECTS
+
+**Roadmap pós-RD Station:** segundo item das 5 ondas. RD destacou Funil Kanban como feature #1 do CRM. Dana já tinha os dados (`prospects.status`), faltava UI.
+
+### 44.1 Decisão de UX
+
+User aprovou **Opção A**: Kanban como **aba nova dentro da seção Prospecção**, NÃO seção separada na sidebar.
+
+Razões:
+- Mesma fonte de dados (tabela `prospects`)
+- Filtros (Segmento) e botão "Buscar com IA" continuam no topo, valem pras 2 abas
+- Vendedora escolhe se prefere lista (escanear) ou Kanban (arrastar)
+- Sidebar não cresce
+
+### 44.2 Implementação
+
+**HTML adicionado em `view-prospeccao` (linha ~7102):**
+```html
+<div class="mkt-tabs">
+  <div class="mkt-tab active" onclick="prospSwitchTab(this,'kanban')">🗂️ Funil Kanban</div>
+  <div class="mkt-tab" onclick="prospSwitchTab(this,'lista')">📋 Lista</div>
+</div>
+...
+<div id="prsp-lista" style="display:none">...</div>      <!-- existente -->
+<div id="prsp-tab-kanban" style="display:block">...</div> <!-- NOVO -->
+```
+
+**Default: Kanban** (`window._prspTab = 'kanban'`). Lista é a aba secundária.
+
+**JS adicionado (linha ~18305):**
+- `prospSwitchTab(el, qual)` — alterna display + esconde filtro de status quando em Kanban
+- `prospRender()` (refatorada como dispatcher) chama `prospRenderLista()` + `prospRenderKanban()`. Ambas leves; renderizar a invisível custa ~5ms.
+- `prospRenderKanban()` — 5 colunas (novo/contatado/em_negociacao/convertido/descartado) com cor/ícone próprios e badge de contagem
+- `prospRenderKanbanCard(p, podeEditar)` — versão compacta do card (vs Lista): nome, segmento+cidade, insight IA truncado 80ch, botão WhatsApp/Já contatado, copiar msg, apagar
+- `prospWireKanbanDrag()` — adiciona dragstart listeners aos cards (`text/prsp-id` no dataTransfer)
+- `prospKanbanDrop(event, novoStatus)` — pega ID, **optimistic UI** (atualiza local + re-render), depois UPDATE no banco; rollback em caso de erro
+- Helper `_prospStatusCor(s)` — cores das bordas dos cards
+
+### 44.3 Padrão reusado
+
+Espelhei o `ciKanbanDrop` (Campanhas Internas, linha 22201) — código mais limpo que o do Kanban de Tarefas (que tinha 5 duplicatas de função `drop` resolvidas no ciclo 35).
+
+Difere em 3 pontos:
+- DataTransfer key: `text/prsp-id` (vs `text/ci-id`) pra evitar colisão
+- Optimistic UI explícito (com rollback)
+- Cores das colunas seguem padrão visual da Lista
+
+### 44.4 Filtros e integração
+
+- **Filtro Segmento** (input topbar): aplica em ambas as abas
+- **Filtro Status** (select topbar): só visível na Lista — no Kanban as colunas SÃO os status (faria filtragem dupla)
+- **Botão "Buscar com IA"**: continua no topo, atualiza `_prspCache` → `prospRender()` → ambas re-renderizam
+- Contagem no subtítulo (`prsp-count-sub`): aplicada pela aba ativa
+
+### 44.5 Permissões
+
+Cards são `draggable="true"` apenas se `prospPodeEditar()` retorna true (cargo admin OU permissão `prospeccao_editar`). Drop também valida antes do UPDATE — defesa em camadas.
+
+### 44.6 Activity log
+
+Cada drop com mudança de status loga em `activity_log`:
+```js
+logActivity('moveu_lead_kanban', `${p.nome}: ${statusAnterior} → ${novoStatus}`, 'prospeccao');
+```
+
+### 44.7 Estado dos dados (29/04/2026)
+
+| Status | Qtd |
+|---|---|
+| novo | 3 |
+| contatado | 2 |
+| em_negociacao | 0 |
+| convertido | 0 |
+| descartado | 0 |
+
+Funil ainda está vazio em produção porque a Manu / vendedoras ainda não usaram em escala. Esta UI é parte do incentivo pra adoção.
+
+### 44.8 Próxima onda
+
+**#3 API captura leads + filtros dinâmicos** (8h) ou **#2 Timeline C360** (6h). User decide depois.
+
+---
+
+**Fim da documentação · Atualizado em 29/04/2026 tarde-2 — ciclo 44 (Onda #1 Kanban Prospects) · v4.8**
