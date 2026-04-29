@@ -18370,7 +18370,7 @@ function prospRenderKanban() {
           ? `ondragover="event.preventDefault();this.style.borderColor='${col.cor}';this.style.background='rgba(255,255,255,0.04)'" ondragleave="this.style.borderColor='var(--border)';this.style.background='var(--surface)'" ondrop="prospKanbanDrop(event,'${col.v}')"`
           : '';
         return `
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px;min-height:200px" data-kanban-col="${col.v}" ${dragAttrs}>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px;min-height:200px;min-width:0" data-kanban-col="${col.v}" ${dragAttrs}>
             <div style="font-size:12px;font-weight:700;color:${col.cor};margin-bottom:10px;padding:0 4px;display:flex;justify-content:space-between;align-items:center">
               ${col.l.toUpperCase()}
               <span style="font-size:10.5px;background:var(--surface2);padding:2px 7px;border-radius:10px;color:var(--text3)">${cards.length}</span>
@@ -18392,10 +18392,10 @@ function prospRenderKanbanCard(p, podeEditar) {
   const isContatado = p.status === 'contatado';
   const insightShort = p.ia_insight ? (p.ia_insight.length > 80 ? p.ia_insight.slice(0, 80) + '…' : p.ia_insight) : '';
   return `
-    <div class="card prsp-kcard" draggable="${podeEditar?'true':'false'}" data-kanban-id="${p.id}" style="padding:9px 11px;cursor:${podeEditar?'grab':'default'};font-size:11.5px;background:var(--white);border-left:3px solid ${_prospStatusCor(p.status)}">
-      <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:12.5px;line-height:1.2;margin-bottom:3px;color:var(--text)">${esc(p.nome)}</div>
-      ${p.segmento ? `<div style="font-size:10.5px;color:var(--text3);margin-bottom:5px">${esc(p.segmento)}${p.cidade?' · '+esc(p.cidade):''}${p.estado?'/'+esc(p.estado):''}</div>` : ''}
-      ${insightShort ? `<div style="font-size:10.5px;color:#5b21b6;background:#ede9fe;padding:4px 6px;border-radius:4px;line-height:1.3;margin-bottom:6px">💡 ${esc(insightShort)}</div>` : ''}
+    <div class="card prsp-kcard" draggable="${podeEditar?'true':'false'}" data-kanban-id="${p.id}" style="padding:9px 11px;cursor:${podeEditar?'grab':'default'};font-size:11.5px;background:var(--white);border-left:3px solid ${_prospStatusCor(p.status)};min-width:0;overflow:hidden">
+      <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:12.5px;line-height:1.2;margin-bottom:3px;color:var(--text);word-break:break-word;overflow-wrap:anywhere">${esc(p.nome)}</div>
+      ${p.segmento ? `<div style="font-size:10.5px;color:var(--text3);margin-bottom:5px;word-break:break-word">${esc(p.segmento)}${p.cidade?' · '+esc(p.cidade):''}${p.estado?'/'+esc(p.estado):''}</div>` : ''}
+      ${insightShort ? `<div style="font-size:10.5px;color:#5b21b6;background:#ede9fe;padding:4px 6px;border-radius:4px;line-height:1.3;margin-bottom:6px;word-break:break-word">💡 ${esc(insightShort)}</div>` : ''}
       <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">
         ${wppLink ? (
           isContatado
@@ -18437,14 +18437,15 @@ window.prospKanbanDrop = async function(event, novoStatus) {
   const statusAnterior = p.status;
   p.status = novoStatus;
   if (novoStatus === 'contatado' && !p.contatado_em) p.contatado_em = new Date().toISOString();
-  prospRenderKanban();
-  const update = { status: novoStatus, updated_at: new Date().toISOString() };
+  p.updated_at = new Date().toISOString();
+  prospRender(); // re-renderiza AMBAS as abas (Lista + Kanban) com cache atualizado
+  const update = { status: novoStatus, updated_at: p.updated_at };
   if (novoStatus === 'contatado') update.contatado_em = p.contatado_em;
   const { error } = await sb.from('prospects').update(update).eq('id', id);
   if (error) {
     // Rollback
     p.status = statusAnterior;
-    prospRenderKanban();
+    prospRender();
     showToast('Erro: ' + error.message);
     return;
   }
