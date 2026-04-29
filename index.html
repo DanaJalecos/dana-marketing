@@ -7105,12 +7105,12 @@ updateDynamicField('foto');
     <span id="prsp-count-sub" style="font-size:11.5px;color:var(--text3)">—</span>
     <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <select id="prsp-filtro-status" class="input" style="height:34px;padding:0 10px;font-size:12px" onchange="prospRender()">
+        <option value="novo" selected>🆕 Novos</option>
         <option value="">Todos status</option>
-        <option value="novo">Novo</option>
-        <option value="contatado">Contatado</option>
-        <option value="em_negociacao">Em negociação</option>
-        <option value="convertido">Convertido</option>
-        <option value="descartado">Descartado</option>
+        <option value="contatado">📞 Contatados</option>
+        <option value="em_negociacao">🤝 Em negociação</option>
+        <option value="convertido">✅ Convertidos</option>
+        <option value="descartado">🚫 Descartados</option>
       </select>
       <input id="prsp-filtro-segmento" class="input" style="height:34px;padding:0 10px;font-size:12px;width:160px" placeholder="Filtrar segmento" oninput="prospRender()" />
     </div>
@@ -18071,6 +18071,14 @@ function prospRender() {
     if (fSeg && !(p.segmento || '').toLowerCase().includes(fSeg)) return false;
     return true;
   });
+  // Ordena: novo primeiro > em_negociacao > contatado > convertido > descartado, depois created_at desc
+  const STATUS_ORD = { novo: 0, em_negociacao: 1, contatado: 2, convertido: 3, descartado: 4 };
+  filtrados.sort((a, b) => {
+    const oa = STATUS_ORD[a.status] ?? 99;
+    const ob = STATUS_ORD[b.status] ?? 99;
+    if (oa !== ob) return oa - ob;
+    return (b.created_at || '').localeCompare(a.created_at || '');
+  });
   if (sub) sub.textContent = filtrados.length === _prspCache.length
     ? `${_prspCache.length} no total`
     : `${filtrados.length} de ${_prspCache.length}`;
@@ -18109,7 +18117,11 @@ function prospRender() {
           </div>` : ''}
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:auto">
           ${p.ia_mensagem ? `<button class="btn btn-ghost btn-sm" onclick="prospCopiarMsg('${p.id}')" style="font-size:11px">📋 Copiar msg</button>` : ''}
-          ${wppLink && p.ia_mensagem ? `<button class="btn btn-primary btn-sm" onclick="prospAbrirWhatsApp('${p.id}')" style="font-size:11px;background:#16a34a;border:none">💬 WhatsApp</button>` : ''}
+          ${wppLink && p.ia_mensagem ? (
+            p.status === 'contatado'
+              ? `<button class="btn btn-sm" onclick="prospAbrirWhatsApp('${p.id}')" style="font-size:11px;background:#e5e7eb;color:#6b7280;border:1px solid #d1d5db" title="Já foi contatado em ${p.contatado_em ? new Date(p.contatado_em).toLocaleDateString('pt-BR') : '—'}. Clique para abrir o WhatsApp mesmo assim.">✅ Já contatado</button>`
+              : `<button class="btn btn-primary btn-sm" onclick="prospAbrirWhatsApp('${p.id}')" style="font-size:11px;background:#16a34a;border:none">💬 WhatsApp</button>`
+          ) : ''}
           ${prospPodeEditar() ? `
             <select class="input" style="font-size:11px;padding:4px 6px;height:auto;flex:1;min-width:120px" onchange="prospMudarStatus('${p.id}', this.value)">
               <option value="">Mudar status...</option>
@@ -18139,11 +18151,18 @@ async function prospBuscar() {
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Buscando no Google...'; }
 
   try {
-    // Pega lista de já prospectados pra evitar duplicação
+    // Pega lista de já prospectados pra evitar duplicação. Inclui TODOS (sem cap de 30)
+    // do mesmo segmento+cidade+estado pra IA ter contexto completo do que ja foi visto.
+    const segLower = (segmento || '').toLowerCase();
     const jaProspectados = _prspCache
-      .filter(p => (!cidade || p.cidade === cidade) && (!estado || p.estado === estado))
-      .map(p => p.nome)
-      .slice(0, 30);
+      .filter(p => {
+        if (cidade && p.cidade !== cidade) return false;
+        if (estado && p.estado !== estado) return false;
+        // Mesmo segmento (match parcial, case-insensitive)
+        if (segLower && p.segmento && !p.segmento.toLowerCase().includes(segLower) && !segLower.includes(p.segmento.toLowerCase())) return false;
+        return true;
+      })
+      .map(p => p.nome);
 
     const { data: { session } } = await sb.auth.getSession();
     const jwt = session?.access_token;
