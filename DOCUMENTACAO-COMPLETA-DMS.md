@@ -4278,4 +4278,124 @@ Funil ainda está vazio em produção porque a Manu / vendedoras ainda não usar
 
 ---
 
-**Fim da documentação · Atualizado em 29/04/2026 tarde-2 — ciclo 44 (Onda #1 Kanban Prospects) · v4.8**
+---
+
+## 45. CICLO 29/04/2026 (NOITE) — ONDA #3: API DE CAPTURA DE LEADS
+
+**Roadmap pós-RD Station:** terceira onda. RD descreve "Webhooks de entrada + API REST + iPaaS". Pra Dana, basta um endpoint POST autenticado com token compartilhado — bem mais simples que RDQL ou OAuth.
+
+### 45.1 Schema atualizado
+
+```sql
+ALTER TABLE prospects
+  ADD COLUMN origem TEXT NOT NULL DEFAULT 'manual',
+  ADD COLUMN email TEXT,
+  ADD COLUMN dados_extras JSONB DEFAULT '{}'::jsonb;
+CREATE INDEX idx_prospects_origem ON prospects(origem);
+-- Backfill: leads com ia_insight viraram 'ia_prospectar'
+UPDATE prospects SET origem = 'ia_prospectar' WHERE ia_insight IS NOT NULL;
+```
+
+Estado pós-migration: 5 leads, todos `ia_prospectar` (eram da função `prospectar`).
+
+### 45.2 Edge function `captura-lead` v1 ACTIVE
+
+**Endpoint:** `POST https://wltmiqbhziefusnzmmkt.supabase.co/functions/v1/captura-lead`
+
+**Auth:** header `X-Capture-Token` deve bater com `CAPTURE_LEAD_TOKEN` (secret do Supabase). Sem token ou errado → 401. Token foi gerado com `secrets.token_urlsafe(32)` e salvo em `.claude/tokens/CAPTURE_LEAD_TOKEN.txt` localmente.
+
+**Body aceito:**
+```json
+{
+  "nome": "Clinica Bem-Vida",          // OBRIGATÓRIO
+  "telefone": "47999998888",
+  "whatsapp": "47999998888",
+  "email": "contato@clinica.com",
+  "segmento": "clinicas",
+  "cidade": "Balneario Camboriu",
+  "estado": "SC",
+  "endereco": "...",
+  "website": "...",
+  "instagram": "@nome",
+  "origem": "fb_lead_ads",              // categoriza no funil
+  "dados_extras": { "utm_source": "...", "campanha": "..." }
+}
+```
+
+**Anti-spam básico:**
+- Token obrigatório (bloqueia 99% do spam)
+- Lead sem nenhum canal de contato (telefone/whatsapp/email/website/instagram) → 400
+- Detecção de duplicata por `nome + cidade` → retorna 200 com `duplicado: true` em vez de criar nova
+
+**Side-effects:**
+- Cria alerta `lead_novo_externo` em `alertas` (audiência `dados_empresa`) com link pro funil
+
+**Códigos de retorno:**
+| Status | Cenário |
+|---|---|
+| 201 | Lead criado |
+| 200 com `duplicado: true` | Já existia |
+| 400 | Body inválido / sem canal de contato |
+| 401 | Token errado/ausente |
+| 500 | Erro interno |
+
+**Validado fim-a-fim** com 4 cenários (token errado, sem canal, lead novo, duplicata) — todos retornaram esperado.
+
+### 45.3 Edge function `get-capture-token` v1 ACTIVE
+
+Pequena função auxiliar pra UI admin revelar o token. Valida JWT do user via `/auth/v1/user` e checa `profiles.cargo === 'admin'`. Sem cargo admin → 403. Retorna `{ token: "..." }` apenas pra admins.
+
+### 45.4 UI Prospecção — filtros novos
+
+Adicionados 2 filtros no topbar (vale pra Lista + Kanban):
+
+- **`prsp-filtro-origem`** — select dinâmico (populado de valores distintos no `_prspCache`). Esconde se cache vazio. Labels emoji: ✍️ Manual, 🤖 IA Prospectar, 📘 FB Lead Ads, 🛒 Shopify, 🌐 Site, 📷 Instagram, 🌐 Externo
+- **`prsp-filtro-canal`** — fixo: Qualquer / Tem WhatsApp / Tem email / Sem canal
+
+Função nova `_prospFiltrosCacheFiltrado()` aplica filtros segmento + origem + canal. Reusada por `prospRenderLista` e `prospRenderKanban`.
+
+### 45.5 UI Admin — aba "🎯 Captura de Leads"
+
+Nova aba em `view-admin` (admin only).
+
+**Stats por origem (tabela):**
+- Total · Novos · Contatados · Em negociação · Convertidos · % Conversão · Último lead
+- Cor do % conversão: verde ≥10%, amarelo ≥3%, cinza <3%
+
+**Endpoint público (card):**
+- URL completa
+- Token mascarado (`••••••••`) com botões Revelar/Ocultar e Copiar
+- Body JSON com todos os campos comentados
+- Botão "📋 Copiar exemplo curl" — gera curl completo com token preenchido pra colar em FB Ads/Shopify/Zapier
+
+### 45.6 Edge Functions estado
+
+| Função | Versão | Status |
+|---|---|---|
+| **captura-lead** | **v1** | **NOVO ciclo 45** |
+| **get-capture-token** | **v1** | **NOVO ciclo 45** |
+| sync-retry-processor | v2 | (sem mudança) |
+| outras 27 | — | sem mudança |
+
+### 45.7 Como integrar (instruções pra Manu)
+
+**FB Lead Ads (via Zapier ou Meta direto):**
+1. No formulário, mapeia campos: nome → `nome`, telefone → `telefone`, email → `email`
+2. Webhook URL: `https://wltmiqbhziefusnzmmkt.supabase.co/functions/v1/captura-lead`
+3. Header: `X-Capture-Token: <token revelado no admin>`
+4. Field fixo: `origem: "fb_lead_ads"`
+5. Opcional: `dados_extras.campanha` = nome da campanha do FB
+
+**Shopify form:**
+- Mesmo endpoint. Origem `shopify_form`.
+- Pode usar o app "ShopifyFlow" ou um webhook custom.
+
+**Zapier "make"** ou similar: mesmo padrão. Endpoint + headers + JSON body.
+
+### 45.8 Próxima onda
+
+User decide entre **#2 Timeline C360** (6h, modelagem polimórfica) ou ir direto pra **#4 Resend** (8h, automação email).
+
+---
+
+**Fim da documentação · Atualizado em 29/04/2026 noite — ciclo 45 (Onda #3 captura de leads) · v4.9**
