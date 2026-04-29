@@ -1,6 +1,6 @@
 # DOCUMENTAÇÃO COMPLETA — DMS (Dana Marketing System)
 
-> **Última atualização:** 28/04/2026 noite-late — ciclo 40 (quota prospecção + perms UI)
+> **Última atualização:** 28/04/2026 madrugada — ciclos 41-43 (login bugs, Vercel, lazy-load fixes, VIP)
 > **Repo GitHub:** https://github.com/DanaComercial/dana-marketing
 > **Site público:** https://danadash.netlify.app/ (auto-deploy via Netlify)
 > **Supabase:** `wltmiqbhziefusnzmmkt`
@@ -3815,3 +3815,142 @@ prospectar v9 ACTIVE com quota. Painel admin de permissões reorganizado. Próxi
 ---
 
 **Fim da documentação · Atualizado em 28/04/2026 noite-late — ciclo 40 (quota prospecção + perms UI) · v4.4**
+
+---
+
+## 41. CICLO 28/04/2026 NOITE — LOGIN BUGS + LAZY-LOAD FIXES + VIP
+
+### 41.1 Migração Vercel + repo novo `DanaJalecos/dana-marketing`
+
+User criou novo repo na conta `DanaJalecos` (mesmo dono do `DanaJalecos/estoque`) pra unificar gerência. Antes: `DanaComercial/dana-marketing` (deploy GH Pages). Agora: `DanaJalecos/dana-marketing` deploya no Vercel.
+
+**Estrategia escolhida**: 2 repos separados (não monorepo), repo antigo continua como espelho/backup.
+
+**O que subiu** (filtrado, sem .claude/, scripts/backup/, tokens, _migrate*.py, *.html.backup-*):
+- index.html, cliente-360.html, cliente-360-boot.js
+- assets/, docs/, edge-functions/ (TS source), sql-scripts/ (44 SQL)
+- supabase-setup.sql, sync-completo.js, generate-sql.js
+- DOCUMENTACAO-COMPLETA-DMS.md
+- vercel.json (zero build, headers de segurança, cache assets/*)
+- README.md (novo)
+- .gitignore reforçado
+
+**Workflow daqui pra frente**: edição feita no worktree (`vibrant-davinci`) → commit em DanaComercial. Mesma alteração copiada manualmente pro staging dir `_staging-dana-marketing/` → commit em DanaJalecos. Worktree tem 2 remotes mas repo histórico é diferente.
+
+### 41.2 Bug login redirect pra C360 (vários iterações)
+
+User: "ele joga pro C360 e fica na tela antiga dele toda bugada"
+
+Iter 1 — `firstAllowedView()` reorganizada:
+- admin → home (já era)
+- vendedor → meus_clientes/cliente360
+- demais (gerente, designer, etc) → home primeiro, cliente360 só fallback
+Antes era cliente360 PRIMEIRO pra todos não-admin, jogando gerentes/designers no iframe C360 logo após login.
+
+Iter 2 — localStorage trap: `localStorage['dms-active-view']='cliente360'` salvo de sessão anterior sobrepunha o fix. Limpar cache do navegador NÃO limpa localStorage. Fix: na restauração pós-login, se saved view é 'cliente360' E cargo NÃO é vendedor, descarta e usa firstAllowedView.
+
+Iter 3 — view morta: `firstAllowedView` pra vendedor retornava `meus_clientes` que não existe mais como view standalone (virou aba interna do C360). User caía em `#meus_clientes` com tela em branco. Fix: vendedor → cliente360 direto. + validação extra: se localStorage aponta pra view sem div correspondente no DOM, descarta.
+
+Iter 4 — vercel.json removeu rewrite `/cliente-360 → /cliente-360.html` (porta de entrada acidental pra página standalone fora do DMS).
+
+Iter 5 — dashboard C360 silencioso: `loadDashboardResumo()` fazia `return` quando data era null/erro, deixando demo HTML "Carregando..." travado. Fix: `renderDashboardErro()` mostra box vermelho com mensagem real do erro + botão "Tentar de novo". Usuário consegue ver o erro real e nos passa.
+
+### 41.3 Lazy-load fixes pós Section 36.9
+
+**Bug Kanban** (1ª iter): `loadOnce` marcava `_viewLoaded.tarefas=true` quando dashboard chamava loadTarefas pra widgets. Mas loadTarefas faz `if (!board) return` quando `#kanban-board` não está no DOM (só existe em view-tarefas). Resultado: cache=true, mas board nunca renderizou. Fix: na view-tarefas, sempre chamar loadTarefas direto.
+
+**Bug Kanban pra designer** (2ª iter): id da view é `tarefas`, mas eu tinha posto `kanban` no handler. Pra admin não aparecia (dashboard chama loadTarefas pros widgets, cache fica populado). Pra designer (que cai DIRETO em tarefas, sem passar pelo home) o handler nunca disparava. Fix: aceitar `'tarefas' OU 'kanban'` como id.
+
+**Bug Canais e Vendas** (3 widgets travados): a view tem 3 áreas independentes:
+- Top Clientes por Volume → `loadMarketplacesExtras` (não `loadMarketplaces` — atenção ao sufixo)
+- Canais de Venda → `loadCanaisVenda` ✓
+- Revendas Nacionais/Internacionais → `loadRevendasParceiros`
+Antes só `loadCanaisVenda` era chamada. Fix: chamar as 3.
+
+**Bug Dashboard "Previsão de Receita" travado em "calculando..."**: `loadPrevisaoReceita` só era chamada na view financeiro. Fix: adicionar loadOnce('previsao-receita', ...) na home.
+
+**Top Clientes — desempate por valor**: ordenação só por contagem fazia clientes B2B grandes (LSI S.A R$ 38k, 3 ped) ficarem atrás de pequenos (Willian Hara R$ 901, 3 ped) quando empatam. Fix: sort agora é (pedidos DESC, total DESC).
+
+### 41.4 VIP threshold 80 → 75 (view alterada no banco)
+
+User: "quando um cliente bater score 75, ele é considerado VIP"
+
+Antes: VIP >= 80 (rigoroso). Resultado: matriz 31 VIPs, BC 0 VIPs.
+
+Aplicado via `CREATE OR REPLACE VIEW cliente_scoring`:
+```sql
+CASE
+  WHEN score >= 75 THEN 'VIP'        -- era 80
+  WHEN score >= 60 THEN 'Frequente'
+  WHEN score >= 40 THEN 'Ocasional'
+  WHEN dias_sem_compra > 90 AND total_pedidos >= 2 THEN 'Em Risco'
+  ELSE 'Inativo'
+END
+```
+
+Resultado: matriz **40 VIPs** (+9), BC **3 VIPs** (+3). Como é view dinâmica, todas telas (C360 dashboard, lista, bot ai-chat tools, edge cliente360-insight) refletem na hora.
+
+### 41.5 cliente360-insight v14 (bugfix)
+
+V13 (recém deployada com botão WhatsApp) tinha `select('nome, cargo, ativo')` mas coluna `ativo` NÃO existe em `profiles` (só id, nome, email, role, cargo, last_login). PostgREST retornava erro, frontend recebia 403 "Profile não encontrado". Fix: tirar `ativo` do select. Deploy v14 ACTIVE.
+
+### 41.6 Sync histórico — investigação
+
+User pediu sincronizar histórico Bling pra chegar nos 80k clientes esperados pela Dana.
+
+Diagnóstico:
+- **Bling tem pedidos de 2018-2023** (matriz: todos anos cheios; BC: começou em 2020)
+- Hoje temos 14.739 clientes únicos (matriz 10.451 + bc 4.517 dedup)
+- Estimativa pós-sync 2018-2023: **40-55k clientes** (não chega aos 80k — a Dana provavelmente está incluindo os 41k contatos do Bling, que misturam leads/fornecedores)
+- Tempo estimado sync 2018-2023: ~12-18min paralelo (mesmo script `sync-pedidos-historico-2024`)
+
+**Status**: aguardando confirmação do user pra rodar (ainda não disparado).
+
+### 41.7 PASS 2 (itens 2024) — TERMINADO
+
+Background task da Section 38 completou: 98.6% Matriz + 98.8% BC dos pedidos 2024 com itens populados em `pedidos_itens`. Ainda restam ~150 pedidos sem itens (alguns Bling não retornou items no detail endpoint — cancelados ou estados especiais).
+
+### 41.8 Edge Functions estado atual
+
+| Função | Versão | Status |
+|---|---|---|
+| ai-chat | v20 | ACTIVE (Section 37) |
+| construtor-ai | v7 | ACTIVE |
+| prospectar | v9 | ACTIVE (quota Section 40) |
+| gerar-peca-ia | v11 | ACTIVE |
+| gerar-prompt-visual | v3 | ACTIVE |
+| gerar-avatar-ia | v15 | ACTIVE |
+| **cliente360-insight** | **v14** | **ACTIVE (Section 41 bugfix)** |
+| gemini-proxy | v1 | ACTIVE |
+| sync-imagens-produtos | v2 | ACTIVE |
+
+### 41.9 Pendências aguardando
+
+| Item | Tipo | Prioridade |
+|---|---|---|
+| Sync histórico Bling 2018-2023 (~12-18min) | rodar script | 🟡 Esperando OK do user |
+| Liberar Estúdio IA pros cargos `designer`/`gerente_marketing` | toggle cargo_permissoes | 🟡 Esperando Manu |
+| Migração R2 (plano em `steady-imagining-charm.md`) | edge functions + frontend | 🟢 Quando der |
+| Sync inicial das ~4.7k imagens dos produtos pro Storage | rodar batches | 🟢 Quando der |
+| Padronização: editar só no worktree e push pros 2 repos via 2 remotes | git remote sync | 🟢 Hoje preciso copiar pro staging dir |
+| Inconsistência `campanhas_internas` vs `campanhas-internas` (chaves duplicadas) | DELETE row dup | 🟢 Não bloqueante (label já distingue) |
+
+### 41.10 Onde paramos
+
+**Tudo no ar nos 2 repos** (DanaComercial espelho + DanaJalecos Vercel ativo):
+- `eaae624` push final do DanaJalecos antes deste consolidado
+- `5a46860` Top clientes desempate (DanaComercial)
+- `a20387d` Kanban viewId fix designer (DanaJalecos)
+
+**Vercel deploys ativos**:
+- DMS: `danamarketing.vercel.app` (importado pelo user)
+- Estoque: `danajalecos/estoque` aguardando importação no Vercel (vercel.json no commit `33ef933`)
+
+**Próxima sessão**:
+- User decide: rodar sync histórico 2018-2023?
+- Liberar Estúdio IA pros cargos quando Manu aprovar
+- Eventualmente migrar storage pro R2
+
+---
+
+**Fim da documentação · Atualizado em 28/04/2026 madrugada — ciclos 41-43 consolidados · v4.5**
