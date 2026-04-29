@@ -8489,7 +8489,10 @@ updateDynamicField('foto');
           <div class="card-title">🔌 Endpoint público</div>
           <div class="card-sub">Use esse endpoint pra mandar leads de fora (FB Lead Ads, formulários, Zapier, etc)</div>
         </div>
-        <button class="btn btn-primary btn-sm" onclick="copiarExemploCurl()">📋 Copiar exemplo curl</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" onclick="enviarLeadDeTeste()" id="btn-test-lead">🧪 Enviar lead de teste</button>
+          <button class="btn btn-primary btn-sm" onclick="copiarExemploCurl()">📋 Copiar exemplo curl</button>
+        </div>
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:14px">
@@ -18970,6 +18973,49 @@ async function copiarToken() {
     () => showToast('Token copiado'),
     () => showToast('Erro ao copiar')
   );
+}
+
+async function enviarLeadDeTeste() {
+  const t = await _fetchCaptureToken();
+  if (!t) { showToast('Sem permissão (só admin)'); return; }
+  const btn = document.getElementById('btn-test-lead');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Enviando...'; }
+  try {
+    const stamp = new Date().toLocaleTimeString('pt-BR').replace(/[^\d]/g, '');
+    const body = {
+      nome: `Clinica Teste ${stamp}`,
+      telefone: '47999998888',
+      email: `teste${stamp}@exemplo.com`,
+      segmento: 'clinicas',
+      cidade: 'Balneario Camboriu',
+      estado: 'SC',
+      origem: 'teste_admin',
+      dados_extras: { gerado_via: 'botao_admin', timestamp: new Date().toISOString() },
+    };
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/captura-lead`, {
+      method: 'POST',
+      headers: {
+        'X-Capture-Token': t,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (r.ok) {
+      const dup = data.duplicado ? ' (duplicado)' : '';
+      showToast(`✅ Lead criado${dup}: ${body.nome}`);
+      // Recarrega stats da aba
+      loadOrigensLeads();
+      // Se a Prospecção estiver carregada, recarrega tambem
+      if (typeof prospLoad === 'function') prospLoad();
+    } else {
+      showToast(`❌ Erro ${r.status}: ${data.error || 'desconhecido'}`);
+    }
+  } catch (e) {
+    showToast('Erro: ' + (e.message || String(e)));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🧪 Enviar lead de teste'; }
+  }
 }
 
 async function copiarExemploCurl() {
