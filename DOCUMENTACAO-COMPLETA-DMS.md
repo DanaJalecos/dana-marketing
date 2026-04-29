@@ -4083,4 +4083,116 @@ User pediu `/compact` pra continuar com as ondas RD Station depois.
 
 ---
 
-**Fim da documentação · Atualizado em 29/04/2026 — ciclo 42 (sync histórico + bugfixes + RD gaps) · v4.6**
+## 43. CICLO 29/04/2026 (TARDE) — ONDA #0: SYNC RETRIES COM BACKOFF EXPONENCIAL
+
+**Roadmap pós-RD Station:** primeiro item das 5 ondas (#0 Webhook retries → adaptado pra DMS sync retries, já que DMS usa cron polling, não webhook).
+
+### 43.1 Problema
+
+As ~10 sync functions do Bling (`sync-pedidos`, `sync-contatos`, `sync-contas-pagar/receber`, etc — matriz e BC) rodam via pg_cron a cada 1-6h. Se uma falhar (rate limit, network glitch, Bling 5xx), o evento ficava só logado em `sync_log` com `status='error'` e a próxima execução seria 6h depois — sem retry imediato.
+
+Falhas reais nos últimos 30 dias: 2 (`'fetch failed'` em 15/04 + 1 backfill parcial em 20/04). Raríssimo, mas crítico quando acontece.
+
+### 43.2 Arquitetura (zero invasão nas sync functions existentes)
+
+```
+┌───────────────┐ trigger    ┌───────────────┐ cron 1m   ┌─────────────────────┐
+│  sync_log     │ ─────────▶│ sync_failures │ ─────────▶│ sync-retry-processor │
+│  (existente)  │ on error   │  (queue)      │           │ (edge function)      │
+└───────────────┘            └───────────────┘           └─────────────────────┘
+                                     ▲                           │
+                                     │ updates status            │ POST job_url
+                                     └───────────────────────────┘
+```
+
+**Tabelas novas:**
+- `sync_failures` (queue): id, job_name, job_url, job_body jsonb, attempts, max_attempts (6), last_error, last_attempt_response, next_retry_at, status (pending/retrying/success/failed/cancelled), original_log_id (FK sync_log), created_at, updated_at
+- `sync_job_routes` (mapping): tabela + tipo → URL da edge function (12 rotas: matriz × BC × {pedidos, contatos, contas_pagar, contas_receber, produtos, pedidos_itens})
+
+**Função SQL `backoff_minutes(attempts)`:**
+- 0 → 1 min
+- 1 → 5 min
+- 2 → 30 min
+- 3 → 120 min (2h)
+- 4 → 360 min (6h)
+- ≥5 → 1440 min (24h)
+
+**Trigger `enqueue_sync_retry_from_log`** (AFTER INSERT em sync_log):
+- Se `NEW.status = 'error'`, busca rota em sync_job_routes, INSERT em sync_failures com `next_retry_at = NOW() + 1min`
+- Idempotente: se já existe row pending pra mesma URL, ignora (evita duplicatas)
+
+**Edge function `sync-retry-processor` v2 ACTIVE:**
+- SELECT pending com `next_retry_at <= NOW()` LIMIT 10
+- Pra cada: PATCH status='retrying' (lock soft), POST job_url
+- Sucesso (2xx) → status='success', registra resposta
+- Falha → attempts++, agenda próximo retry com backoff
+- Após 6 tentativas (~33h cumulativos) → status='failed', cria alerta em `alertas` audiência=`dados_empresa`
+
+**Cron job 24:** `* * * * *` invoca o processor a cada 1min (via `net.http_post` com Service Role).
+
+### 43.3 UI admin — `view-admin` ganhou aba "🔄 Sync Retries"
+
+Visível apenas pra admins (a aba inteira já está dentro de `view-admin` que tem permissão admin).
+
+- 4 cards de stats: Pendentes / Retentando / Sucesso / Desistiu
+- Tabela das últimas 100 falhas (id, job, status badge colorido, attempts/max, próximo retry relativo, criado relativo, erro truncado 60ch com tooltip completo)
+- Botão "▶ Rodar agora" — invoca processor manualmente (útil pra debug ou força ciclo)
+- Botão "▶ Agora" por linha — força retry imediato dessa falha específica (UPDATE next_retry_at=NOW + invoca processor)
+
+Funções JS adicionadas em `index.html` (~linha 18590):
+- `loadSyncRetries()` — fetch + render
+- `retryNowSync(id)` — força retry de uma row
+- `runSyncRetryProcessor(silent)` — invoca processor
+
+### 43.4 Validação fim-a-fim (passou no teste)
+
+1. INSERT manual em `sync_log (tabela='pedidos', status='error', erro='TESTE')` → trigger criou row em `sync_failures` (pending, attempts=0)
+2. UPDATE `next_retry_at = NOW()` → invoca processor manualmente
+3. Processor pegou a row, fez POST em sync-pedidos → recebeu HTTP 200 com 175 pedidos sincronizados de verdade
+4. Row marcada como `status='success'`, attempts=1, last_attempt_response="200: {...}"
+5. Limpeza: DELETE da row de teste + log de teste
+
+### 43.5 Bug encontrado e corrigido (deploy v1 → v2)
+
+**Bug:** `sb()` helper na edge function tentava `r.json()` mesmo quando o servidor retornava 204 No Content (porque os UPDATEs usam `Prefer: return=minimal`). Resultado: `Unexpected end of JSON input` no primeiro PATCH.
+
+**Fix:** checar `r.status === 204` ou body vazio antes de fazer JSON.parse.
+
+### 43.6 Estado atual
+
+| Componente | Status |
+|---|---|
+| Tabela `sync_failures` | ✅ criada com 3 indexes |
+| Tabela `sync_job_routes` | ✅ criada + 12 rotas seedadas |
+| Função `backoff_minutes(int)` | ✅ |
+| Trigger `tr_sync_log_enqueue_retry` | ✅ ATIVO em sync_log |
+| Edge function `sync-retry-processor` | ✅ v2 ACTIVE |
+| Cron job (id=24) `sync-retry-processor-1min` | ✅ rodando a cada 1min |
+| UI admin "🔄 Sync Retries" | ✅ adicionada em view-admin |
+| Documentação | ✅ esta seção |
+
+### 43.7 Próxima onda
+
+**#1 Funil Kanban dos Prospects** (3-4h) — aba dentro de `view-prospeccao`, drag-and-drop reaproveitando lib do Kanban de Tarefas. Sem mudança de banco (`prospects.status` já existe).
+
+### 43.8 Edge Functions estado
+
+| Função | Versão | Status |
+|---|---|---|
+| **sync-retry-processor** | **v2** | **NOVO ciclo 43** |
+| prospectar | v10 | (sem mudança) |
+| ai-chat | v20 | (sem mudança) |
+| outras 26 | — | sem mudança |
+
+### 43.9 Cron jobs DMS
+
+| Job ID | Schedule | Comando |
+|---|---|---|
+| 1 | `5,35 * * * *` | gerar_alertas |
+| 2 | `0 9 * * *` | gerar_alertas_prazos |
+| 3-23 | (vários) | sync-* matriz + BC + outros |
+| **24** ⭐ | `* * * * *` | **sync-retry-processor (NOVO ciclo 43)** |
+
+---
+
+**Fim da documentação · Atualizado em 29/04/2026 tarde — ciclo 43 (Onda #0 sync retries) · v4.7**

@@ -8401,6 +8401,7 @@ updateDynamicField('foto');
     <div class="mkt-tab" onclick="switchAdminTab(this,'permissoes')">Permissões por Cargo</div>
     <div class="mkt-tab" onclick="switchAdminTab(this,'atividades')">Relatório de Atividades</div>
     <div class="mkt-tab" onclick="switchAdminTab(this,'custos-ia')">🎨 Custos IA</div>
+    <div class="mkt-tab" onclick="switchAdminTab(this,'sync-retries')">🔄 Sync Retries</div>
   </div>
 
   <!-- ABA USUARIOS -->
@@ -8448,6 +8449,24 @@ updateDynamicField('foto');
   <!-- ABA CUSTOS IA -->
   <div class="mkt-panel" id="admin-custos-ia">
     <div id="admin-custos-ia-wrap"><div style="text-align:center;color:var(--text3);padding:40px;font-size:12.5px">⏳ Carregando...</div></div>
+  </div>
+
+  <!-- ABA SYNC RETRIES (Onda #0) -->
+  <div class="mkt-panel" id="admin-sync-retries">
+    <div class="card mb20">
+      <div class="card-header">
+        <div>
+          <div class="card-title">🔄 Falhas de Sincronização</div>
+          <div class="card-sub">Retries automáticos quando uma sync function do Bling falha — backoff: 1m → 5m → 30m → 2h → 6h → 24h, desiste em 6 tentativas</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-secondary btn-sm" onclick="loadSyncRetries()">🔄 Atualizar</button>
+          <button class="btn btn-primary btn-sm" onclick="runSyncRetryProcessor()" id="btn-run-retry-processor">▶ Rodar agora</button>
+        </div>
+      </div>
+      <div id="sync-retries-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px"></div>
+      <div id="sync-retries-table" style="max-height:520px;overflow-y:auto"><div style="text-align:center;color:var(--text3);padding:20px;font-size:12px">Carregando...</div></div>
+    </div>
   </div>
 </div></div>
 
@@ -18568,6 +18587,125 @@ function switchAdminTab(tab, id) {
   if (id === 'permissoes') loadAdminPermissoes();
   if (id === 'atividades') loadActivityLog();
   if (id === 'custos-ia') loadCustosIA();
+  if (id === 'sync-retries') loadSyncRetries();
+}
+
+// ════════════════════════════════════════════════
+// SYNC RETRIES — Onda #0
+// Mostra falhas de sincronização do Bling com retry automático.
+// Tabela `sync_failures` é populada por trigger no `sync_log`.
+// ════════════════════════════════════════════════
+async function loadSyncRetries() {
+  const tbl = document.getElementById('sync-retries-table');
+  const stats = document.getElementById('sync-retries-stats');
+  if (!tbl) return;
+  tbl.innerHTML = '<div style="text-align:center;color:var(--text3);padding:20px;font-size:12px">Carregando...</div>';
+  try {
+    const { data, error } = await sb
+      .from('sync_failures')
+      .select('id, job_name, job_url, status, attempts, max_attempts, last_error, last_attempt_response, next_retry_at, created_at, updated_at')
+      .order('id', { ascending: false })
+      .limit(100);
+    if (error) throw error;
+    const rows = data || [];
+
+    // Stats
+    const counts = { pending: 0, retrying: 0, success: 0, failed: 0 };
+    rows.forEach(r => { if (counts[r.status] !== undefined) counts[r.status]++; });
+    const cards = [
+      { lbl: 'Pendentes', val: counts.pending, color: '#f59e0b' },
+      { lbl: 'Retentando', val: counts.retrying, color: '#3b82f6' },
+      { lbl: 'Sucesso', val: counts.success, color: '#10b981' },
+      { lbl: 'Desistiu', val: counts.failed, color: '#ef4444' },
+    ];
+    stats.innerHTML = cards.map(c => `<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:12px"><div style="font-size:11px;color:var(--text3);margin-bottom:4px">${c.lbl}</div><div style="font-size:22px;font-weight:700;color:${c.color}">${c.val}</div></div>`).join('');
+
+    if (!rows.length) {
+      tbl.innerHTML = '<div style="text-align:center;color:var(--text3);padding:30px;font-size:12.5px">✅ Nenhuma falha registrada</div>';
+      return;
+    }
+
+    const statusBadge = s => {
+      const m = { pending: ['#f59e0b','Pendente'], retrying: ['#3b82f6','Retentando'], success: ['#10b981','OK'], failed: ['#ef4444','Desistiu'], cancelled: ['#6b7280','Cancelado'] };
+      const [c, l] = m[s] || ['#6b7280', s];
+      return `<span style="background:${c}22;color:${c};padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600">${l}</span>`;
+    };
+    const rel = ts => {
+      if (!ts) return '—';
+      const d = new Date(ts), now = new Date(), diff = (d - now) / 1000;
+      const abs = Math.abs(diff);
+      const past = diff < 0;
+      let n, u;
+      if (abs < 60) { n = Math.round(abs); u = 's'; }
+      else if (abs < 3600) { n = Math.round(abs/60); u = 'min'; }
+      else if (abs < 86400) { n = Math.round(abs/3600); u = 'h'; }
+      else { n = Math.round(abs/86400); u = 'd'; }
+      return past ? `há ${n}${u}` : `em ${n}${u}`;
+    };
+    const trunc = (s, n) => !s ? '—' : (s.length > n ? s.slice(0, n) + '…' : s);
+
+    tbl.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.1);text-align:left">
+        <th style="padding:8px 6px">ID</th>
+        <th style="padding:8px 6px">Sync</th>
+        <th style="padding:8px 6px">Status</th>
+        <th style="padding:8px 6px">Tentativas</th>
+        <th style="padding:8px 6px">Próximo retry</th>
+        <th style="padding:8px 6px">Criado</th>
+        <th style="padding:8px 6px">Erro</th>
+        <th style="padding:8px 6px"></th>
+      </tr></thead><tbody>
+      ${rows.map(r => `<tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+        <td style="padding:6px;color:var(--text3)">#${r.id}</td>
+        <td style="padding:6px;font-weight:500">${r.job_name}</td>
+        <td style="padding:6px">${statusBadge(r.status)}</td>
+        <td style="padding:6px">${r.attempts}/${r.max_attempts}</td>
+        <td style="padding:6px;color:var(--text3)">${r.status === 'pending' ? rel(r.next_retry_at) : '—'}</td>
+        <td style="padding:6px;color:var(--text3)">${rel(r.created_at)}</td>
+        <td style="padding:6px;color:var(--text3);max-width:280px" title="${(r.last_error||'').replace(/"/g,'&quot;')}">${trunc(r.last_error, 60)}</td>
+        <td style="padding:6px;text-align:right">${r.status === 'pending' || r.status === 'failed' ? `<button class="btn btn-ghost btn-sm" onclick="retryNowSync(${r.id})">▶ Agora</button>` : ''}</td>
+      </tr>`).join('')}
+      </tbody></table>`;
+  } catch (e) {
+    tbl.innerHTML = `<div style="color:#ef4444;padding:20px;font-size:12px">Erro: ${e.message || e}</div>`;
+  }
+}
+
+async function retryNowSync(id) {
+  if (!confirm(`Forçar retry imediato da falha #${id}?`)) return;
+  try {
+    const { error } = await sb.from('sync_failures').update({
+      status: 'pending',
+      next_retry_at: new Date().toISOString(),
+    }).eq('id', id);
+    if (error) throw error;
+    await runSyncRetryProcessor(true);
+  } catch (e) {
+    alert('Erro: ' + (e.message || e));
+  }
+}
+
+async function runSyncRetryProcessor(silent) {
+  const btn = document.getElementById('btn-run-retry-processor');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Rodando...'; }
+  try {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/sync-retry-processor`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    const data = await r.json();
+    if (!silent) {
+      const okCount = data.success || 0;
+      const total = data.processed || 0;
+      alert(`Processados: ${total}\nSucesso: ${okCount}\n\n${(data.results || []).map(x => x.msg).join('\n') || data.msg || ''}`);
+    }
+    loadSyncRetries();
+  } catch (e) {
+    alert('Erro: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '▶ Rodar agora'; }
+  }
 }
 
 // ════════════════════════════════════════════════
