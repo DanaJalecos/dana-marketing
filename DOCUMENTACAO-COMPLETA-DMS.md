@@ -4472,4 +4472,113 @@ User decide qual fazer:
 
 ---
 
-**Fim da documentação · Atualizado em 29/04/2026 noite-2 — ciclo 46 (revert parcial Onda #3) · v5.0**
+---
+
+## 47. CICLO 29/04/2026 (NOITE-3) — ONDA #2: TIMELINE UNIFICADA DO C360
+
+**Roadmap pós-RD Station:** quarta onda implementada. RD destacou "Timeline polimórfica" como o coração do "histórico 360°". Pra Dana basta uma VIEW agregadora — sem tabela física, sem triggers, sem backfill.
+
+### 47.1 Decisão de arquitetura
+
+**VIEW agregadora vs tabela física com triggers:**
+- Tabela + triggers: complexo (precisa de DDL em 4 tabelas, backfill, manter consistência)
+- VIEW: filtra `?contato_nome=eq.X` na hora, Postgres empurra o filtro pra cada UNION
+
+Escolhido **VIEW** porque:
+- Volume Dana (~50k pedidos, ~6k contas, etc) é pequeno o suficiente
+- Filtro por contato_nome com indexes é rápido (<100ms)
+- Zero risco de inconsistência (lê direto da fonte)
+- Reverter é trivial: `DROP VIEW`
+
+### 47.2 SQL aplicado
+
+**Indexes adicionados (faltavam):**
+```sql
+CREATE INDEX idx_pedidos_contato_nome ON pedidos(contato_nome);
+CREATE INDEX idx_contas_receber_contato_nome ON contas_receber(contato_nome);
+-- cliente_notas e cliente_insights ja tinham
+```
+
+**VIEW `cliente_eventos_timeline`:**
+```sql
+CREATE OR REPLACE VIEW cliente_eventos_timeline AS
+SELECT contato_nome, data_evento, tipo, titulo, descricao, dados, empresa FROM (
+  -- Pedidos
+  SELECT contato_nome, data::timestamptz AS data_evento, 'pedido'::text AS tipo,
+         'Pedido #' || numero AS titulo,
+         'Total: R$ ' || COALESCE(total, 0)::text AS descricao,
+         jsonb_build_object(...) AS dados, empresa
+  FROM pedidos WHERE data IS NOT NULL AND contato_nome IS NOT NULL
+  UNION ALL
+  -- Contas a receber (pagamento se situacao=2, cobranca caso contrario)
+  SELECT contato_nome, COALESCE(vencimento, data_emissao)::timestamptz, ...
+  FROM contas_receber WHERE COALESCE(vencimento, data_emissao) IS NOT NULL
+  UNION ALL
+  -- Notas
+  SELECT contato_nome, created_at, 'nota'::text, ...
+  FROM cliente_notas WHERE contato_nome IS NOT NULL
+  UNION ALL
+  -- Insights IA
+  SELECT contato_nome, created_at, 'insight'::text, ...
+  FROM cliente_insights WHERE contato_nome IS NOT NULL
+) t ORDER BY data_evento DESC;
+```
+
+5 tipos de evento: `pedido`, `pagamento`, `cobranca`, `nota`, `insight`. Alertas não foram incluídos (mais ruído que valor — alertas no DMS são por destinatário, não por cliente).
+
+### 47.3 Frontend — `cliente-360-boot.js`
+
+**Aba "📜 Timeline" adicionada:**
+- Posição: depois de Pedidos, antes de Insights IA + Notas
+- Container `c360-tabpanel-timeline` (display:none por padrão)
+- `c360SwitchTab` agora dispatcha pra `loadTimeline()` na primeira vez que abre a aba (lazy)
+
+**`loadTimeline(force)`** (window-scoped):
+- Lê `state.currentContatoNome` (setado em `showClientDetail`)
+- `SELECT * FROM cliente_eventos_timeline WHERE contato_nome = ?` LIMIT 500
+- Cache em `window._c360TimelineCache`, flag `_c360TimelineLoaded`
+- Reset ao trocar de cliente
+
+**`_renderTimeline(eventos)`:**
+- Agrupa por dia (yyyy-mm-dd)
+- Cada dia tem header relativo ("Hoje · 14:32" / "Ontem" / "3 dias atrás" / "2 sem atrás" / "23 abr 2026")
+- Cada evento: ícone colorido por tipo + título + descrição truncada + hora à direita
+- Bordas coloridas por tipo (azul/verde/laranja/roxo/rosa)
+
+**Filtros:** 6 chips no topo da aba (Tudo / Pedidos / Pagamentos / Cobranças / Notas / Insights). Filtro client-side (cache local), zero round-trip.
+
+### 47.4 Validação
+
+Cliente teste: **QUANTITY SERVICOS** (744 pedidos). View retornou em <100ms com mistura de pedidos + cobranças + pagamentos:
+
+```
+2026-04-24  cobranca   Conta a vencer R$ 12876.00
+2026-04-23  pedido     Pedido #48214
+2026-04-02  pagamento  Pagou R$ 10521.00
+2026-04-01  pedido     Pedido #47904
+2026-03-16  pagamento  Pagou R$ 4956.00
+...
+```
+
+### 47.5 Estado dos dados
+
+| Fonte | Rows totais | Acessível via timeline? |
+|---|---|---|
+| pedidos | ~52.500 | ✅ |
+| contas_receber | ~7.800 | ✅ (pagamento + cobrança) |
+| cliente_notas | (variável) | ✅ |
+| cliente_insights | (variável) | ✅ |
+| alertas | ~ | ❌ (excluído por design) |
+
+### 47.6 Edge functions estado (sem mudanças)
+
+Onda #2 é puro SQL + frontend, sem novas edge functions. Total continua 28.
+
+### 47.7 Próxima onda
+
+**#4 Resend + automação email** (6-8h) — só se Manu validar interesse em email marketing.
+Caso contrário: roadmap RD Station considera-se concluído com #0, #1, #2 (e schema/filtros da #3).
+
+---
+
+**Fim da documentação · Atualizado em 29/04/2026 noite-3 — ciclo 47 (Onda #2 Timeline C360) · v5.1**

@@ -568,6 +568,8 @@
   // ─── Detalhe do cliente (Fase 2 · Commit 2) ───
   window.showClientDetail = async function(clienteId) {
     const nome = decodeURIComponent(clienteId);
+    state.currentContatoNome = nome;
+    window._c360TimelineLoaded = false; // reseta cache da Timeline (Onda #2)
     const page = document.getElementById('page-cliente-1');
     if (!page) { console.error('[c360] page-cliente-1 nao encontrada'); return; }
 
@@ -848,10 +850,14 @@
       <button id="c360-tab-pedidos" onclick="c360SwitchTab('pedidos')" style="padding:14px 20px;background:transparent;border:none;color:oklch(88% 0.018 80);cursor:pointer;font-size:14px;font-weight:600;border-bottom:2px solid oklch(88% 0.018 80);display:flex;align-items:center;gap:6px">
         🛒 Pedidos <span style="background:rgba(255,255,255,0.1);color:oklch(88% 0.018 80);padding:2px 8px;border-radius:20px;font-size:11px">${fmtNum(pedidos.length)}</span>
       </button>
+      <button id="c360-tab-timeline" onclick="c360SwitchTab('timeline')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">📜 Timeline</button>
       <button id="c360-tab-insights" onclick="c360SwitchTab('insights')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">◆ Insights IA</button>
       <button id="c360-tab-notas" onclick="c360SwitchTab('notas')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">💬 Notas</button>
     </div>
     <div id="c360-tabpanel-pedidos" style="padding:16px">${pedidosHtml}</div>
+    <div id="c360-tabpanel-timeline" style="padding:20px;display:none">
+      <div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando timeline...</div>
+    </div>
     <div id="c360-tabpanel-insights" style="padding:20px;display:none;color:#64748b">
       <div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando insights...</div>
     </div>
@@ -873,7 +879,7 @@
 
   // Tabs internos
   window.c360SwitchTab = function(tab) {
-    const tabs = ['pedidos','insights','notas'];
+    const tabs = ['pedidos','timeline','insights','notas'];
     for (const t of tabs) {
       const btn = document.getElementById('c360-tab-'+t);
       const panel = document.getElementById('c360-tabpanel-'+t);
@@ -884,6 +890,10 @@
         btn.style.borderBottomColor = ativo ? 'oklch(88% 0.018 80)' : 'transparent';
       }
       if (panel) panel.style.display = ativo ? '' : 'none';
+    }
+    // Lazy load por aba
+    if (tab === 'timeline' && typeof loadTimeline === 'function' && !window._c360TimelineLoaded) {
+      loadTimeline();
     }
   };
 
@@ -916,6 +926,137 @@
     if (!secs.analise && !secs.risco && !secs.acao) secs.analise = md;
     return secs;
   }
+
+  // ─── Timeline unificada (Onda #2) ───
+  // Lê da view cliente_eventos_timeline (UNION de pedidos + contas_receber +
+  // cliente_notas + cliente_insights). Lazy-load: só busca quando user abre a aba.
+  // Cache via window._c360TimelineLoaded — invalida quando troca de cliente.
+  const _TIMELINE_TIPOS = {
+    pedido:    { icon: '🛒', cor: '#3b82f6', label: 'Pedido' },
+    pagamento: { icon: '💰', cor: '#22c55e', label: 'Pagamento' },
+    cobranca:  { icon: '⏰', cor: '#f59e0b', label: 'Cobrança' },
+    nota:      { icon: '💬', cor: '#a855f7', label: 'Nota' },
+    insight:   { icon: '🤖', cor: '#ec4899', label: 'Insight IA' },
+  };
+
+  function _timelineFmtData(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts);
+    const now = new Date();
+    const diffDays = Math.floor((now - d) / 86400000);
+    if (diffDays === 0) return 'Hoje · ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    if (diffDays === 1) return 'Ontem';
+    if (diffDays < 7) return diffDays + ' dias atrás';
+    if (diffDays < 30) return Math.floor(diffDays / 7) + ' sem atrás';
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+
+  function _timelineFiltrosHtml() {
+    const tipos = ['todos', 'pedido', 'pagamento', 'cobranca', 'nota', 'insight'];
+    const atual = window._c360TimelineFiltro || 'todos';
+    return tipos.map(t => {
+      const cfg = _TIMELINE_TIPOS[t] || { icon: '📍', cor: '#94a3b8', label: 'Tudo' };
+      const ativo = atual === t;
+      const cor = ativo ? cfg.cor : 'rgba(255,255,255,0.4)';
+      return `<button onclick="c360TimelineFiltro('${t}')" style="padding:6px 12px;background:${ativo ? 'rgba(255,255,255,0.06)' : 'transparent'};border:1px solid ${ativo ? cfg.cor : 'rgba(255,255,255,0.1)'};border-radius:6px;color:${cor};font-size:12px;cursor:pointer;font-weight:${ativo?'600':'400'}">${cfg.icon} ${cfg.label}</button>`;
+    }).join('');
+  }
+
+  window.c360TimelineFiltro = function(tipo) {
+    window._c360TimelineFiltro = tipo;
+    _renderTimeline(window._c360TimelineCache || []);
+  };
+
+  function _renderTimeline(eventos) {
+    const panel = document.getElementById('c360-tabpanel-timeline');
+    if (!panel) return;
+    const filtro = window._c360TimelineFiltro || 'todos';
+    const visiveis = filtro === 'todos' ? eventos : eventos.filter(e => e.tipo === filtro);
+
+    const filtrosHtml = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">${_timelineFiltrosHtml()}</div>`;
+
+    if (!eventos.length) {
+      panel.innerHTML = filtrosHtml + `<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.4);font-size:13px">📭 Nenhum evento registrado pra esse cliente ainda</div>`;
+      return;
+    }
+    if (!visiveis.length) {
+      panel.innerHTML = filtrosHtml + `<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.4);font-size:13px">Nenhum evento desse tipo</div>`;
+      return;
+    }
+
+    // Agrupa por data (yyyy-mm-dd)
+    const grupos = {};
+    for (const e of visiveis) {
+      const data = (e.data_evento || '').slice(0, 10);
+      if (!grupos[data]) grupos[data] = [];
+      grupos[data].push(e);
+    }
+    const datasOrdenadas = Object.keys(grupos).sort().reverse();
+
+    const corpo = datasOrdenadas.map(data => {
+      const dataLabel = _timelineFmtData(data + 'T12:00:00');
+      const eventosDia = grupos[data];
+      return `
+        <div style="margin-bottom:18px">
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);font-weight:600;text-transform:uppercase;margin-bottom:8px;padding-left:30px">${dataLabel}</div>
+          ${eventosDia.map(e => {
+            const cfg = _TIMELINE_TIPOS[e.tipo] || { icon: '📍', cor: '#94a3b8', label: e.tipo };
+            const desc = e.descricao ? escapeHtml(e.descricao) : '';
+            return `
+              <div style="display:flex;gap:12px;align-items:flex-start;padding:10px 12px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:8px;margin-bottom:6px;border-left:3px solid ${cfg.cor}">
+                <div style="font-size:18px;flex-shrink:0">${cfg.icon}</div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:13px;color:#e2e8f0;font-weight:600;margin-bottom:2px">${escapeHtml(e.titulo || cfg.label)}</div>
+                  ${desc ? `<div style="font-size:12px;color:rgba(255,255,255,0.65);line-height:1.4;word-break:break-word">${desc}</div>` : ''}
+                </div>
+                <div style="font-size:10.5px;color:rgba(255,255,255,0.35);flex-shrink:0;white-space:nowrap">${new Date(e.data_evento).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }).join('');
+
+    const totalLabel = visiveis.length < eventos.length
+      ? `<span style="color:rgba(255,255,255,0.4);font-size:11px;margin-left:6px">${visiveis.length} de ${eventos.length}</span>`
+      : `<span style="color:rgba(255,255,255,0.4);font-size:11px;margin-left:6px">${eventos.length} eventos</span>`;
+
+    panel.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="font-size:14px;font-weight:600;color:#e2e8f0">📜 Histórico do cliente${totalLabel}</div>
+        <button onclick="loadTimeline(true)" style="background:transparent;border:1px solid rgba(255,255,255,0.15);color:#94a3b8;padding:5px 10px;border-radius:6px;font-size:11px;cursor:pointer">🔄 Atualizar</button>
+      </div>
+      ${filtrosHtml}
+      ${corpo}
+    `;
+  }
+
+  window.loadTimeline = async function(force) {
+    const panel = document.getElementById('c360-tabpanel-timeline');
+    if (!panel) return;
+    const nome = state.currentContatoNome;
+    if (!nome) {
+      panel.innerHTML = '<div style="text-align:center;padding:30px;color:rgba(255,255,255,0.4);font-size:13px">Sem cliente selecionado</div>';
+      return;
+    }
+    if (window._c360TimelineLoaded && !force) return;
+    panel.innerHTML = '<div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando timeline...</div>';
+    try {
+      const { data, error } = await state.sb
+        .from('cliente_eventos_timeline')
+        .select('contato_nome, data_evento, tipo, titulo, descricao, dados, empresa')
+        .eq('contato_nome', nome)
+        .order('data_evento', { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      window._c360TimelineCache = data || [];
+      window._c360TimelineLoaded = true;
+      _renderTimeline(data || []);
+    } catch (e) {
+      console.error('[c360 timeline] erro:', e);
+      panel.innerHTML = `<div style="color:#ef4444;padding:20px;font-size:12px">Erro ao carregar: ${escapeHtml(String(e.message||e))}</div>`;
+    }
+  };
 
   // Abre WhatsApp Web pre-formatado pra mensagem do insight
   // Padrao igual ao usado em Prospeccao: strip nao-digitos + prefixo 55 se length 10/11
