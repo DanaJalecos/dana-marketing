@@ -18202,22 +18202,66 @@ function prospPodeApagar(p) {
   return p.criado_por && currentUser?.id && p.criado_por === currentUser.id;
 }
 
-async function prospLoad() {
-  const lista = document.getElementById('prsp-lista');
-  if (!lista) return;
-  // Atualiza limite info conforme cargo
+// Cargo helper: admin / gerente_* / vendedor (default)
+function _prspCargoLimits() {
+  const cargo = currentProfile?.cargo || '';
+  const isAdmin = cargo === 'admin';
+  const isGerente = ['gerente_comercial', 'gerente_marketing', 'gerente_financeiro'].includes(cargo);
+  return {
+    isAdmin,
+    isGerente,
+    qtdMax: isAdmin ? 30 : (isGerente ? 10 : 5),
+    buscasDiaMax: isAdmin ? Infinity : (isGerente ? 10 : 2),
+  };
+}
+
+// Conta quantas buscas o user fez hoje (RPC SECURITY DEFINER no banco)
+async function _prspBuscasHoje() {
+  if (!currentUser?.id) return 0;
+  try {
+    const { data, error } = await sb.rpc('prospeccao_count_hoje', { uid: currentUser.id });
+    if (error) { console.warn('[prsp count]', error); return 0; }
+    return Number(data) || 0;
+  } catch (e) { console.warn('[prsp count]', e); return 0; }
+}
+
+// Atualiza UI do botão Buscar + contador conforme quota diária
+async function _prspAtualizarQuotaUI() {
+  const lim = _prspCargoLimits();
   const info = document.getElementById('prsp-limite-info');
   const inputQtd = document.getElementById('prsp-qtd');
   if (info && inputQtd) {
-    const isAdmin = currentProfile?.cargo === 'admin';
-    const lim = isAdmin ? 30 : 10;
-    info.textContent = `(máx ${lim})`;
-    inputQtd.max = lim;
-    if (parseInt(inputQtd.value) > lim) inputQtd.value = lim;
+    info.textContent = `(máx ${lim.qtdMax})`;
+    inputQtd.max = lim.qtdMax;
+    if (parseInt(inputQtd.value) > lim.qtdMax) inputQtd.value = lim.qtdMax;
   }
-  // Esconde botão buscar se sem permissão
   const btn = document.getElementById('prsp-buscar-btn');
-  if (btn) btn.style.display = prospPodeBuscar() ? '' : 'none';
+  if (!btn) return;
+  if (!prospPodeBuscar()) { btn.style.display = 'none'; return; }
+  btn.style.display = '';
+  if (lim.isAdmin) {
+    btn.disabled = false;
+    btn.textContent = '✨ Buscar com IA';
+    return;
+  }
+  const usados = await _prspBuscasHoje();
+  const restantes = Math.max(0, lim.buscasDiaMax - usados);
+  if (restantes <= 0) {
+    btn.disabled = true;
+    btn.textContent = `🚫 Limite diário atingido (${usados}/${lim.buscasDiaMax})`;
+    btn.title = 'Você já fez todas as buscas permitidas hoje. Tenta amanhã.';
+  } else {
+    btn.disabled = false;
+    btn.textContent = `✨ Buscar com IA (${usados}/${lim.buscasDiaMax} hoje)`;
+    btn.title = `Você pode fazer mais ${restantes} busca${restantes===1?'':'s'} hoje.`;
+  }
+}
+
+async function prospLoad() {
+  const lista = document.getElementById('prsp-lista');
+  if (!lista) return;
+  // Atualiza UI de limite/quota conforme cargo + buscas hoje
+  await _prspAtualizarQuotaUI();
   try {
     // Carrega prospects (RLS filtra: criado_por OR admin) + status públicos cross-vendedor em paralelo
     const [prospectsRes] = await Promise.all([
@@ -18414,6 +18458,11 @@ async function prospBuscar() {
       },
       body: JSON.stringify({ segmento, cidade, estado, qtd_max: qtdMax, ja_prospectados: jaProspectados }),
     });
+    if (res.status === 429) {
+      // Limite diário atingido — server-side enforcement
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody.error || 'Limite diário de buscas atingido. Tenta amanhã.');
+    }
     if (!res.ok) {
       const txt = await res.text();
       throw new Error(`HTTP ${res.status}: ${txt.slice(0, 200)}`);
@@ -18456,7 +18505,9 @@ async function prospBuscar() {
     console.error('[prsp] buscar:', e);
     showToast('Erro: ' + (e.message || String(e)).slice(0, 150));
   } finally {
+    // Atualiza UI da quota (contador hoje + bloqueio se limite atingido)
     if (btn) { btn.disabled = false; btn.textContent = '✨ Buscar com IA'; }
+    await _prspAtualizarQuotaUI();
   }
 }
 
