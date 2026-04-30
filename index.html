@@ -432,10 +432,23 @@ html[data-theme="dark"] .topbar {
   background: var(--bg);
 }
 
-/* Botões/banners com bg preto e texto branco: garantir texto claro mesmo no dark
-   (pq color:var(--white) ali = #1a1a1a no dark, ficaria invisível) */
+/* .btn-primary no dark: inverte (claro com texto escuro) — fica visível em fundo
+   escuro da página, padrão UI dark (GitHub, Vercel, etc). Outros banners pretos
+   continuam pretos mas precisam ter texto claro garantido. */
 html[data-theme="dark"] .main .btn-primary,
 html[data-theme="dark"] .topbar .btn-primary,
+html[data-theme="dark"] body .btn-primary {
+  background: var(--ink);
+  color: #0a0a0a;
+}
+html[data-theme="dark"] .main .btn-primary:hover,
+html[data-theme="dark"] .topbar .btn-primary:hover,
+html[data-theme="dark"] body .btn-primary:hover {
+  background: #ffffff;
+  color: #0a0a0a;
+}
+
+/* Banners e badges pretos: texto continua claro (color:var(--white) viraria escuro) */
 html[data-theme="dark"] .main .modal-close:hover,
 html[data-theme="dark"] .main .ps-type.video,
 html[data-theme="dark"] .main .ps-filter.active,
