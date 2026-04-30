@@ -5139,4 +5139,85 @@ Total: 28 functions ativas. Onda 100% client-side + SQL.
 
 ---
 
-**Fim da documentação · Atualizado em 30/04/2026 noite-2 — ciclo 52 (Realtime + Pera lá + Histórico restaurados) · v5.6**
+---
+
+## 53. CICLO 30/04/2026 (NOITE-3) — Quota: 2 buscas/dia · 5 leads/busca pra vendedoras
+
+**Pedido:** vendedora pode clicar 2x no botão Buscar com IA por dia, com max 5 leads cada → 10 leads/dia/vendedora.
+
+### 53.1 Backend (já existia)
+
+A infra de quota foi feita em ondas anteriores. Componentes:
+- Tabela `prospeccao_config` (id=1) com `limite_diario_vendedor`, `limite_diario_gerente`, `limite_mensal_reais`, `pausado_manual`, `pausado_por_limite`
+- Tabela `ia_prospeccao_log` (cada chamada de prospectar com status, custo, tokens)
+- RPC `prospeccao_count_hoje(uid)` — count do dia (timezone São Paulo) com status=ok
+- RPC `prospeccao_gasto_mes()` — total gasto no mês (auto-pausa se >= limite_mensal_reais)
+- Edge function `prospectar` valida 3 coisas antes de chamar Gemini: kill-switches, limite mensal, limite diário (HTTP 429)
+
+### 53.2 Mudanças aplicadas
+
+**SQL:**
+```sql
+UPDATE prospeccao_config SET limite_diario_vendedor = 2 WHERE id = 1;
+-- Era 5, agora 2 (10 leads/dia max com max 5 por busca)
+```
+
+**Edge function `prospectar` v13:**
+```ts
+const isAdmin = userInfo.cargo === 'admin';
+const isGerente = ['gerente_comercial', 'gerente_marketing', 'gerente_financeiro'].includes(userInfo.cargo);
+const limiteMax = isAdmin ? 30 : (isGerente ? 10 : 5);  // antes era 30 ou 10
+input.qtd_max = Math.min(input.qtd_max || 5, limiteMax);
+```
+
+**Frontend (`index.html`):**
+- `_prspCargoLimits()` — retorna `{isAdmin, isGerente, qtdMax, buscasDiaMax}` por cargo
+- `_prspBuscasHoje()` — chama `sb.rpc('prospeccao_count_hoje', {uid})`
+- `_prspAtualizarQuotaUI()` — re-calcula max do input + label + estado do botão
+- `prospBuscar`: trata HTTP 429 com mensagem clara + atualiza UI da quota no `finally`
+
+### 53.3 UI nova
+
+Botão "Buscar com IA":
+- **Admin:** `✨ Buscar com IA` (sem contador)
+- **Vendedora com 0 buscas:** `✨ Buscar com IA (0/2 hoje)`
+- **Vendedora com 2 buscas:** `🚫 Limite diário atingido (2/2)` (disabled)
+
+Input quantidade:
+- **Admin:** max 30
+- **Gerente:** max 10
+- **Vendedora:** max 5 (era 10)
+
+### 53.4 Comportamento por cargo
+
+| Cargo | Max leads/busca | Buscas/dia | Total leads/dia |
+|---|---|---|---|
+| admin | 30 | ∞ | ∞ |
+| gerente_comercial / marketing / financeiro | 10 | 10 | 100 |
+| vendedor | 5 | 2 | **10** |
+
+### 53.5 Defesa em camadas
+
+| Camada | O que faz |
+|---|---|
+| Frontend UI | Bloqueia botão visualmente quando atingido |
+| Frontend prospBuscar | Trata 429 graciosamente |
+| Edge function | HTTP 429 com `quota: { usados, limite, restante }` se vendedora atingiu |
+| RLS na ia_prospeccao_log | Vendedora só vê os próprios logs (privacy) |
+
+Bypass via console possível? Sim na UI, mas edge function é fonte da verdade.
+
+### 53.6 Reversibilidade
+
+```sql
+UPDATE prospeccao_config SET limite_diario_vendedor = 5 WHERE id = 1;
+```
++ revert edge function v13 → v12 (re-deploy do código antigo) + `git revert` no commit do ciclo 53.
+
+### 53.7 Próximo passo (não implementado)
+
+UI pra admin gerenciar `prospeccao_config` (limite_diario_vendedor / gerente / mensal_reais / pausado_manual) sem precisar de SQL. Atualmente precisa rodar UPDATE direto.
+
+---
+
+**Fim da documentação · Atualizado em 30/04/2026 noite-3 — ciclo 53 (quota 2 buscas/dia vendedora) · v5.7**
