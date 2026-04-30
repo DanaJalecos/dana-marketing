@@ -418,6 +418,16 @@ html[data-theme="dark"] .topbar {
   --shadow-sm: 0 1px 4px rgba(0,0,0,0.5);
   --shadow: 0 4px 16px rgba(0,0,0,0.55);
   --shadow-lg: 0 12px 40px rgba(0,0,0,0.6);
+  /* Status colors — versões mais brilhantes pra contraste com fundo escuro */
+  --red: #f87171;
+  --green: #4ade80;
+  --amber: #fbbf24;
+  --blue: #60a5fa;
+  /* Status backgrounds — overlays semi-transparentes (deixam o cinza escuro passar) */
+  --red-bg: rgba(248,113,113,0.10);
+  --green-bg: rgba(74,222,128,0.10);
+  --amber-bg: rgba(251,191,36,0.10);
+  --blue-bg: rgba(96,165,250,0.10);
   color-scheme: dark;
   background: var(--bg);
 }
@@ -6544,7 +6554,7 @@ window.addEventListener('load', () => {
 .ref-type-foto{background:#f3e8ff;color:#7c3aed;}
 .ref-type-video{background:#dbeafe;color:#1d4ed8;}
 .ref-type-link{background:#dcfce7;color:#15803d;}
-.ref-type-copy{background:#fef3c7;color:#b45309;}
+.ref-type-copy{background:#fef3c7;color:var(--amber);}
 .ref-type-arquivo{background:#f1f5f9;color:#475569;}
 .ref-card-title{font-size:13px;font-weight:700;color:var(--ink);line-height:1.4;margin-bottom:4px;}
 .ref-card-desc{font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
@@ -8078,11 +8088,11 @@ updateDynamicField('foto');
   <div id="bv-tab-salvos" class="bv-tab-panel">
 
     <!-- Seção: Campanhas aguardando briefing (carregada dinamicamente) -->
-    <div id="bv-aguardando-wrap" style="display:none;margin-bottom:24px;padding:14px 16px;background:linear-gradient(135deg,#fef3c7 0%,#fde68a 100%);border:1px solid #fbbf24;border-radius:12px">
+    <div id="bv-aguardando-wrap" style="display:none;margin-bottom:24px;padding:14px 16px;background:var(--amber-bg);border:1px solid var(--amber);border-radius:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap">
         <div>
-          <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;color:#78350f">⏳ Campanhas aguardando briefing</div>
-          <div style="font-size:11.5px;color:#92400e;margin-top:2px" id="bv-aguardando-sub">Campanhas internas criadas sem briefing ainda</div>
+          <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;color:var(--amber)">⏳ Campanhas aguardando briefing</div>
+          <div style="font-size:11.5px;color:var(--amber);opacity:0.85;margin-top:2px" id="bv-aguardando-sub">Campanhas internas criadas sem briefing ainda</div>
         </div>
       </div>
       <div id="bv-aguardando-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px"></div>
@@ -8908,8 +8918,8 @@ updateDynamicField('foto');
       <div style="font-size:12.5px;color:var(--text3);margin-top:3px">Gere banners, posts e anúncios com IA usando produtos reais do catálogo Dana</div>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;max-width:340px">
-      <div style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #fbbf24;border-radius:8px;padding:8px 12px;font-size:11.5px;color:#78350f">
-        <strong>💰 Atenção custos:</strong> cada peça gerada usa IA paga (~R$ 0,20). Acompanhe o gasto em <a href="#admin/custos-ia" onclick="go(document.querySelector('[onclick*=admin]'),'admin');setTimeout(()=>switchAdminTab(document.querySelector('[onclick*=custos-ia]'),'custos-ia'),300);return false;" style="color:#78350f;text-decoration:underline">Admin · Custos IA</a>
+      <div style="background:var(--amber-bg);border:1px solid var(--amber);border-radius:8px;padding:8px 12px;font-size:11.5px;color:var(--amber)">
+        <strong>💰 Atenção custos:</strong> cada peça gerada usa IA paga (~R$ 0,20). Acompanhe o gasto em <a href="#admin/custos-ia" onclick="go(document.querySelector('[onclick*=admin]'),'admin');setTimeout(()=>switchAdminTab(document.querySelector('[onclick*=custos-ia]'),'custos-ia'),300);return false;" style="color:var(--amber);text-decoration:underline">Admin · Custos IA</a>
       </div>
       <button class="btn btn-ghost btn-sm" onclick="estSyncImagens()" style="font-size:11px" title="Baixa imagens dos produtos do Bling pro Storage permanente. Faz a IA Vision conseguir analisar visualmente.">🔄 Sincronizar imagens dos produtos</button>
     </div>
@@ -9027,9 +9037,9 @@ updateDynamicField('foto');
         </div>
       </div>
 
-      <div style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #fbbf24;border-radius:8px;padding:12px 14px;margin-bottom:14px">
-        <div style="font-weight:700;font-size:13px;color:#78350f;margin-bottom:4px">💰 Custo estimado: ~R$ 0,20 por imagem</div>
-        <div style="font-size:11.5px;color:#92400e">Usa Gemini 2.5 Flash Image (paga). O custo é multiplicado pelo número de variações. Acompanhe em <a href="#" onclick="go(document.querySelector('[onclick*=admin]'),'admin');setTimeout(()=>switchAdminTab(document.querySelector('[onclick*=custos-ia]'),'custos-ia'),300);return false;" style="color:#78350f;text-decoration:underline">Admin · Custos IA</a>.</div>
+      <div style="background:var(--amber-bg);border:1px solid var(--amber);border-radius:8px;padding:12px 14px;margin-bottom:14px">
+        <div style="font-weight:700;font-size:13px;color:var(--amber);margin-bottom:4px">💰 Custo estimado: ~R$ 0,20 por imagem</div>
+        <div style="font-size:11.5px;color:var(--amber)">Usa Gemini 2.5 Flash Image (paga). O custo é multiplicado pelo número de variações. Acompanhe em <a href="#" onclick="go(document.querySelector('[onclick*=admin]'),'admin');setTimeout(()=>switchAdminTab(document.querySelector('[onclick*=custos-ia]'),'custos-ia'),300);return false;" style="color:var(--amber);text-decoration:underline">Admin · Custos IA</a>.</div>
       </div>
     </div>
     <div style="display:flex;justify-content:space-between">
@@ -11072,14 +11082,14 @@ window.aguardandoCriarBriefing = function(campanhaId, campanhaNome) {
     if (!banner) {
       banner = document.createElement('div');
       banner.id = 'construtor-vinculo-banner';
-      banner.style.cssText = 'background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #fbbf24;border-radius:8px;padding:10px 14px;margin:0 0 14px 0;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap';
+      banner.style.cssText = 'background:var(--amber-bg);border:1px solid var(--amber);border-radius:8px;padding:10px 14px;margin:0 0 14px 0;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap';
       const view = document.getElementById('view-construtor');
       if (view) view.insertBefore(banner, view.firstChild);
     }
     banner.innerHTML = `
-      <div style="font-size:12.5px;color:#78350f">
+      <div style="font-size:12.5px;color:var(--amber)">
         <strong>⏳ Vinculando à campanha:</strong> ${(campanhaNome || '').replace(/</g,'&lt;')}
-        <div style="font-size:11px;color:#92400e;margin-top:2px">Ao salvar este briefing, ele será automaticamente vinculado a essa campanha interna.</div>
+        <div style="font-size:11px;color:var(--amber);margin-top:2px">Ao salvar este briefing, ele será automaticamente vinculado a essa campanha interna.</div>
       </div>
       <button class="btn btn-ghost btn-sm" onclick="aguardandoCancelarVinculo()" style="font-size:11px">Cancelar vínculo</button>
     `;
@@ -11195,10 +11205,10 @@ async function loadCampanhasAguardandoBriefing() {
     list.innerHTML = aguardando.map(c => {
       const periodo = c.data_inicio || c.data_fim ? `${fmtDt(c.data_inicio)}${c.data_fim ? ' → ' + fmtDt(c.data_fim) : ''}` : '';
       return `
-        <div style="background:var(--white);border:1px solid #fbbf24;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px">
+        <div style="background:var(--white);border:1px solid var(--amber);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px">
           <div style="font-weight:700;font-size:13px;color:#1a1a1a;line-height:1.3">${esc(c.nome || 'Sem nome')}</div>
           ${c.publico_alvo ? `<div style="font-size:11.5px;color:#666">${esc(c.publico_alvo)}</div>` : ''}
-          ${periodo ? `<div style="font-size:11px;color:#92400e;font-weight:600">📅 ${periodo}</div>` : ''}
+          ${periodo ? `<div style="font-size:11px;color:var(--amber);font-weight:600">📅 ${periodo}</div>` : ''}
           <div style="display:flex;gap:6px;margin-top:4px">
             <button class="btn btn-primary btn-sm" style="flex:1;font-size:11.5px" onclick="aguardandoCriarBriefing('${c.id}', ${JSON.stringify(c.nome||'').replace(/"/g,'&quot;')})">Criar briefing →</button>
             <button class="btn btn-ghost btn-sm" style="font-size:11.5px" onclick="aguardandoVincularExistente('${c.id}')">Selecionar existente</button>
@@ -11381,7 +11391,7 @@ window.bvVincularACampanha = async function() {
           <div class="modal-header"><div class="modal-title">🎯 Vincular briefing a campanha</div></div>
           <div style="font-size:12.5px;color:var(--text2);margin-bottom:12px">Selecione a campanha interna para vincular este briefing:</div>
           <select id="bv-vincular-select" class="input">${opts.join('')}</select>
-          ${jaVinculadas.length ? `<div style="margin-top:10px;padding:8px 10px;background:#fef3c7;border-radius:6px;font-size:11.5px;color:#78350f">⚠ Este briefing já está vinculado a: <strong>${jaVinculadas.map(c=>c.nome).join(', ').replace(/</g,'&lt;')}</strong></div>` : ''}
+          ${jaVinculadas.length ? `<div style="margin-top:10px;padding:8px 10px;background:var(--amber-bg);border:1px solid var(--amber);border-radius:6px;font-size:11.5px;color:var(--amber)">⚠ Este briefing já está vinculado a: <strong>${jaVinculadas.map(c=>c.nome).join(', ').replace(/</g,'&lt;')}</strong></div>` : ''}
           <div style="display:flex;gap:8px;margin-top:14px">
             <button class="btn btn-ghost" id="bv-vincular-cancel" style="flex:1">Cancelar</button>
             <button class="btn btn-primary" id="bv-vincular-ok" style="flex:1">Vincular</button>
