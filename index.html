@@ -18479,12 +18479,32 @@ async function prospLogHistorico(prospectId, acao, dados) {
 
 // Modal de aviso pré-contato. Retorna Promise<boolean>.
 // tipo: 'whatsapp' ou 'copiar'
+window._prspAvisoResolve = null;
+window._prspAvisoWrap = null;
+window.prospAvisoResponder = function(ok) {
+  const skip = document.getElementById('prsp-aviso-skip')?.checked;
+  if (ok && skip) sessionStorage.setItem('prsp_skip_aviso', '1');
+  if (window._prspAvisoWrap) {
+    window._prspAvisoWrap.remove();
+    window._prspAvisoWrap = null;
+  }
+  if (window._prspAvisoResolve) {
+    const r = window._prspAvisoResolve;
+    window._prspAvisoResolve = null;
+    r(ok);
+  }
+};
+
 function prospConfirmContato(tipo) {
   return new Promise((resolve) => {
     // Skip se já confirmou nessa sessão
     if (sessionStorage.getItem('prsp_skip_aviso') === '1') return resolve(true);
+    // Se já tem um modal aberto, fecha o anterior
+    if (window._prspAvisoWrap) { window._prspAvisoWrap.remove(); window._prspAvisoWrap = null; }
+    window._prspAvisoResolve = resolve;
     const acao = tipo === 'whatsapp' ? 'enviar mensagem por WhatsApp' : 'copiar a mensagem';
-    const html = `
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `
       <div class="modal-overlay open" id="prsp-aviso-modal" style="z-index:10000">
         <div class="modal" style="max-width:460px">
           <div style="text-align:center;margin-bottom:12px">
@@ -18506,22 +18526,13 @@ function prospConfirmContato(tipo) {
             <input type="checkbox" id="prsp-aviso-skip"> Não mostrar mais nessa sessão
           </label>
           <div style="display:flex;gap:8px">
-            <button class="btn btn-ghost" id="prsp-aviso-cancel" style="flex:1">Cancelar</button>
-            <button class="btn btn-primary" id="prsp-aviso-ok" style="flex:1.4;background:#16a34a;color:white">Já verifiquei, continuar</button>
+            <button type="button" class="btn btn-ghost" onclick="prospAvisoResponder(false)" style="flex:1">Cancelar</button>
+            <button type="button" class="btn btn-primary" onclick="prospAvisoResponder(true)" style="flex:1.4;background:#16a34a;color:white;border-color:#16a34a">Já verifiquei, continuar</button>
           </div>
         </div>
       </div>`;
-    const wrap = document.createElement('div');
-    wrap.innerHTML = html;
     document.body.appendChild(wrap);
-    const close = (ok) => {
-      const skip = document.getElementById('prsp-aviso-skip')?.checked;
-      if (ok && skip) sessionStorage.setItem('prsp_skip_aviso', '1');
-      wrap.remove();
-      resolve(ok);
-    };
-    document.getElementById('prsp-aviso-cancel').onclick = () => close(false);
-    document.getElementById('prsp-aviso-ok').onclick = () => close(true);
+    window._prspAvisoWrap = wrap;
   });
 }
 
