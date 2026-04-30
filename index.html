@@ -18179,6 +18179,12 @@ function prospPodeBuscar() {
 function prospPodeEditar() {
   return userPermissoes['prospeccao_editar'] !== false || currentProfile?.cargo === 'admin';
 }
+// Apagar: só admin pode apagar qualquer; outros só podem apagar leads que ELES criaram
+function prospPodeApagar(p) {
+  if (!p) return false;
+  if (currentProfile?.cargo === 'admin') return true;
+  return p.criado_por && currentUser?.id && p.criado_por === currentUser.id;
+}
 
 async function prospLoad() {
   const lista = document.getElementById('prsp-lista');
@@ -18326,7 +18332,7 @@ function prospRenderLista() {
               <option value="convertido">✅ Convertido</option>
               <option value="descartado">🚫 Descartado</option>
             </select>
-            <button class="btn btn-ghost btn-sm" onclick="prospApagar('${p.id}')" style="font-size:11px;color:var(--red)">🗑</button>
+            ${prospPodeApagar(p) ? `<button class="btn btn-ghost btn-sm" onclick="prospApagar('${p.id}')" style="font-size:11px;color:var(--red)" title="Apagar (você é o criador)">🗑</button>` : ''}
           ` : ''}
         </div>
       </div>
@@ -18442,6 +18448,10 @@ async function prospMudarStatus(id, novoStatus) {
 
 async function prospApagar(id) {
   const p = _prspCache.find(x => x.id === id);
+  if (!prospPodeApagar(p)) {
+    showToast('Você só pode apagar leads que VOCÊ criou. Admin pode apagar qualquer.');
+    return;
+  }
   if (!confirm(`Apagar o lead "${p?.nome || ''}"? Não dá pra desfazer.`)) return;
   const { error } = await sb.from('prospects').delete().eq('id', id);
   if (error) { showToast('Erro: ' + error.message); return; }
@@ -18724,7 +18734,7 @@ function prospRenderKanbanCard(p, podeEditar) {
         ) : ''}
         ${p.ia_mensagem ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();prospCopiarMsg('${p.id}')" style="font-size:10px;padding:3px 6px" title="Copiar mensagem">📋</button>` : ''}
         <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();prospAbrirHistorico('${p.id}')" style="font-size:10px;padding:3px 6px" title="Ver histórico">🕒</button>
-        ${podeEditar ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();prospApagar('${p.id}')" style="font-size:10px;padding:3px 6px;color:var(--red);margin-left:auto" title="Apagar">🗑</button>` : ''}
+        ${podeEditar && prospPodeApagar(p) ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();prospApagar('${p.id}')" style="font-size:10px;padding:3px 6px;color:var(--red);margin-left:auto" title="Apagar (você é o criador)">🗑</button>` : ''}
       </div>
     </div>
   `;
