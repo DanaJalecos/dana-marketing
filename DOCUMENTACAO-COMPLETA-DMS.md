@@ -4581,4 +4581,100 @@ Caso contrário: roadmap RD Station considera-se concluído com #0, #1, #2 (e sc
 
 ---
 
-**Fim da documentação · Atualizado em 29/04/2026 noite-3 — ciclo 47 (Onda #2 Timeline C360) · v5.1**
+---
+
+## 48. CICLO 30/04/2026 — DARK MODE NO DMS (sem sidebar, sem C360)
+
+**Pedido do user:** modo escuro pras seções, mantendo sidebar (preta) e Cliente 360 (visual próprio) inalterados. Botão toggle ao lado do filtro de empresa.
+
+### 48.1 Estratégia técnica
+
+**Mecanismo:** atributo `data-theme="dark"` no `<html>` (anti-flash) + override de variáveis CSS escopadas em `.main` e `.topbar` apenas.
+
+**Por que funciona com pouco código:** as ~80 ocorrências de `var(--white)` e maioria dos `var(--surface)/--bg/--text*` herdam automaticamente as novas vars. Não precisou editar caso a caso.
+
+**Tratamento especial de `var(--black)`:** usada em 137 lugares pra TEXTO e ~5 pra BACKGROUND. Sobrescrita no dark pra `#f2f2f2` (texto claro), com regras específicas restaurando #0a0a0a só pros backgrounds (`.btn-primary`, `.tl-dot.done`, `.check-item.done .check-box`).
+
+### 48.2 Paleta dark aplicada
+
+| Var | Light | Dark |
+|---|---|---|
+| `--white` | #ffffff | #1a1a1a |
+| `--bg` | #f5f5f5 | #0f0f0f |
+| `--surface` | #ffffff | #1a1a1a |
+| `--surface2` | #fafafa | #222222 |
+| `--surface3` | #f5f5f5 | #2a2a2a |
+| `--border` | #e2e2e2 | #2e2e2e |
+| `--text` | #0a0a0a | #f2f2f2 |
+| `--text2` | #3d3d3d | #c8c8c8 |
+| `--text3` | #777777 | #999999 |
+| `--black` (dentro de .main) | #0a0a0a | #f2f2f2 |
+| `color-scheme` | light | dark |
+
+Cores semânticas (`--green/--red/--amber/--blue`) mantém em ambos os temas.
+
+### 48.3 Escopo do override
+
+```
+html[data-theme="dark"] .main, html[data-theme="dark"] .topbar { ... vars ... }
+html[data-theme="dark"] #view-cliente360 { ... vars do light ... }   /* reset */
+html[data-theme="dark"] .kpi-card.dark { ... neutraliza ... }         /* não duplo-dark */
+```
+
+`.sidebar` é IRMÃ de `.main` — nunca recebe override → permanece preta.
+
+`#view-cliente360` recebe reset que volta às vars do light → mantém visual próprio (oklch e cores específicas do design original do C360).
+
+### 48.4 Anti-flash
+
+Script inline no `<head>` (ANTES de qualquer CSS render):
+```js
+(function(){ try { var t=localStorage.getItem('dms_theme')||'light';
+  document.documentElement.setAttribute('data-theme',t); } catch(e){} })();
+```
+
+Setta o atributo em `<html>` antes do CSS carregar → zero flicker no F5.
+
+### 48.5 Botão toggle
+
+- Local: dentro da topbar, ANTES de `#empresa-btn`
+- Ícone: 🌙 (light, indica "clica pra escurecer") / ☀️ (dark, "clica pra clarear")
+- Função `toggleTheme()` alterna data-theme em `<html>` + persiste em `localStorage('dms_theme')`
+- Função `applyTheme(t)` atualiza ícone + tooltip do botão
+
+### 48.6 Migração de literais inline (~10 conversões)
+
+Convertidos pra `var()`:
+- `.topbar { background: white }` → `var(--white)` (estava bloqueando o dark da topbar!)
+- `.tl-dot.done .tl-inner`, `.roi-field:focus`, `.p-real-stat`, `.est-var-label` → `var(--white)`
+- AI chat panel completo (`#ai-chat-panel`, `.ai-sug`, `.ai-msg.ai .ai-bubble`, `.ai-chat-footer`, `#ai-chat-input:focus`) → `var(--white)` + `var(--text)` + `var(--border)`
+- 3 inline `background:white` em criativos/reels/alerta → `var(--white)`
+
+NÃO convertidos (intencionais):
+- `.p-ranking-bar-fill` (barra de progresso branca por design)
+- Color picker visual (`background:#fff` mostrando a cor branca em si)
+- Relatório PDF (visual fixo independente do tema)
+- Cores de marca (#2563eb azul Matriz, #15803d verde BC, gradientes)
+- Bubble do user no AI chat (#0f172a) — sempre dark, OK em ambos
+
+### 48.7 Reversibilidade
+
+- `localStorage.removeItem('dms_theme')` no console → volta pra light
+- Toggle desaparece com 1 commit revert se necessário
+- Light mode 100% preservado (todas regras escopadas em `[data-theme="dark"]`)
+
+### 48.8 Arquivos tocados
+
+`index.html` apenas. Sem mudança em:
+- `cliente-360.html`, `cliente-360-boot.js`
+- Edge functions
+- Banco
+- `vercel.json`
+
+### 48.9 Próximo passo (opcional)
+
+Testar visualmente seções menos visitadas (Estúdio IA, Construtor Campanhas, Briefing Visual, etc) e ajustar literais hardcoded que aparecerem com texto invisível ou cores estranhas.
+
+---
+
+**Fim da documentação · Atualizado em 30/04/2026 — ciclo 48 (Dark Mode) · v5.2**
