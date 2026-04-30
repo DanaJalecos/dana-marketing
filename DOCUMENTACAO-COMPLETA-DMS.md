@@ -4929,4 +4929,105 @@ Tudo do ciclo 49 será desfeito:
 
 ---
 
-**Fim da documentação · Atualizado em 30/04/2026 tarde-2 — ciclo 50 (BACKLOG refactor Prospecção) · v5.4**
+---
+
+## 51. CICLO 30/04/2026 (NOITE) — EXECUTADO: Refactor Prospecção (isolamento por vendedor)
+
+**Status:** IMPLEMENTADO. Plan file `.claude/plans/steady-imagining-charm.md` executado integralmente.
+
+### 51.1 SQL aplicado (DMS `wltmiqbhziefusnzmmkt`)
+
+```sql
+-- 1) Reverter ciclo 49
+DROP TABLE IF EXISTS prospects_historico CASCADE;
+
+-- 2) Isolamento por vendedor (RLS SELECT)
+DROP POLICY IF EXISTS prospects_select ON prospects;
+CREATE POLICY prospects_select ON prospects FOR SELECT TO authenticated
+USING (
+  criado_por = auth.uid()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND cargo = 'admin')
+);
+
+-- 3) View pública pra cross-vendedor lookup
+CREATE OR REPLACE VIEW prospects_status_publico
+WITH (security_invoker = false) AS
+SELECT
+  LOWER(TRIM(nome)) AS nome_lower,
+  LOWER(TRIM(COALESCE(cidade, ''))) AS cidade_lower,
+  status, criado_por_nome, contatado_em, updated_at
+FROM prospects
+WHERE status != 'novo';
+
+GRANT SELECT ON prospects_status_publico TO authenticated;
+```
+
+**Verificação pós-aplicação:** view retorna 1 row (lead que estava marcado como Contatado pré-refactor). Policies `prospects` agora: SELECT/DELETE com `criado_por OR admin`, UPDATE com `true`, INSERT sem qual.
+
+### 51.2 Frontend (`index.html`)
+
+**Removidas (ciclo 49):**
+- `_prospUltimoResponsavel(p)`, `prospLogHistorico(...)`, `prospConfirmContato(...)`, `prospAbrirHistorico(...)`
+- Globals `window._prspAvisoResolve/_prspAvisoWrap/prospAvisoResponder`
+- Render "👤 Maria · 30 abr" em Lista e Kanban
+- Botão "🕒 Histórico" em Lista e Kanban
+- `await prospConfirmContato(...)` em `prospAbrirWhatsApp` e `prospCopiarMsg`
+- Atualização de `vendedor_id`/`vendedor_nome` em `prospMudarStatus` e `prospKanbanDrop`
+- Calls a `prospLogHistorico` em todas as funções
+
+**Adicionadas (ciclo 50):**
+- `_prspCarregarStatusPublicos()` — popula `window._prspPublicStatus` com lookup por `(nome_lower|cidade_lower)`
+- `_prspGetStatusPublico(p)` — retorna info de duplicata cross-vendedor (filtra própria vendedora)
+- `_prspAtualizarFiltroVendedor()` — popula select admin com nomes distintos
+- Render badge `⚠️ Já contatado por Maria · 28 abr` em `prospRenderLista`
+- Render badge compacto `⚠️ Maria já contatou` em `prospRenderKanbanCard`
+- Select `<select id="prsp-filtro-vendedor">` no topbar (display:none pra não-admin)
+- Filtro por `criado_por_nome` em `_prospFiltrosCacheFiltrado`
+- Em `prospBuscar`: blacklist agora inclui `tocadosOutros` (de outras vendedoras na mesma cidade)
+- `prospLoad` carrega prospects + lookup público em paralelo via `Promise.all`
+- `prospRender` chama `_prspAtualizarFiltroVendedor` junto com `_prospAtualizarFiltroOrigem`
+
+### 51.3 Comportamento final
+
+| Cenário | Resultado |
+|---|---|
+| Maria loga | Vê apenas leads dela (RLS server-side) |
+| João loga | Vê apenas leads dele |
+| Admin loga | Vê todos + select "👥 Todos vendedores · Maria · João..." |
+| Maria contatou "Dog Alemão" → João busca petshops Joinville | Gemini recebe "Dog Alemão" na blacklist → não retorna |
+| Maria e João têm "Jorge LTM" cada um (status novo) → Maria muda pra Contatado | João vê badge "⚠️ Já contatado por Maria · 28 abr" no card dele |
+| João clica 🗑 no "Jorge LTM" duplicado | DELETE só da row dele. Row de Maria intacta |
+| Não-admin acessa filtro vendedor | Select fica `display:none` |
+
+### 51.4 Validação
+
+- Sintaxe JS: 7 scripts no HTML, 0 erros
+- Refs órfãos do ciclo 49: 0
+- View pública: 1 row (Clínica X que Maria havia marcado como contatada nos testes do ciclo 49)
+- Policies recriadas e verificadas via `pg_policies`
+
+### 51.5 Edge functions estado (sem mudanças)
+
+`prospectar` v10 já lida com blacklist de até 80 itens. Refactor é 100% client-side + SQL. Total continua 28 functions ativas.
+
+### 51.6 Reversibilidade
+
+```sql
+DROP VIEW IF EXISTS prospects_status_publico;
+DROP POLICY prospects_select ON prospects;
+CREATE POLICY prospects_select ON prospects FOR SELECT TO authenticated USING (true);
+```
+
+Frontend: `git revert` no commit do ciclo 51.
+
+### 51.7 Coluna `vendedor_nome` (legacy ciclo 49)
+
+Permanece no schema mas sem uso. Nenhum custo, nenhum risco. Deixar pra evitar regressão em queries que possam ter referência.
+
+### 51.8 Tempo real
+
+Aplicado em ~50min (mais rápido que estimativa de 2h30 — sem necessidade de testes manuais com 2 contas, validação via SQL + grep).
+
+---
+
+**Fim da documentação · Atualizado em 30/04/2026 noite — ciclo 51 (refactor Prospecção EXECUTADO) · v5.5**
