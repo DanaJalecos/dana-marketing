@@ -4786,4 +4786,147 @@ Onda 100% SQL + frontend. Total continua 28 functions ativas.
 
 ---
 
-**Fim da documentação · Atualizado em 30/04/2026 tarde — ciclo 49 (Prospecção histórico + aviso) · v5.3**
+---
+
+## 50. CICLO 30/04/2026 (TARDE-2) — BACKLOG: Refactor Prospecção (isolamento por vendedor)
+
+**Status:** PLANEJADO, não implementado. User vai dar /compact, retoma depois.
+
+### 50.1 Decisão de produto
+
+A solução do ciclo 49 (histórico cross-vendedor + modal "Pera lá!") **vai ser totalmente revertida**. Causa: muito atrito + complica o que pode ser simples.
+
+**Nova abordagem:** isolamento por vendedor + IA inteligente anti-duplicata + badge cross-vendedor.
+
+### 50.2 Princípio
+
+Cada vendedora vê **APENAS os leads que ELA gerou**. Sem mistura, sem confusão. Mas o sistema é "inteligente o suficiente":
+- Se Maria contatou "Dog Alemão" → IA do prospectar não traz mais essa empresa nas buscas de João (mesmo que João pesquise mesmo segmento)
+- Se Maria e João ambos têm "Jorge LTM" (criados separadamente, ambos status=novo) e Maria marca Contatado → o card de João passa a mostrar **"⚠️ Já contatado por Maria · 28 abr"**. João pode excluir da lista dele (apaga só sua row) ou ignorar
+
+### 50.3 Decisões já tomadas pelo user
+
+| Pergunta | Resposta |
+|---|---|
+| Admin vê TODOS os leads? | Sim, com filtro "Todos / Maria / João..." no topbar (admin only) |
+| Badge mostra nome da vendedora? | Sim, mostra "Maria" (transparência total) |
+| Excluir duplicata afeta o lead da outra? | Não — apaga só a row da pessoa. Row de Maria continua intacta |
+
+### 50.4 O que SERÁ revertido (ciclo 49 inteiro)
+
+**Backend:**
+- `DROP TABLE prospects_historico CASCADE`
+
+**Frontend (index.html) — remover:**
+- Função `_prospUltimoResponsavel(p)`
+- Função `prospLogHistorico(...)`
+- Função `prospConfirmContato(...)` + globals + `prospAvisoResponder`
+- Função `prospAbrirHistorico(...)`
+- Render `respHtml` em Lista e Kanban (linha "👤 Maria · 30 abr")
+- Botão `🕒 Histórico` em ambos os renders
+- Calls a `prospLogHistorico` em prospMudarStatus, prospKanbanDrop, prospAbrirWhatsApp, prospCopiarMsg
+- `await prospConfirmContato(...)` em prospAbrirWhatsApp e prospCopiarMsg
+- Atualização de vendedor_id/vendedor_nome no UPDATE (volta ao código original síncrono)
+
+### 50.5 O que SERÁ adicionado
+
+**SQL — RLS de isolamento + view pública:**
+```sql
+-- Isolamento de visibilidade
+DROP POLICY IF EXISTS prospects_select ON prospects;
+CREATE POLICY prospects_select ON prospects FOR SELECT TO authenticated
+USING (
+  criado_por = auth.uid()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND cargo = 'admin')
+);
+
+-- View pública pra cross-vendedor lookup
+CREATE OR REPLACE VIEW prospects_status_publico
+WITH (security_invoker = false) AS
+SELECT
+  LOWER(TRIM(nome)) AS nome_lower,
+  LOWER(TRIM(COALESCE(cidade, ''))) AS cidade_lower,
+  status, criado_por_nome, contatado_em, updated_at
+FROM prospects
+WHERE status != 'novo';
+
+GRANT SELECT ON prospects_status_publico TO authenticated;
+```
+
+A view só expõe info pública (sem id/telefone/email/ia_msg). Permite todos os authenticated saberem "X já tocou em Y".
+
+**Frontend — adicionar:**
+- `_prspCarregarStatusPublicos()` em `prospLoad` — carrega lookup por (nome+cidade)
+- `_prspGetStatusPublico(p)` — retorna info de duplicata se outra vendedora já tocou
+- Render de badge "⚠️ Já contatado por Maria · 28 abr" em Lista e Kanban
+- Filtro `prsp-filtro-vendedor` no topbar (display:none pra não-admin)
+- `_prspAtualizarFiltroVendedor()` popula select com criado_por_nome distintos
+- `_prospFiltrosCacheFiltrado` ganha filtro por vendedor
+- `prospBuscar()` envia blacklist incluindo nomes "tocados" de outros (via `window._prspPublicStatus`)
+
+### 50.6 Fluxo dos cenários
+
+**Cenário 1 — Isolamento simples:**
+- Maria prospecta 5 leads → vê os 5
+- João loga → vê 0 leads (nenhum criado por ele)
+- Admin vê 5 leads + filtro "Todos vendedores · Maria"
+
+**Cenário 2 — IA não traz duplicado:**
+- Maria contatou "Dog Alemão"
+- João busca "petshops Joinville" → blacklist enviada pra Gemini inclui "Dog Alemão" → IA não retorna essa empresa
+
+**Cenário 3 — Badge duplicado:**
+- Maria e João têm "Jorge LTM" (cada um sua row)
+- Maria muda pra Contatado (marca timestamp)
+- João abre Prospecção → card "Jorge LTM" tem badge "⚠️ Já contatado por Maria · 28 abr"
+- João pode 🗑 (apaga só sua row) ou ignorar
+
+**Cenário 4 — Admin filter:**
+- Admin abre Prospecção, vê 100 leads de várias vendedoras
+- Select "👥 Todos vendedores" mostra: Todos · Maria · João · etc
+- Filtra por "Maria" → vê só leads dela
+
+### 50.7 Funções/utilidades reusáveis
+
+| Função | Onde | Uso |
+|---|---|---|
+| `_prspCache` | ~18054 | Cache global; RLS já filtra server-side |
+| `currentUser`, `currentProfile` | login | Identificar user atual |
+| `_prospAtualizarFiltroOrigem` | helper existente | Padrão pra `_prspAtualizarFiltroVendedor` |
+| `_prospFiltrosCacheFiltrado` | helper existente | Adicionar filtro vendedor |
+| `prospBuscar()` | ~18334 | Construir blacklist com tocados de outros |
+| edge function `prospectar` v10 | já lida com blacklist | Sem mudança |
+
+### 50.8 Tempo estimado
+
+~2h30 total. Detalhes em `.claude/plans/steady-imagining-charm.md`.
+
+### 50.9 Próximos passos pós-/compact
+
+1. Reler o plan file (caminho acima)
+2. Implementar Etapa A (reverter SQL + frontend ciclo 49)
+3. Implementar Etapa B (RLS isolamento)
+4. Implementar Etapa C (view pública)
+5. Implementar Etapa D (frontend lookup + badge)
+6. Implementar Etapa E (filtro vendedor admin)
+7. Implementar Etapa F (atualizar blacklist IA)
+8. Test com 2 contas (Maria + João) + admin
+9. Doc Section 51 (executado)
+
+### 50.10 Estado atual do banco (antes do refactor)
+
+- `prospects` tem RLS ativo, 4 policies (SELECT qual=true)
+- `prospects_historico` ativa com 13 rows backfill (ciclo 49)
+- Nenhuma view auxiliar
+- Coluna `vendedor_nome` adicionada no ciclo 49 (vai sobrar sem uso, sem custo)
+
+### 50.11 Reversibilidade do ciclo 49
+
+Tudo do ciclo 49 será desfeito:
+- Tabela DROP
+- Funções JS removidas
+- Schema `vendedor_nome` fica (não usar é melhor que dropar com risco de regressão)
+
+---
+
+**Fim da documentação · Atualizado em 30/04/2026 tarde-2 — ciclo 50 (BACKLOG refactor Prospecção) · v5.4**
