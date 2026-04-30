@@ -18288,12 +18288,14 @@ function prospRenderLista() {
     const cor = STATUS_COR[p.status] || ['#e5e7eb','#374151'];
     const wppLink = p.whatsapp ? `https://wa.me/55${(p.whatsapp || '').replace(/\D/g,'')}` : null;
     const igLink = p.instagram ? `https://instagram.com/${(p.instagram || '').replace(/^@/,'')}` : null;
+    const respHtml = _prospUltimoResponsavel(p);
     return `
       <div class="card" style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;border-left:3px solid ${cor[1]}">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
           <div style="flex:1">
             <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;line-height:1.25;color:var(--text)">${esc(p.nome)}</div>
             ${p.segmento ? `<div style="font-size:11px;color:var(--text3);margin-top:3px">${esc(p.segmento)}${p.cidade?' · '+esc(p.cidade):''}${p.estado?'/'+esc(p.estado):''}</div>` : ''}
+            ${respHtml ? `<div style="font-size:10.5px;color:var(--text3);margin-top:4px">${respHtml}</div>` : ''}
           </div>
           <span style="background:${cor[0]};color:${cor[1]};font-size:10px;font-weight:700;padding:3px 8px;border-radius:5px;white-space:nowrap">${STATUS_LBL[p.status] || p.status}</span>
         </div>
@@ -18314,6 +18316,7 @@ function prospRenderLista() {
               ? `<button class="btn btn-sm" onclick="prospAbrirWhatsApp('${p.id}')" style="font-size:11px;background:#e5e7eb;color:#6b7280;border:1px solid #d1d5db" title="Já foi contatado em ${p.contatado_em ? new Date(p.contatado_em).toLocaleDateString('pt-BR') : '—'}. Clique para abrir o WhatsApp mesmo assim.">✅ Já contatado</button>`
               : `<button class="btn btn-primary btn-sm" onclick="prospAbrirWhatsApp('${p.id}')" style="font-size:11px;background:#16a34a;border:none">💬 WhatsApp</button>`
           ) : ''}
+          <button class="btn btn-ghost btn-sm" onclick="prospAbrirHistorico('${p.id}')" style="font-size:11px" title="Ver histórico de quem mexeu nesse lead">🕒 Histórico</button>
           ${prospPodeEditar() ? `
             <select class="input" style="font-size:11px;padding:4px 6px;height:auto;flex:1;min-width:120px" onchange="prospMudarStatus('${p.id}', this.value)">
               <option value="">Mudar status...</option>
@@ -18421,10 +18424,18 @@ async function prospBuscar() {
 async function prospMudarStatus(id, novoStatus) {
   if (!novoStatus) return;
   if (!prospPodeEditar()) { showToast('Sem permissão'); return; }
-  const update = { status: novoStatus, updated_at: new Date().toISOString() };
+  const p = _prspCache.find(x => x.id === id);
+  const statusAnterior = p?.status || null;
+  const update = {
+    status: novoStatus,
+    updated_at: new Date().toISOString(),
+    vendedor_id: currentUser?.id || null,
+    vendedor_nome: currentProfile?.nome || null,
+  };
   if (novoStatus === 'contatado') update.contatado_em = new Date().toISOString();
   const { error } = await sb.from('prospects').update(update).eq('id', id);
   if (error) { showToast('Erro: ' + error.message); return; }
+  await prospLogHistorico(id, 'mudou_status', { status_anterior: statusAnterior, status_novo: novoStatus });
   showToast('Status atualizado');
   await prospLoad();
 }
@@ -18438,22 +18449,166 @@ async function prospApagar(id) {
   await prospLoad();
 }
 
-function prospCopiarMsg(id) {
+// ════════════════════════════════════════════════
+// PROSPECTS — Histórico + Popup de aviso pré-contato (ciclo 49)
+// ════════════════════════════════════════════════
+
+// Renderiza "👤 Maria · 30 abr" pra mostrar quem mexeu por último
+function _prospUltimoResponsavel(p) {
+  if (!p?.vendedor_nome) return '';
+  const data = p.contatado_em || p.updated_at;
+  if (!data) return `👤 ${esc(p.vendedor_nome)}`;
+  return `👤 ${esc(p.vendedor_nome)} · ${new Date(data).toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}`;
+}
+
+// Loga ação no histórico. Try/catch silencioso pra nunca bloquear UI.
+async function prospLogHistorico(prospectId, acao, dados) {
+  if (!prospectId || !acao) return;
+  try {
+    await sb.from('prospects_historico').insert({
+      prospect_id: prospectId,
+      acao,
+      status_anterior: dados?.status_anterior || null,
+      status_novo: dados?.status_novo || null,
+      user_id: currentUser?.id || null,
+      user_nome: currentProfile?.nome || null,
+      detalhes: dados?.detalhes || {},
+    });
+  } catch (e) { console.warn('[prsp historico]', e); }
+}
+
+// Modal de aviso pré-contato. Retorna Promise<boolean>.
+// tipo: 'whatsapp' ou 'copiar'
+function prospConfirmContato(tipo) {
+  return new Promise((resolve) => {
+    // Skip se já confirmou nessa sessão
+    if (sessionStorage.getItem('prsp_skip_aviso') === '1') return resolve(true);
+    const acao = tipo === 'whatsapp' ? 'enviar mensagem por WhatsApp' : 'copiar a mensagem';
+    const html = `
+      <div class="modal-overlay open" id="prsp-aviso-modal" style="z-index:10000">
+        <div class="modal" style="max-width:460px">
+          <div style="text-align:center;margin-bottom:12px">
+            <div style="font-size:42px;margin-bottom:8px">⚠️</div>
+            <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:17px;color:var(--ink);margin-bottom:6px">Pera lá!</div>
+          </div>
+          <div style="font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:14px">
+            Antes de <strong>${acao}</strong>, confirma:
+            <div style="margin-top:10px;padding:10px 12px;background:var(--amber-bg);border-left:3px solid var(--amber);border-radius:6px;color:var(--text2);font-size:12.5px;line-height:1.5">
+              <div style="margin-bottom:6px">✅ Essa empresa já é cliente da Dana?</div>
+              <div style="margin-bottom:6px">✅ Já tem cadastro no Bling?</div>
+              <div>✅ Outra vendedora já fez contato com ela?</div>
+            </div>
+            <div style="margin-top:10px;font-size:12px;color:var(--text3);line-height:1.5">
+              Se sim em qualquer um, <strong>NÃO envie a mensagem padrão</strong> (apresenta a Dana como nova). Fala com a vendedora responsável primeiro.
+            </div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text3);cursor:pointer;margin-bottom:12px">
+            <input type="checkbox" id="prsp-aviso-skip"> Não mostrar mais nessa sessão
+          </label>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost" id="prsp-aviso-cancel" style="flex:1">Cancelar</button>
+            <button class="btn btn-primary" id="prsp-aviso-ok" style="flex:1.4;background:#16a34a;color:white">Já verifiquei, continuar</button>
+          </div>
+        </div>
+      </div>`;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    document.body.appendChild(wrap);
+    const close = (ok) => {
+      const skip = document.getElementById('prsp-aviso-skip')?.checked;
+      if (ok && skip) sessionStorage.setItem('prsp_skip_aviso', '1');
+      wrap.remove();
+      resolve(ok);
+    };
+    document.getElementById('prsp-aviso-cancel').onclick = () => close(false);
+    document.getElementById('prsp-aviso-ok').onclick = () => close(true);
+  });
+}
+
+// Modal de histórico do lead
+async function prospAbrirHistorico(id) {
+  const p = _prspCache.find(x => x.id === id);
+  const nome = p?.nome || 'Lead';
+  // Busca histórico
+  const { data: rows, error } = await sb.from('prospects_historico')
+    .select('*').eq('prospect_id', id).order('created_at', { ascending: false }).limit(200);
+  const ACAO_LBL = {
+    criou: { lbl: '🌱 Criado', cor: '#3b82f6' },
+    mudou_status: { lbl: '🔄 Status', cor: '#f59e0b' },
+    contatou_whatsapp: { lbl: '💬 WhatsApp', cor: '#16a34a' },
+    copiou_msg: { lbl: '📋 Copiou msg', cor: '#8b5cf6' },
+    editou: { lbl: '✏️ Editou', cor: '#6b7280' },
+    apagou: { lbl: '🗑 Apagou', cor: '#ef4444' },
+  };
+  const STATUS_LBL = { novo:'🆕 Novo', contatado:'📞 Contatado', em_negociacao:'🤝 Em negociação', convertido:'✅ Convertido', descartado:'🚫 Descartado' };
+  const linhas = (rows || []).map(r => {
+    const c = ACAO_LBL[r.acao] || { lbl: r.acao, cor: '#6b7280' };
+    const data = new Date(r.created_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
+    let detalhe = '';
+    if (r.acao === 'mudou_status') {
+      const de = STATUS_LBL[r.status_anterior] || r.status_anterior || '—';
+      const para = STATUS_LBL[r.status_novo] || r.status_novo || '—';
+      detalhe = `<span style="color:var(--text3)">${esc(de)} → <strong>${esc(para)}</strong></span>`;
+    }
+    return `
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 6px;font-size:11px;color:var(--text3);white-space:nowrap">${data}</td>
+        <td style="padding:8px 6px"><span style="background:${c.cor}22;color:${c.cor};padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600">${c.lbl}</span></td>
+        <td style="padding:8px 6px;font-size:11.5px;color:var(--text)">${esc(r.user_nome || 'Sistema')}</td>
+        <td style="padding:8px 6px;font-size:11.5px">${detalhe}</td>
+      </tr>`;
+  }).join('');
+  const corpo = error
+    ? `<div style="padding:20px;color:#ef4444;text-align:center;font-size:12px">Erro: ${esc(error.message)}</div>`
+    : (rows && rows.length
+      ? `<table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="border-bottom:1px solid var(--border);text-align:left;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px">
+            <th style="padding:6px">Data</th><th style="padding:6px">Ação</th><th style="padding:6px">Usuário</th><th style="padding:6px">Detalhe</th>
+          </tr></thead>
+          <tbody>${linhas}</tbody>
+        </table>`
+      : `<div style="padding:30px;text-align:center;color:var(--text3);font-size:12.5px">📭 Nenhuma ação registrada ainda</div>`);
+
+  const html = `
+    <div class="modal-overlay open" id="prsp-hist-modal" style="z-index:10000" onclick="if(event.target===this){this.remove()}">
+      <div class="modal" style="max-width:680px;max-height:80vh;display:flex;flex-direction:column">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title">🕒 Histórico do Lead</div>
+            <div class="card-sub">${esc(nome)}</div>
+          </div>
+          <button class="modal-close" onclick="document.getElementById('prsp-hist-modal').remove()">×</button>
+        </div>
+        <div style="flex:1;overflow-y:auto;max-height:60vh">${corpo}</div>
+      </div>
+    </div>`;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstElementChild);
+}
+
+async function prospCopiarMsg(id) {
   const p = _prspCache.find(x => x.id === id);
   if (!p?.ia_mensagem) return;
+  const ok = await prospConfirmContato('copiar');
+  if (!ok) return;
   navigator.clipboard?.writeText(p.ia_mensagem).then(
-    () => showToast('Mensagem copiada'),
+    () => { showToast('Mensagem copiada'); prospLogHistorico(id, 'copiou_msg', { detalhes: { tamanho: p.ia_mensagem.length } }); },
     () => showToast('Não foi possível copiar')
   );
 }
 
-function prospAbrirWhatsApp(id) {
+async function prospAbrirWhatsApp(id) {
   const p = _prspCache.find(x => x.id === id);
   if (!p?.whatsapp) { showToast('Sem WhatsApp cadastrado'); return; }
+  const ok = await prospConfirmContato('whatsapp');
+  if (!ok) return;
   const num = (p.whatsapp || '').replace(/\D/g,'');
   const numFmt = num.length === 10 || num.length === 11 ? '55' + num : num;
   const msg = encodeURIComponent(p.ia_mensagem || `Olá, sou da Dana Jalecos.`);
-  window.open(`https://wa.me/${numFmt}?text=${msg}`, '_blank');
+  const link = `https://wa.me/${numFmt}?text=${msg}`;
+  window.open(link, '_blank');
+  await prospLogHistorico(id, 'contatou_whatsapp', { detalhes: { numero: numFmt } });
   // Marca como contatado se ainda for novo
   if (p.status === 'novo') prospMudarStatus(id, 'contatado');
 }
@@ -18543,10 +18698,12 @@ function prospRenderKanbanCard(p, podeEditar) {
   const wppLink = p.whatsapp ? true : false;
   const isContatado = p.status === 'contatado';
   const insightShort = p.ia_insight ? (p.ia_insight.length > 80 ? p.ia_insight.slice(0, 80) + '…' : p.ia_insight) : '';
+  const respHtml = _prospUltimoResponsavel(p);
   return `
     <div class="card prsp-kcard" draggable="${podeEditar?'true':'false'}" data-kanban-id="${p.id}" style="padding:9px 11px;cursor:${podeEditar?'grab':'default'};font-size:11.5px;background:var(--white);border-left:3px solid ${_prospStatusCor(p.status)};min-width:0;overflow:hidden">
       <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:12.5px;line-height:1.2;margin-bottom:3px;color:var(--text);word-break:break-word;overflow-wrap:anywhere">${esc(p.nome)}</div>
-      ${p.segmento ? `<div style="font-size:10.5px;color:var(--text3);margin-bottom:5px;word-break:break-word">${esc(p.segmento)}${p.cidade?' · '+esc(p.cidade):''}${p.estado?'/'+esc(p.estado):''}</div>` : ''}
+      ${p.segmento ? `<div style="font-size:10.5px;color:var(--text3);margin-bottom:3px;word-break:break-word">${esc(p.segmento)}${p.cidade?' · '+esc(p.cidade):''}${p.estado?'/'+esc(p.estado):''}</div>` : ''}
+      ${respHtml ? `<div style="font-size:10px;color:var(--text3);margin-bottom:5px;font-weight:600">${respHtml}</div>` : ''}
       ${insightShort ? `<div style="font-size:10.5px;color:#5b21b6;background:#ede9fe;padding:4px 6px;border-radius:4px;line-height:1.3;margin-bottom:6px;word-break:break-word">💡 ${esc(insightShort)}</div>` : ''}
       <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">
         ${wppLink ? (
@@ -18555,6 +18712,7 @@ function prospRenderKanbanCard(p, podeEditar) {
             : `<button class="btn btn-sm" onclick="event.stopPropagation();prospAbrirWhatsApp('${p.id}')" style="font-size:10px;padding:3px 7px;background:#16a34a;color:white;border:none">💬 WhatsApp</button>`
         ) : ''}
         ${p.ia_mensagem ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();prospCopiarMsg('${p.id}')" style="font-size:10px;padding:3px 6px" title="Copiar mensagem">📋</button>` : ''}
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();prospAbrirHistorico('${p.id}')" style="font-size:10px;padding:3px 6px" title="Ver histórico">🕒</button>
         ${podeEditar ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();prospApagar('${p.id}')" style="font-size:10px;padding:3px 6px;color:var(--red);margin-left:auto" title="Apagar">🗑</button>` : ''}
       </div>
     </div>
@@ -18590,8 +18748,16 @@ window.prospKanbanDrop = async function(event, novoStatus) {
   p.status = novoStatus;
   if (novoStatus === 'contatado' && !p.contatado_em) p.contatado_em = new Date().toISOString();
   p.updated_at = new Date().toISOString();
+  // Atualiza vendedor responsável local (cache) pra render imediato
+  p.vendedor_id = currentUser?.id || p.vendedor_id;
+  p.vendedor_nome = currentProfile?.nome || p.vendedor_nome;
   prospRender(); // re-renderiza AMBAS as abas (Lista + Kanban) com cache atualizado
-  const update = { status: novoStatus, updated_at: p.updated_at };
+  const update = {
+    status: novoStatus,
+    updated_at: p.updated_at,
+    vendedor_id: p.vendedor_id,
+    vendedor_nome: p.vendedor_nome,
+  };
   if (novoStatus === 'contatado') update.contatado_em = p.contatado_em;
   const { error } = await sb.from('prospects').update(update).eq('id', id);
   if (error) {
@@ -18601,6 +18767,7 @@ window.prospKanbanDrop = async function(event, novoStatus) {
     showToast('Erro: ' + error.message);
     return;
   }
+  await prospLogHistorico(id, 'mudou_status', { status_anterior: statusAnterior, status_novo: novoStatus });
   showToast(`→ ${novoStatus.replace('_',' ')}`);
   if (typeof logActivity === 'function') logActivity('moveu_lead_kanban', `${p.nome}: ${statusAnterior} → ${novoStatus}`, 'prospeccao');
 };

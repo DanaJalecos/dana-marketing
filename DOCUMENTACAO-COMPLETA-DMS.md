@@ -4677,4 +4677,113 @@ Testar visualmente seções menos visitadas (Estúdio IA, Construtor Campanhas, 
 
 ---
 
-**Fim da documentação · Atualizado em 30/04/2026 — ciclo 48 (Dark Mode) · v5.2**
+---
+
+## 49. CICLO 30/04/2026 (TARDE) — PROSPECÇÃO: HISTÓRICO + AVISO PRÉ-CONTATO
+
+**Pedido da Manu:** evitar que vendedoras "roubem" leads umas das outras na seção Prospecção. Sem rastro de quem mexeu, qualquer pessoa pode mandar mensagem genérica pra empresa que JÁ é cliente da Dana — e ainda passa por nova captação na frente da vendedora responsável.
+
+### 49.1 Solução em 2 partes
+
+**Parte A — Popup de aviso pré-contato:**
+- Aparece ao clicar **💬 WhatsApp** ou **📋 Copiar mensagem**
+- Lista 3 perguntas (cliente da Dana? Bling? outra vendedora já contatou?)
+- Texto: "Se sim em qualquer um, NÃO envie a mensagem padrão (apresenta a Dana como nova). Fala com a vendedora responsável primeiro"
+- Botão "Não mostrar mais nessa sessão" (sessionStorage, F5 reseta)
+- Modal `prospConfirmContato(tipo)` retorna Promise<boolean>
+
+**Parte B — Histórico completo de ações:**
+- Tabela nova `prospects_historico` com cada ação registrada
+- Campo "👤 Maria · 30 abr" visível em TODOS os cards (Lista e Kanban)
+- Botão **🕒** abre modal cronológico mostrando todas as ações
+
+### 49.2 SQL aplicado
+
+```sql
+CREATE TABLE prospects_historico (
+  id BIGSERIAL PRIMARY KEY,
+  prospect_id UUID NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+  acao TEXT NOT NULL,                  -- criou | mudou_status | contatou_whatsapp | copiou_msg | editou | apagou
+  status_anterior TEXT,
+  status_novo TEXT,
+  user_id UUID,
+  user_nome TEXT,
+  detalhes JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_prospects_historico_prospect ON prospects_historico(prospect_id, created_at DESC);
+CREATE INDEX idx_prospects_historico_user ON prospects_historico(user_id, created_at DESC);
+
+ALTER TABLE prospects_historico ENABLE ROW LEVEL SECURITY;
+CREATE POLICY select_authenticated ON prospects_historico FOR SELECT TO authenticated USING (true);
+CREATE POLICY insert_authenticated ON prospects_historico FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY delete_admin_only ON prospects_historico FOR DELETE TO authenticated USING (
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND cargo = 'admin')
+);
+
+-- Backfill: 'criou' pra todos os prospects existentes
+INSERT INTO prospects_historico (prospect_id, acao, user_nome, created_at)
+SELECT id, 'criou', criado_por_nome, created_at FROM prospects;
+-- Resultado: 13 rows inseridas
+```
+
+### 49.3 Frontend (`index.html`)
+
+**Helpers novos:**
+- `_prospUltimoResponsavel(p)` — retorna `'👤 Maria · 30 abr'` ou `''` se sem responsável
+- `prospLogHistorico(prospectId, acao, dados)` — INSERT na tabela. Try/catch silencioso pra nunca bloquear UI
+- `prospConfirmContato(tipo)` — modal Promise pra avisar antes de WhatsApp/Copiar
+- `prospAbrirHistorico(id)` — modal com tabela cronológica de todas as ações do lead
+
+**Funções existentes modificadas:**
+- `prospMudarStatus`: agora atualiza `vendedor_id` + `vendedor_nome` (sobrescreve último responsável) + chama `prospLogHistorico` com status_anterior/novo
+- `prospKanbanDrop`: idem (atualiza cache local + UPDATE no banco com vendedor + log)
+- `prospAbrirWhatsApp`: agora `await prospConfirmContato('whatsapp')` antes de abrir + log `contatou_whatsapp`
+- `prospCopiarMsg`: idem com tipo `'copiar'` + log `copiou_msg`
+
+**Render em cards:**
+- `prospRenderLista`: linha "👤 Nome · data" embaixo do segmento + botão `🕒 Histórico`
+- `prospRenderKanbanCard`: idem com fonte menor (10px) pra caber no card menor
+
+### 49.4 Cenário anti-roubo (validação)
+
+1. Maria (vendedora 1) entra. Arrasta lead "Clínica X" Novo → Contatado.
+   - Card mostra "👤 Maria · 30 abr"
+   - Histórico: criou → mudou_status (novo→contatado, por Maria)
+2. Maria clica WhatsApp, modal aparece, ela confirma. Manda msg.
+   - Histórico ganha: contatou_whatsapp, por Maria
+3. João (vendedora 2) entra outro dia. Vê o card de "Clínica X" com "👤 Maria · 30 abr".
+   - João sabe que Maria já contatou. Se for mexer, vai com cuidado.
+4. Se João mesmo assim arrasta pra Em Negociação:
+   - Cache atualizado, card vira "👤 João · hoje"
+   - Histórico ganha: mudou_status (contatado→em_negociacao, por João)
+5. Admin abre histórico de "Clínica X": vê toda a sequência cronológica com timestamps.
+
+### 49.5 Sobre permissões
+
+- Todas vendedoras autenticadas podem **ver** e **inserir** no histórico
+- Apenas admin pode **deletar** linhas (proteção contra adulteração)
+- Sem coluna RLS no `prospects` em si — qualquer vendedora ainda pode editar status. O histórico é o "audit log" que pega TODOS os movimentos
+
+### 49.6 Skip de fadiga
+
+`sessionStorage.setItem('prsp_skip_aviso','1')` quando user marca "Não mostrar mais nessa sessão". Não persiste entre F5 — Manu queria fadiga mínima mas sem eliminação total do aviso. Próximo refresh, popup volta.
+
+### 49.7 Edge functions estado (sem mudanças)
+
+Onda 100% SQL + frontend. Total continua 28 functions ativas.
+
+### 49.8 Estado dos dados
+
+- `prospects_historico`: 13 rows (backfill 'criou' pros 13 prospects existentes)
+- Próxima ação de qualquer vendedora vai começar a popular com mudou_status / contatou_whatsapp / copiou_msg
+
+### 49.9 Reversibilidade
+
+- `DROP TABLE prospects_historico CASCADE` reverte schema
+- Frontend: 1 commit revert volta ao estado anterior
+- Sem mudança de schema em `prospects` (usa colunas que já existiam: vendedor_id, vendedor_nome, contatado_em, updated_at)
+
+---
+
+**Fim da documentação · Atualizado em 30/04/2026 tarde — ciclo 49 (Prospecção histórico + aviso) · v5.3**
