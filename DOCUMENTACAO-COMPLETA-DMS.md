@@ -5030,4 +5030,113 @@ Aplicado em ~50min (mais rápido que estimativa de 2h30 — sem necessidade de t
 
 ---
 
-**Fim da documentação · Atualizado em 30/04/2026 noite — ciclo 51 (refactor Prospecção EXECUTADO) · v5.5**
+---
+
+## 52. CICLO 30/04/2026 (NOITE-2) — Realtime + restaurar Pera lá! + Histórico
+
+**Pedido:** depois do ciclo 51 (isolamento), Manu/Juan pediram pra:
+1. Sync em tempo real entre vendedoras + admin (não dá F5 pra ver mudança)
+2. Restaurar popup "Pera lá!" antes de WhatsApp/Copiar
+3. Restaurar botão 🕒 Histórico com datas
+
+### 52.1 Realtime
+
+```sql
+ALTER PUBLICATION supabase_realtime ADD TABLE prospects;
+ALTER PUBLICATION supabase_realtime ADD TABLE prospects_historico;
+```
+
+Frontend (`setupRealtimeSubscriptions`):
+```javascript
+const debouncedProspLoad = debounce(() => {
+  if (typeof prospLoad !== 'function') return;
+  if (!window._prspBootDone) return;        // antes da view abrir, ignora
+  if (window._prspDragSilence) return;      // durante drag, ignora
+  prospLoad();
+}, 1500);
+sb.channel('realtime-prospects')
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'prospects' }, () => debouncedProspLoad())
+  .subscribe();
+```
+
+`prospKanbanDrop` agora seta `window._prspDragSilence=true` no início e libera 2s depois.
+
+### 52.2 Tabela prospects_historico (restaurada com RLS escopada)
+
+```sql
+CREATE TABLE IF NOT EXISTS prospects_historico (
+  id BIGSERIAL PRIMARY KEY,
+  prospect_id UUID NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+  acao TEXT NOT NULL,
+  status_anterior TEXT,
+  status_novo TEXT,
+  user_id UUID,
+  user_nome TEXT,
+  detalhes JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE prospects_historico ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: vendedora vê histórico apenas dos PRÓPRIOS leads (filtra via prospects.criado_por)
+-- ou admin vê tudo
+CREATE POLICY hist_select ON prospects_historico FOR SELECT TO authenticated
+USING (
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND cargo = 'admin')
+  OR EXISTS (SELECT 1 FROM prospects WHERE prospects.id = prospects_historico.prospect_id AND prospects.criado_por = auth.uid())
+);
+CREATE POLICY hist_insert ON prospects_historico FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY hist_delete ON prospects_historico FOR DELETE TO authenticated
+USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND cargo = 'admin'));
+
+-- Backfill 'criou' pros leads existentes
+INSERT INTO prospects_historico (prospect_id, acao, user_id, user_nome, created_at)
+SELECT p.id, 'criou', p.criado_por, p.criado_por_nome, p.created_at
+FROM prospects p
+WHERE NOT EXISTS (SELECT 1 FROM prospects_historico h WHERE h.prospect_id = p.id AND h.acao = 'criou');
+-- Resultado: 14 rows inseridas
+```
+
+**Diferença vs ciclo 49:** RLS agora SELECT é escopada (não mais `qual=true`). Vendedora só vê histórico dos próprios leads, admin vê tudo. Isso casa com o isolamento do ciclo 51.
+
+### 52.3 Frontend restaurado
+
+**Re-adicionadas:**
+- `prospLogHistorico(prospectId, acao, dados)` — INSERT silencioso na tabela
+- `prospConfirmContato(tipo)` — modal "Pera lá!" Promise<boolean> com sessionStorage skip
+- `prospAvisoResponder(ok)` window-scope handler dos botões do modal
+- `prospAbrirHistorico(id)` — modal cronológico com tabela (Data | Ação | Usuário | Detalhe)
+- Botão "🕒 Histórico" em Lista (bem visível) e "🕒" em Kanban (compacto)
+
+**Wired em:**
+- `prospMudarStatus`: log `mudou_status` com status_anterior/novo
+- `prospKanbanDrop`: log `mudou_status` (após o UPDATE bem-sucedido)
+- `prospAbrirWhatsApp`: `await prospConfirmContato('whatsapp')` antes + log `contatou_whatsapp`
+- `prospCopiarMsg`: `await prospConfirmContato('copiar')` antes + log `copiou_msg`
+
+**NÃO restaurado (proposital):**
+- Render "👤 Maria · 30 abr" no card — com isolamento ciclo 51, vendedora só vê os próprios leads, então mostrar sempre o nome dela seria redundante. Substituído pelo badge cross-vendedor "⚠️ Já contatado por Maria · 28 abr" (de outras vendedoras).
+
+### 52.4 Comportamento final (ciclos 51+52 combinados)
+
+| Ação | O que acontece |
+|---|---|
+| Vendedora abre prospecção | RLS filtra: vê só os próprios leads. Lookup público mostra badge ⚠️ se outra vendedora já contatou |
+| Vendedora clica WhatsApp | Modal "Pera lá!" aparece (skip se já confirmou nessa sessão). Após OK: abre WhatsApp, loga `contatou_whatsapp`, marca status=contatado se era novo |
+| Vendedora muda status | UPDATE banco, loga `mudou_status` (de X→Y), realtime dispara → outras sessions recarregam em 1.5s |
+| Vendedora clica 🕒 | Modal abre tabela cronológica com criou/mudou_status/contatou_whatsapp/copiou_msg dela mesma |
+| Admin clica 🕒 | Vê tudo (RLS escopada permite admin ver todos os históricos de todos os leads) |
+| Vendedora muda status, admin tem aba aberta | Realtime → admin recarrega em ~1.5s automaticamente |
+
+### 52.5 Reversibilidade
+
+- `DROP TABLE prospects_historico CASCADE` reverte a tabela
+- `git revert` no commit do ciclo 52 reverte o frontend
+- Realtime publication: `ALTER PUBLICATION supabase_realtime DROP TABLE prospects, prospects_historico`
+
+### 52.6 Edge functions estado (sem mudanças)
+
+Total: 28 functions ativas. Onda 100% client-side + SQL.
+
+---
+
+**Fim da documentação · Atualizado em 30/04/2026 noite-2 — ciclo 52 (Realtime + Pera lá + Histórico restaurados) · v5.6**
