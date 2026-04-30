@@ -7105,12 +7105,14 @@ updateDynamicField('foto');
     <div class="mkt-tab" onclick="prospSwitchTab(this,'lista')">📋 Lista</div>
   </div>
 
-  <!-- Filtros lista existente -->
-  <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
-    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px">Leads salvos</div>
-    <span id="prsp-count-sub" style="font-size:11.5px;color:var(--text3)">—</span>
-    <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <span id="prsp-filtro-status-wrap"><select id="prsp-filtro-status" class="input" style="height:34px;padding:0 10px;font-size:12px" onchange="prospRender()">
+  <!-- Filtros (Onda #3 schema parcial: origem/canal) -->
+  <div style="margin-bottom:14px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px">Leads salvos</div>
+      <span id="prsp-count-sub" style="font-size:11.5px;color:var(--text3)">—</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;align-items:center">
+      <span id="prsp-filtro-status-wrap" style="min-width:0"><select id="prsp-filtro-status" class="input" style="height:36px;padding:0 10px;font-size:12px;width:100%" onchange="prospRender()">
         <option value="novo" selected>🆕 Novos</option>
         <option value="">Todos status</option>
         <option value="contatado">📞 Contatados</option>
@@ -7118,14 +7120,14 @@ updateDynamicField('foto');
         <option value="convertido">✅ Convertidos</option>
         <option value="descartado">🚫 Descartados</option>
       </select></span>
-      <select id="prsp-filtro-origem" class="input" style="height:34px;padding:0 10px;font-size:12px;display:none" onchange="prospRender()" title="Filtrar por origem do lead"></select>
-      <select id="prsp-filtro-canal" class="input" style="height:34px;padding:0 10px;font-size:12px" onchange="prospRender()" title="Tem WhatsApp ou não">
+      <select id="prsp-filtro-origem" class="input" style="height:36px;padding:0 10px;font-size:12px;width:100%;display:none" onchange="prospRender()" title="Filtrar por origem do lead"></select>
+      <select id="prsp-filtro-canal" class="input" style="height:36px;padding:0 10px;font-size:12px;width:100%" onchange="prospRender()" title="Tem WhatsApp ou não">
         <option value="">📱 Qualquer canal</option>
         <option value="whatsapp">💬 Tem WhatsApp</option>
         <option value="email">📧 Tem email</option>
         <option value="sem">❌ Sem canal</option>
       </select>
-      <input id="prsp-filtro-segmento" class="input" style="height:34px;padding:0 10px;font-size:12px;width:160px" placeholder="Filtrar segmento" oninput="prospRender()" />
+      <input id="prsp-filtro-segmento" class="input" style="height:36px;padding:0 10px;font-size:12px;width:100%" placeholder="🔎 Filtrar segmento" oninput="prospRender()" />
     </div>
   </div>
 
