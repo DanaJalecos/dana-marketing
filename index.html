@@ -13080,6 +13080,21 @@ function setupRealtimeSubscriptions() {
     })
     .subscribe();
 
+  // Prospecção — sincroniza entre vendedoras + admin (ciclo 51)
+  // RLS server-side já filtra (vendedora vê só os dela; admin vê tudo).
+  // Quando alguém muda status/cria/apaga lead, a outra session recarrega.
+  const debouncedProspLoad = debounce(() => {
+    if (typeof prospLoad !== 'function') return;
+    // Só recarrega se a view de prospeccao já foi aberta alguma vez (boot done)
+    if (!window._prspBootDone) return;
+    // Skip durante drag-drop pra evitar flicker
+    if (window._prspDragSilence) return;
+    prospLoad();
+  }, 1500);
+  sb.channel('realtime-prospects')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'prospects' }, () => debouncedProspLoad())
+    .subscribe();
+
   // Indicador realtime ativo
   const syncEl = document.getElementById('last-sync-time');
   if(syncEl) {
@@ -18211,6 +18226,7 @@ async function prospLoad() {
     ]);
     if (prospectsRes.error) throw prospectsRes.error;
     _prspCache = prospectsRes.data || [];
+    window._prspBootDone = true;
     prospRender();
   } catch (e) {
     console.error('[prsp] load:', e);
@@ -18679,6 +18695,8 @@ window.prospKanbanDrop = async function(event, novoStatus) {
   const p = _prspCache.find(x => x.id === id);
   if (!p || p.status === novoStatus) return;
   if (!prospPodeEditar()) { showToast('Sem permissão'); return; }
+  // Silencia realtime durante o drop pra evitar flicker
+  window._prspDragSilence = true;
   // Optimistic UI: muda local, re-renderiza, sincroniza no fundo
   const statusAnterior = p.status;
   p.status = novoStatus;
@@ -18691,6 +18709,8 @@ window.prospKanbanDrop = async function(event, novoStatus) {
   };
   if (novoStatus === 'contatado') update.contatado_em = p.contatado_em;
   const { error } = await sb.from('prospects').update(update).eq('id', id);
+  // Libera realtime depois de 2s (mais que o debounce de 1500ms)
+  setTimeout(() => { window._prspDragSilence = false; }, 2000);
   if (error) {
     // Rollback
     p.status = statusAnterior;
