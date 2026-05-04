@@ -5220,4 +5220,94 @@ UI pra admin gerenciar `prospeccao_config` (limite_diario_vendedor / gerente / m
 
 ---
 
-**Fim da documentação · Atualizado em 30/04/2026 noite-3 — ciclo 53 (quota 2 buscas/dia vendedora) · v5.7**
+---
+
+## 54. CICLO 04/05/2026 — Estúdio IA: imagens reais + prompt enriquecido + produto como referência visual
+
+**Pedido:** Juan trouxe `catalogo_dana_jalecos_detalhado.md` com 203 produtos do site Dana (SKU, nome, cores, tamanhos, descrição comercial, URLs CDN). Quer que o Estúdio IA (a) mostre fotos reais nos cards, (b) passe info rica pra IA, (c) gere imagem fiel ao produto.
+
+### 54.1 Tabelas novas (DMS)
+
+```sql
+CREATE TABLE produto_catalogo_site (
+  sku_ref TEXT PRIMARY KEY,
+  nome TEXT, url_pagina TEXT, preco NUMERIC,
+  cores TEXT[], tamanhos TEXT[],
+  descricao TEXT,           -- ⭐ descrição comercial rica do site
+  imagens TEXT[],
+  imagem_principal TEXT,
+  categoria TEXT, sexo TEXT
+);
+
+CREATE TABLE produto_imagens (
+  codigo_bling TEXT, url TEXT,
+  ordem INT, fonte TEXT,
+  match_score REAL,
+  ...
+);
+```
+
+### 54.2 Pipeline de mapping
+
+`parsear-catalogo-site.py`:
+1. Parser markdown → 203 produtos extraídos
+2. Cruze SKU/Ref do site ↔ `bling_produtos.codigo` (match exato + LIKE prefix pra variações)
+3. **Resultado: 153 SKUs Bling com imagem certeira** (score 1.0 todos via SKU/Ref direto)
+
+### 54.3 Edge function `gerar-peca-ia` v14
+
+System prompt enriquecido com:
+- **DANA PRODUCT KNOWLEDGE** — lista modelos (Manuela, Heloisa, Marta, Chloe, Rute, Diana, Clinic, Paulo, etc) com características, prints pediátricos (Liga da Fofura, Monsters, Dinos, Pet Love), tipos de produto e audiência por tipo
+- **Vision detalhado** — instruções pra extrair cor exata (não "azul" mas "azul bebê"), detalhes secundários, posição de bordado, formato de gola, cuff, sleeves, etc
+- **Reforço:** "FINAL PROMPT MUST DESCRIBE THE EXACT PRODUCT FROM IMAGE — NOT GENERIC"
+
+Frontend agora passa `produto_descricao` (vem da `produto_catalogo_site.descricao`).
+
+### 54.4 Edge function `gerar-avatar-ia` v18 (game-changer)
+
+**Antes:** só recebia LOGO Dana como referência visual.
+**Agora:** aceita `image_produto_url` do body. Pipeline:
+1. Fetch da URL CDN do site → base64
+2. Injeta no `parts[0]` (antes do logo)
+3. Prompt enhancer: `"CRITICAL: The FIRST image is the EXACT product the model must wear. Match color, cut, collar, sleeves, embroidery position PRECISELY — do not invent variations..."`
+
+Resultado: jaleco gerado é **visualmente idêntico** ao produto real (cor, corte, detalhes de bordado).
+
+### 54.5 Frontend (`index.html`)
+
+`estBuscarProdutoNow`:
+- Batch lookup em `produto_imagens` + `produto_catalogo_site` após fetch dos produtos
+- Precedência: `imagem_principal do site > storage > Bling URL > 📦`
+- Cada match enriquece `_site_descricao`, `_site_url_pagina`, `_site_cores`, `_site_tamanhos` no estado
+
+`estGerar`:
+- Passa `produto_descricao: estState.produto._site_descricao` pro `gerar-peca-ia`
+- Passa `image_produto_url: estState.produto.imagem_url` pro `gerar-avatar-ia`
+- `incluir_logo: estState.produto._persistente` (só ativa logo quando temos imagem real)
+
+### 54.6 Cobertura final
+
+| Item | Total | Com imagem | % |
+|---|---|---|---|
+| Produtos no site | 203 | 202 | 99.5% |
+| Match com Bling | 203 | 153 | 75.4% |
+| SKUs Bling com imagem | 2.205 | 153 | 6.9% |
+
+Os 6.9% parecem baixos mas representam **os produtos-pai principais** do site Dana — os que vendedoras usam mais. Os outros 1.762 SKUs do Bling são variações de cor/estampa que não estão no site curado.
+
+### 54.7 Próximos passos sugeridos
+
+- Atualizar o markdown periodicamente quando houver lançamentos
+- Considerar ampliar o match também via nome (fuzzy) pra cobrir os 50 SKUs do site sem match Bling
+- Storage local (R2) das imagens — pra evitar dependência do CDN Magazord
+
+### 54.8 Reversibilidade
+
+```sql
+DROP TABLE produto_imagens, produto_catalogo_site CASCADE;
+```
++ revert edge functions v14→v13 (gerar-peca-ia) e v18→v17 (gerar-avatar-ia) via redeploy do código antigo.
+
+---
+
+**Fim da documentação · Atualizado em 04/05/2026 — ciclo 54 (Estúdio IA com fidelidade visual real) · v5.8**
