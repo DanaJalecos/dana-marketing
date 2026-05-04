@@ -2870,7 +2870,7 @@ select.input { cursor: pointer; }
     <!-- Gráfico evolução -->
     <div class="card">
       <div class="card-header">
-        <div><div class="card-title">Evolução Diária — Abril 2026</div><div class="card-sub">Faturamento por dia — dados Bling</div></div>
+        <div><div class="card-title" id="evolucao-diaria-title">Evolução Diária — <span id="evolucao-diaria-mes">—</span></div><div class="card-sub">Faturamento por dia — dados Bling</div></div>
         <div class="tabs" style="margin-bottom:0">
           <div class="tab active" onclick="switchChart(this,'fat')">Faturamento</div>
           <div class="tab" onclick="switchChart(this,'ped')">Pedidos</div>
@@ -10226,6 +10226,13 @@ function switchChart(tab, key) {
 function renderChart() {
   const container = document.getElementById('main-chart');
   if(!container) return;
+  // Atualiza nome do mês no título dinamicamente (mês corrente do navegador)
+  const tituloMes = document.getElementById('evolucao-diaria-mes');
+  if (tituloMes) {
+    const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+    const hoje = new Date();
+    tituloMes.textContent = `${MESES[hoje.getMonth()]} ${hoje.getFullYear()}`;
+  }
   const data = chartData[activeChartKey];
   const labels = window._chartLabels || ['01/04','02','03','04','05','06','07','08','09','10','11','12','13/04'];
   const max = Math.max(...data);
