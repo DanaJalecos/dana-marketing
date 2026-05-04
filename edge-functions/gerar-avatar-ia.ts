@@ -3,6 +3,9 @@
 // Custo ~R$ 0,20/imagem. Admin ilimitado. Outros 5/dia.
 // Kill-switch global se gasto mensal > limite.
 // ============================================================
+// MUDANCA 28/04/2026: prompt limit subido de 2000 -> 5000 chars
+// (Estudio IA gera prompts ricos de ~2500 chars com Gemini Vision)
+// ============================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
@@ -21,13 +24,12 @@ const ROUPA_KEYWORDS = /\b(lab\s*coat|jaleco|scrub|uniform|medical\s*coat|labcoa
 // Frases que indicam EXPLICITAMENTE que NAO e roupa medica (sobrescreve a detecao acima)
 const NAO_ROUPA = /\bNO\s+(medical\s+)?(lab\s*coat|scrubs|stethoscope|healthcare\s+uniform)\b|\bNOT\s+a\s+(doctor|nurse|healthcare)\b/i
 
-async function fetchImagemBase64(url: string): Promise<{ mime: string, b64: string } | null> {
+async function fetchImagemBase64(url: string): Promise<{ mime: string; b64: string } | null> {
   try {
     const r = await fetch(url)
     if (!r.ok) { console.warn('[logo] fetch falhou', r.status); return null }
     const mime = r.headers.get('content-type') || 'image/png'
     const buf = new Uint8Array(await r.arrayBuffer())
-    // Encode base64
     let bin = ''
     for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i])
     return { mime, b64: btoa(bin) }
@@ -46,7 +48,7 @@ const CORS = {
 function json(data: any, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', ...CORS }
+    headers: { 'Content-Type': 'application/json', ...CORS },
   })
 }
 
@@ -61,7 +63,10 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get('Authorization') || ''
     const jwt = authHeader.replace(/^Bearer /, '')
     if (!jwt) return json({ error: 'Autenticação obrigatória' }, 401)
-    const userClient = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: authHeader } } })
+
+    const userClient = createClient(SUPABASE_URL, ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    })
     const { data: { user }, error: uerr } = await userClient.auth.getUser(jwt)
     if (uerr || !user) return json({ error: 'JWT inválido' }, 401)
     const userId = user.id
@@ -72,8 +77,7 @@ Deno.serve(async (req) => {
     const userCargo = profile?.cargo || 'desconhecido'
 
     // ── 2. Permissão por cargo ──
-    const { data: perm } = await admin.from('cargo_permissoes')
-      .select('permitido').eq('cargo', userCargo).eq('secao', 'avatares_ia_gerar').maybeSingle()
+    const { data: perm } = await admin.from('cargo_permissoes').select('permitido').eq('cargo', userCargo).eq('secao', 'avatares_ia_gerar').maybeSingle()
     if (!ehAdmin && !perm?.permitido) {
       return json({ error: 'Seu cargo não tem permissão para gerar avatares IA.' }, 403)
     }
@@ -88,11 +92,12 @@ Deno.serve(async (req) => {
     const { data: gastoMesData } = await admin.rpc('avatares_ia_gasto_mes')
     const gastoMes = Number(gastoMesData || 0)
     if (gastoMes >= Number(cfg.limite_mensal_reais || 50)) {
-      // Marca pausado se ainda não foi
       if (!cfg.pausado_por_limite) {
-        await admin.from('avatares_ia_config').update({ pausado_por_limite: true, pausado_em: new Date().toISOString() }).eq('id', 1)
+        await admin.from('avatares_ia_config').update({
+          pausado_por_limite: true,
+          pausado_em: new Date().toISOString(),
+        }).eq('id', 1)
       }
-      // Registra tentativa bloqueada
       await admin.from('avatares_ia_log').insert({
         user_id: userId, user_nome: userNome, user_cargo: userCargo,
         contexto: 'bloqueado', contexto_ref_id: null,
@@ -101,7 +106,7 @@ Deno.serve(async (req) => {
         erro_msg: `Limite mensal atingido: R$ ${gastoMes.toFixed(2)}`,
       })
       return json({
-        error: `Limite mensal de R$ ${Number(cfg.limite_mensal_reais).toFixed(2)} atingido (gasto atual: R$ ${gastoMes.toFixed(2)}). Fale com o admin pra liberar.`
+        error: `Limite mensal de R$ ${Number(cfg.limite_mensal_reais).toFixed(2)} atingido (gasto atual: R$ ${gastoMes.toFixed(2)}). Fale com o admin pra liberar.`,
       }, 429)
     }
 
@@ -113,8 +118,9 @@ Deno.serve(async (req) => {
     if (!prompt || prompt.length < 20) {
       return json({ error: 'Prompt obrigatório (mínimo 20 caracteres)' }, 400)
     }
-    if (prompt.length > 2000) {
-      return json({ error: 'Prompt muito longo (máx 2000 caracteres)' }, 400)
+    // Limite subido pra 5000 chars (era 2000) — Estudio IA gera prompts ricos com Gemini Vision
+    if (prompt.length > 5000) {
+      return json({ error: 'Prompt muito longo (máx 5000 caracteres)' }, 400)
     }
 
     // ── 6. Quota diária ──
@@ -125,32 +131,59 @@ Deno.serve(async (req) => {
       if (usadas >= limite) {
         await admin.from('avatares_ia_log').insert({
           user_id: userId, user_nome: userNome, user_cargo: userCargo,
-          contexto, contexto_ref_id: contextoRefId, prompt, url: null,
+          contexto, contexto_ref_id: contextoRefId,
+          prompt, url: null,
           status: 'bloqueado_quota',
           erro_msg: `Quota diária atingida (${usadas}/${limite})`,
         })
         return json({
           error: `Você atingiu seu limite diário (${limite} imagens). Volta amanhã!`,
-          usadas, limite
+          usadas, limite,
         }, 429)
       }
     }
 
-    // ── 7. Enhancer: injeta logo Dana quando for roupa/uniforme ──
-    // Pula se o prompt EXPLICITAMENTE disser que nao e roupa medica (ex: Diretor Gabriel)
+    // ── 7. Enhancer ──
+    // Ordem dos parts importa pra Gemini Image:
+    //   1) IMAGEM DO PRODUTO REAL (referencia visual exata) — se fornecida
+    //   2) LOGO DANA (referencia da marca pra bordado) — quando for roupa
+    //   3) TEXTO DO PROMPT (descricao da cena) — sempre
+    const imageProdutoUrl: string = body.image_produto_url || ''
     const incluirLogo = body.incluir_logo !== false && ROUPA_KEYWORDS.test(prompt) && !NAO_ROUPA.test(prompt)
     const parts: any[] = []
     let promptFinal = prompt
 
+    // 7a. Imagem do produto (referencia visual exata — game-changer)
+    let temImagemProduto = false
+    if (imageProdutoUrl) {
+      const imgProduto = await fetchImagemBase64(imageProdutoUrl)
+      if (imgProduto) {
+        parts.push({ inlineData: { mimeType: imgProduto.mime, data: imgProduto.b64 } })
+        temImagemProduto = true
+        console.log('[gerar-avatar-ia] imagem do produto injetada:', imageProdutoUrl.slice(0, 80))
+      } else {
+        console.warn('[gerar-avatar-ia] fetch da imagem do produto falhou:', imageProdutoUrl.slice(0, 80))
+      }
+    }
+
+    // 7b. Logo Dana (bordado na peca)
     if (incluirLogo) {
       const logo = await fetchImagemBase64(LOGO_DANA_URL)
       if (logo) {
         parts.push({ inlineData: { mimeType: logo.mime, data: logo.b64 } })
-        promptFinal = prompt + `\n\nBRAND REQUIREMENT: The lab coat / medical uniform / scrub must have the Dana Jalecos brand logo (shown in the attached reference image) embroidered or printed subtly on the chest pocket area. Keep the logo recognizable but integrated tastefully into the garment — tonal embroidery (cream/beige on white fabric) preferred, or small discrete placement. Use the exact logo shape and proportions from the reference.`
+        if (temImagemProduto) {
+          promptFinal = `CRITICAL: The FIRST image is the EXACT product the model in the scene must wear. Match the color, cut, collar shape, embroidery position, sleeves, length, fabric texture, and ALL details PRECISELY — do not invent variations or substitutions. The garment in your generated image must be VISUALLY IDENTICAL to the FIRST reference image. The SECOND image is the Dana Jalecos brand logo for tonal embroidery on chest pocket area.\n\n${prompt}\n\nBRAND REQUIREMENT: The lab coat / uniform must have the Dana Jalecos brand logo (shown in the SECOND attached reference image) embroidered subtly on the chest pocket — tonal embroidery (cream/beige on white fabric) preferred. Keep logo recognizable but tasteful.`
+        } else {
+          promptFinal = prompt + `\n\nBRAND REQUIREMENT: The lab coat / medical uniform / scrub must have the Dana Jalecos brand logo (shown in the attached reference image) embroidered or printed subtly on the chest pocket area. Keep the logo recognizable but integrated tastefully into the garment — tonal embroidery (cream/beige on white fabric) preferred, or small discrete placement. Use the exact logo shape and proportions from the reference.`
+        }
+      } else if (temImagemProduto) {
+        promptFinal = `CRITICAL: The FIRST image is the EXACT product the model in the scene must wear. Match the color, cut, collar shape, embroidery position, sleeves, length, fabric texture, and ALL details PRECISELY — do not invent variations. The garment must be VISUALLY IDENTICAL to the reference image.\n\n${prompt}\n\nBRAND REQUIREMENT: Include a small, elegant embroidered "Dana" wordmark on the chest pocket of the lab coat.`
       } else {
-        // Fallback se nao conseguir baixar a logo: ainda instrui no texto
         promptFinal = prompt + `\n\nBRAND REQUIREMENT: Include a small, elegant embroidered brand wordmark "Dana" on the chest pocket of the lab coat / uniform.`
       }
+    } else if (temImagemProduto) {
+      // Tem imagem do produto mas sem logo (ex: scrub de cozinha, sem branding Dana)
+      promptFinal = `CRITICAL: The FIRST image is the EXACT product the model in the scene must wear. Match the color, cut, collar shape, embroidery position, sleeves, length, fabric texture, and ALL details PRECISELY — do not invent variations. The garment must be VISUALLY IDENTICAL to the reference image.\n\n${prompt}`
     }
 
     parts.push({ text: promptFinal })
@@ -167,9 +200,9 @@ Deno.serve(async (req) => {
           contents: [{ role: 'user', parts }],
           generationConfig: {
             responseModalities: ['IMAGE'],
-            imageConfig: { aspectRatio }
-          }
-        })
+            imageConfig: { aspectRatio },
+          },
+        }),
       }
     )
 
@@ -179,13 +212,13 @@ Deno.serve(async (req) => {
       await admin.from('avatares_ia_log').insert({
         user_id: userId, user_nome: userNome, user_cargo: userCargo,
         contexto, contexto_ref_id: contextoRefId, prompt, url: null,
-        status: 'erro', erro_msg: `Gemini ${geminiRes.status}: ${erro.slice(0, 200)}`,
+        status: 'erro',
+        erro_msg: `Gemini ${geminiRes.status}: ${erro.slice(0, 200)}`,
       })
       return json({ error: 'Falha ao gerar imagem', detalhe: erro.slice(0, 300) }, 500)
     }
 
     const geminiData = await geminiRes.json()
-    // Localiza a parte inlineData com o PNG
     const partsRet = geminiData?.candidates?.[0]?.content?.parts || []
     const imgPart = partsRet.find((p: any) => p.inlineData?.data)
     if (!imgPart) {
@@ -193,33 +226,34 @@ Deno.serve(async (req) => {
       await admin.from('avatares_ia_log').insert({
         user_id: userId, user_nome: userNome, user_cargo: userCargo,
         contexto, contexto_ref_id: contextoRefId, prompt, url: null,
-        status: 'erro', erro_msg: 'Sem inlineData no retorno do Gemini',
+        status: 'erro',
+        erro_msg: 'Sem inlineData no retorno do Gemini',
       })
       return json({ error: 'Gemini não retornou imagem. Reformule o prompt.' }, 500)
     }
-
-    const base64: string = imgPart.inlineData.data
-    const mime: string = imgPart.inlineData.mimeType || 'image/png'
+    const base64 = imgPart.inlineData.data
+    const mime = imgPart.inlineData.mimeType || 'image/png'
 
     // ── 8. Upload pra ImgBB (externo, gratis, link permanente) ──
-    const tamanhoBytes = Math.floor((base64.length * 3) / 4) // aproximado
+    const tamanhoBytes = Math.floor(base64.length * 3 / 4)
     const imgbbForm = new FormData()
     imgbbForm.append('image', base64)
     imgbbForm.append('name', `${contexto}-${contextoRefId || 'geral'}-${Date.now()}`)
 
     let url: string | null = null
     try {
-      const imgbbRes = await fetch(
-        `https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`,
-        { method: 'POST', body: imgbbForm }
-      )
+      const imgbbRes = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
+        method: 'POST',
+        body: imgbbForm,
+      })
       const imgbbJson = await imgbbRes.json()
       if (!imgbbRes.ok || !imgbbJson?.data?.url) {
         console.error('[gerar-avatar-ia] ImgBB falhou:', imgbbRes.status, imgbbJson)
         await admin.from('avatares_ia_log').insert({
           user_id: userId, user_nome: userNome, user_cargo: userCargo,
           contexto, contexto_ref_id: contextoRefId, prompt, url: null,
-          status: 'erro', erro_msg: `ImgBB ${imgbbRes.status}: ${(imgbbJson?.error?.message || JSON.stringify(imgbbJson)).slice(0, 200)}`,
+          status: 'erro',
+          erro_msg: `ImgBB ${imgbbRes.status}: ${(imgbbJson?.error?.message || JSON.stringify(imgbbJson)).slice(0, 200)}`,
         })
         return json({ error: 'Falha ao hospedar imagem', detalhe: imgbbJson?.error?.message || 'ImgBB upload falhou' }, 500)
       }
@@ -229,7 +263,8 @@ Deno.serve(async (req) => {
       await admin.from('avatares_ia_log').insert({
         user_id: userId, user_nome: userNome, user_cargo: userCargo,
         contexto, contexto_ref_id: contextoRefId, prompt, url: null,
-        status: 'erro', erro_msg: `ImgBB network: ${String(e.message || e).slice(0, 200)}`,
+        status: 'erro',
+        erro_msg: `ImgBB network: ${String(e.message || e).slice(0, 200)}`,
       })
       return json({ error: 'Falha ao hospedar imagem', detalhe: String(e.message || e) }, 500)
     }
@@ -237,24 +272,25 @@ Deno.serve(async (req) => {
     // ── 9. Log de sucesso ──
     await admin.from('avatares_ia_log').insert({
       user_id: userId, user_nome: userNome, user_cargo: userCargo,
-      contexto, contexto_ref_id: contextoRefId, prompt, url,
+      contexto, contexto_ref_id: contextoRefId,
+      prompt, url,
       tamanho_bytes: tamanhoBytes,
       modelo: MODEL,
       custo_estimado_reais: Number(cfg.custo_por_imagem_reais || 0.20),
       status: 'ok',
     })
 
-    // Retorno
     const usadasHojeRes = !ehAdmin ? await admin.rpc('avatares_ia_count_hoje', { p_user_id: userId }) : null
     return json({
-      url,
-      mime,
+      url, mime,
       tamanho_bytes: tamanhoBytes,
       custo_estimado: Number(cfg.custo_por_imagem_reais || 0.20),
       gasto_mes_atual: gastoMes + Number(cfg.custo_por_imagem_reais || 0.20),
-      quota_hoje: ehAdmin ? null : { usadas: Number(usadasHojeRes?.data || 0), limite: Number(cfg.limite_diario_usuario || 5) },
+      quota_hoje: ehAdmin ? null : {
+        usadas: Number(usadasHojeRes?.data || 0),
+        limite: Number(cfg.limite_diario_usuario || 5),
+      },
     })
-
   } catch (e: any) {
     console.error('[gerar-avatar-ia] fatal:', e)
     return json({ error: 'Erro interno', detalhe: String(e.message || e) }, 500)

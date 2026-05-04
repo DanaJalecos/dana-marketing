@@ -19389,12 +19389,31 @@ async function estBuscarProdutoNow() {
       .order('nome')
       .limit(30);
     if (error) throw error;
-    // Normaliza: prefere imagem_storage_url (persistente), fallback imagem_url (Bling, expira em 1h)
-    const matches = (data || []).map(p => ({
-      ...p,
-      imagem_url: p.imagem_storage_url || p.imagem_url,
-      _persistente: !!p.imagem_storage_url,
-    }));
+    // Batch lookup em produto_imagens + produto_catalogo_site (site oficial Dana, URLs CDN persistentes)
+    const codigos = (data || []).map(p => p.codigo).filter(Boolean);
+    let imgMap = {}, catMap = {};
+    if (codigos.length) {
+      const [imgsRes, catsRes] = await Promise.all([
+        sb.from('produto_imagens').select('codigo_bling, url').in('codigo_bling', codigos).eq('ordem', 1),
+        sb.from('produto_catalogo_site').select('sku_ref, descricao, imagem_principal, url_pagina, cores, tamanhos').in('sku_ref', codigos),
+      ]);
+      imgMap = Object.fromEntries((imgsRes.data || []).map(i => [i.codigo_bling, i.url]));
+      catMap = Object.fromEntries((catsRes.data || []).map(c => [c.sku_ref, c]));
+    }
+    // Normaliza: prefere imagem do site (CDN persistente) > storage > bling_url (expira)
+    const matches = (data || []).map(p => {
+      const cat = catMap[p.codigo] || null;
+      const urlSite = imgMap[p.codigo] || cat?.imagem_principal || null;
+      return {
+        ...p,
+        imagem_url: urlSite || p.imagem_storage_url || p.imagem_url,
+        _persistente: !!(urlSite || p.imagem_storage_url),
+        _site_descricao: cat?.descricao || null,
+        _site_url_pagina: cat?.url_pagina || null,
+        _site_cores: cat?.cores || null,
+        _site_tamanhos: cat?.tamanhos || null,
+      };
+    });
     estState.ultimosResultados = matches;
     if (!matches.length) {
       resultados.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:12.5px;padding:30px">Nenhum produto encontrado pra "' + esc(q) + '"</div>';
@@ -19516,6 +19535,7 @@ window.estGerar = async function() {
         produto_nome: estState.produto.nome,
         produto_codigo: estState.produto.codigo,
         produto_preco: estState.produto.preco,
+        produto_descricao: estState.produto._site_descricao || undefined, // descricao oficial do site Dana (ciclo 54)
         produto_imagem_url: estState.produto.imagem_url,
         tipo_peca: estState.tipo_peca,
         tema: estState.tema,
@@ -19578,7 +19598,8 @@ window.estGerar = async function() {
                 contexto: 'outro',
                 contexto_ref_id: String(estState.produto.id),
                 aspect_ratio: aspectRatio,
-                incluir_logo: false,
+                incluir_logo: estState.produto._persistente, // só ativa logo se temos imagem real do produto (vem do site)
+                image_produto_url: estState.produto._persistente ? estState.produto.imagem_url : undefined, // URL do CDN site (ciclo 54)
               }),
             });
             const j = await r.json();
