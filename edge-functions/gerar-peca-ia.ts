@@ -247,17 +247,29 @@ interface Input {
   produto_preco?: number;
   produto_descricao?: string;
   produto_imagem_url?: string;
+  // Ciclo 55: campos estruturados do catálogo do site
+  produto_cor_hex?: string;     // "FFFFFF"
+  produto_tecido?: string;      // "Gabardine"
+  produto_composicao?: string;  // "100% Poliéster"
+  produto_sexo?: string;        // "Feminino"
+  produto_categoria?: string;   // "Jalecos"
   tipo_peca: 'banner_site' | 'post_feed' | 'story_reel' | 'anuncio_meta';
   tema?: string;
   copy_extra?: string;
 }
 
 function buildUserPromptText(input: Input): string {
-  const lines: string[] = ['PRODUCT DATA:'];
+  const lines: string[] = ['PRODUCT DATA (from Dana Jalecos official site):'];
   if (input.produto_nome) lines.push(`- Name: "${input.produto_nome}"`);
   if (input.produto_codigo) lines.push(`- SKU code: ${input.produto_codigo}`);
+  if (input.produto_categoria) lines.push(`- Category: ${input.produto_categoria}`);
+  if (input.produto_sexo) lines.push(`- Target gender: ${input.produto_sexo}`);
+  // Ciclo 55: cor canônica + tecido + composição vêm estruturados do site
+  if (input.produto_cor_hex) lines.push(`- Canonical color (hex): #${input.produto_cor_hex} — use this EXACT color in the rendered prompt, do not infer from JPEG (image compression can shift hue)`);
+  if (input.produto_tecido) lines.push(`- Fabric: ${input.produto_tecido}`);
+  if (input.produto_composicao) lines.push(`- Composition: ${input.produto_composicao}`);
   if (input.produto_preco) lines.push(`- Price: R$ ${Number(input.produto_preco).toFixed(2)}`);
-  if (input.produto_descricao) lines.push(`- Description: ${input.produto_descricao}`);
+  if (input.produto_descricao) lines.push(`- Official description (from danajalecos.com.br): ${input.produto_descricao}`);
   lines.push('');
   lines.push(`PIECE TYPE: ${input.tipo_peca}`);
   if (input.tema) lines.push(`THEME: "${input.tema}" — render this theme name as a SECONDARY HEADLINE in the image (smaller, elegant uppercase serif), AND visually represent it through scene props/environment.`);

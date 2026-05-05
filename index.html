@@ -19380,40 +19380,34 @@ async function estBuscarProdutoNow() {
   }
   resultados.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:12.5px;padding:30px">⏳ Buscando...</div>';
   try {
-    // Busca server-side com ILIKE — agora seleciona TAMBEM imagem_storage_url
-    // (URL persistente do Supabase Storage; fallback pra imagem_url do Bling)
+    // Ciclo 55: Estudio IA usa APENAS produto_catalogo_site (catálogo curado do site Dana).
+    // Antes consultava 'produtos' (sync Bling, 4753 SKUs com muitos sem foto/descontinuados).
+    // Agora consulta direto o catálogo do site (251 produtos curados, 100% com imagem real).
     const padrao = `%${q.replace(/[%,]/g, '')}%`;
-    const { data, error } = await sb.from('produtos')
-      .select('id,nome,codigo,preco,imagem_url,imagem_storage_url')
-      .or(`nome.ilike.${padrao},codigo.ilike.${padrao}`)
+    const { data, error } = await sb.from('produto_catalogo_site')
+      .select('sku_ref, nome, preco, imagem_principal, descricao, cores, tamanhos, url_pagina, sexo, categoria, cor_hex, tecido, composicao')
+      .or(`nome.ilike.${padrao},sku_ref.ilike.${padrao}`)
       .order('nome')
       .limit(30);
     if (error) throw error;
-    // Batch lookup em produto_imagens + produto_catalogo_site (site oficial Dana, URLs CDN persistentes)
-    const codigos = (data || []).map(p => p.codigo).filter(Boolean);
-    let imgMap = {}, catMap = {};
-    if (codigos.length) {
-      const [imgsRes, catsRes] = await Promise.all([
-        sb.from('produto_imagens').select('codigo_bling, url').in('codigo_bling', codigos).eq('ordem', 1),
-        sb.from('produto_catalogo_site').select('sku_ref, descricao, imagem_principal, url_pagina, cores, tamanhos').in('sku_ref', codigos),
-      ]);
-      imgMap = Object.fromEntries((imgsRes.data || []).map(i => [i.codigo_bling, i.url]));
-      catMap = Object.fromEntries((catsRes.data || []).map(c => [c.sku_ref, c]));
-    }
-    // Normaliza: prefere imagem do site (CDN persistente) > storage > bling_url (expira)
-    const matches = (data || []).map(p => {
-      const cat = catMap[p.codigo] || null;
-      const urlSite = imgMap[p.codigo] || cat?.imagem_principal || null;
-      return {
-        ...p,
-        imagem_url: urlSite || p.imagem_storage_url || p.imagem_url,
-        _persistente: !!(urlSite || p.imagem_storage_url),
-        _site_descricao: cat?.descricao || null,
-        _site_url_pagina: cat?.url_pagina || null,
-        _site_cores: cat?.cores || null,
-        _site_tamanhos: cat?.tamanhos || null,
-      };
-    });
+    // Render direto: cada row já tem imagem real (CDN site, persistente)
+    const matches = (data || []).map(p => ({
+      id: p.sku_ref,
+      codigo: p.sku_ref,
+      nome: p.nome,
+      preco: p.preco,
+      imagem_url: p.imagem_principal,  // sempre tem (catálogo do site)
+      _persistente: true,
+      _site_descricao: p.descricao,
+      _site_url_pagina: p.url_pagina,
+      _site_cores: p.cores,
+      _site_tamanhos: p.tamanhos,
+      _site_sexo: p.sexo,
+      _site_categoria: p.categoria,
+      _site_cor_hex: p.cor_hex,
+      _site_tecido: p.tecido,
+      _site_composicao: p.composicao,
+    }));
     estState.ultimosResultados = matches;
     if (!matches.length) {
       resultados.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:12.5px;padding:30px">Nenhum produto encontrado pra "' + esc(q) + '"</div>';
@@ -19535,8 +19529,14 @@ window.estGerar = async function() {
         produto_nome: estState.produto.nome,
         produto_codigo: estState.produto.codigo,
         produto_preco: estState.produto.preco,
-        produto_descricao: estState.produto._site_descricao || undefined, // descricao oficial do site Dana (ciclo 54)
+        produto_descricao: estState.produto._site_descricao || undefined,
         produto_imagem_url: estState.produto.imagem_url,
+        // Ciclo 55: campos estruturados do catálogo do site
+        produto_cor_hex: estState.produto._site_cor_hex || undefined,        // "FFFFFF"
+        produto_tecido: estState.produto._site_tecido || undefined,           // "Gabardine"
+        produto_composicao: estState.produto._site_composicao || undefined,   // "100% Poliéster"
+        produto_sexo: estState.produto._site_sexo || undefined,                // "Feminino"
+        produto_categoria: estState.produto._site_categoria || undefined,     // "Jalecos"
         tipo_peca: estState.tipo_peca,
         tema: estState.tema,
         copy_extra: estState.copy_extra,
@@ -19604,9 +19604,10 @@ window.estGerar = async function() {
             });
             const j = await r.json();
             if (!r.ok) throw new Error(j.error || j.detalhe || `HTTP ${r.status}`);
-            // Salva em estudio_pecas
+            // Salva em estudio_pecas (ciclo 55: produto_id agora é nullable, produto_sku_ref tem o codigo do site)
             await sb.from('estudio_pecas').insert({
-              produto_id: estState.produto.id,
+              produto_id: null,                                      // não usa mais (era id Bling bigint)
+              produto_sku_ref: estState.produto.codigo,              // sku_ref do catálogo do site
               produto_nome: estState.produto.nome,
               produto_imagem_url: estState.produto.imagem_url,
               tipo_peca: estState.tipo_peca,
