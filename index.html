@@ -3077,37 +3077,79 @@ select.input { cursor: pointer; }
     </div>
   </div>
 
-  <!-- BLOCO 2: GA4 integrado (placeholder) -->
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:12px;flex-wrap:wrap">
+  <!-- BLOCO 2: Painel integrado GA4 + Google Ads (ciclo 56) -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:12px;flex-wrap:wrap">
+    <div>
+      <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:17px">📈 Painel Integrado</div>
+      <div style="font-size:11.5px;color:var(--text3)">Dados sincronizados do GA4 + Google Ads — atualização automática</div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <select id="an-periodo" class="input" style="height:34px;padding:0 10px;font-size:11.5px" onchange="loadAnalytics()">
+        <option value="7">Últimos 7 dias</option>
+        <option value="30" selected>Últimos 30 dias</option>
+        <option value="90">Últimos 90 dias</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="syncAnalyticsAgora()" id="an-btn-sync" style="font-size:11.5px" title="Re-sincroniza com Google Analytics e Google Ads">🔄 Atualizar agora</button>
+      <span id="an-last-sync" style="font-size:10.5px;color:var(--text3)"></span>
+    </div>
+  </div>
+
+  <!-- ──────── GA4 ──────── -->
+  <div class="card mb20">
+    <div class="card-header">
+      <div><div class="card-title">📊 Google Analytics 4</div><div class="card-sub">Tráfego, usuários, conversões do site</div></div>
+    </div>
+    <div id="an-ga4-kpis" class="kpi-grid mb20">
+      <div class="kpi-card dark"><div class="kpi-label">Sessões</div><div class="kpi-value" id="an-kpi-sessions">--</div><div class="kpi-change" id="an-kpi-sessions-sub">vs período anterior</div></div>
+      <div class="kpi-card"><div class="kpi-label">Usuários</div><div class="kpi-value" id="an-kpi-users">--</div><div class="kpi-change" id="an-kpi-users-sub">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Visualizações</div><div class="kpi-value" id="an-kpi-pv">--</div><div class="kpi-change" id="an-kpi-pv-sub">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Conversões</div><div class="kpi-value" id="an-kpi-conv">--</div><div class="kpi-change" id="an-kpi-conv-sub">—</div></div>
+    </div>
+
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px">Tráfego diário</div>
+      <div style="font-size:11px;color:var(--text3)">sessões (azul) · conversões (verde)</div>
+    </div>
+    <div id="an-ga4-chart" class="chart-area" style="height:160px;margin-bottom:18px"></div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px">
       <div>
-        <div class="card-title">📈 Google Analytics 4 — Integração Nativa</div>
-        <div class="card-sub">Dashboard do GA4 direto aqui dentro, sem precisar abrir em aba externa</div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">🌐 Top Canais</div>
+        <div id="an-ga4-canais" style="display:flex;flex-direction:column;gap:8px"></div>
       </div>
-      <div style="display:inline-block;font-size:10.5px;font-weight:700;padding:4px 10px;border-radius:6px;background:var(--amber);color:white;letter-spacing:0.5px">⏳ AGUARDANDO SETUP</div>
-    </div>
-
-    <div style="background:var(--surface2);border-radius:10px;padding:20px;margin-top:14px">
-      <div style="font-size:13px;font-weight:700;margin-bottom:10px">🛠 Como ativar (5-10 min)</div>
-      <ol style="font-size:12.5px;color:var(--text2);line-height:1.7;padding-left:20px;margin:0">
-        <li>Acesse <a href="https://console.cloud.google.com/" target="_blank" style="color:var(--blue);font-weight:600">Google Cloud Console</a> e crie um novo projeto (ex: <code>dana-ga4-integration</code>)</li>
-        <li>Ative a API <strong>"Google Analytics Data API"</strong> na biblioteca de APIs</li>
-        <li>Crie um <strong>Service Account</strong> (IAM & Admin → Service Accounts → Create)</li>
-        <li>Gere uma chave JSON pro Service Account (Keys → Add Key → Create new key → JSON)</li>
-        <li>No GA4 (analytics.google.com), vá em <strong>Admin → Property Access Management</strong> e adicione o email do Service Account (termina em <code>.iam.gserviceaccount.com</code>) como <strong>Viewer</strong></li>
-        <li>Me mande o arquivo JSON do Service Account + o Property ID do GA4 (números, ex: <code>123456789</code>)</li>
-      </ol>
-      <div style="margin-top:14px;padding:10px 12px;background:var(--white);border:1px solid var(--border);border-radius:8px;font-size:11.5px;color:var(--text2)">
-        🔒 <strong>Segurança:</strong> A chave JSON fica salva como secret no Supabase (criptografado). Nunca vai pro código ou GitHub. Só o backend tem acesso.
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">📱 Dispositivos</div>
+        <div id="an-ga4-devices" style="display:flex;flex-direction:column;gap:8px"></div>
       </div>
     </div>
 
-    <div style="margin-top:14px;padding:14px;border:1px dashed var(--border);border-radius:10px;text-align:center">
-      <div style="font-size:36px;opacity:0.3;margin-bottom:6px">📊</div>
-      <div style="font-size:12.5px;color:var(--text3)">Assim que configurar, aqui vão aparecer:</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.5">
-        Usuários ativos · Sessões · Taxa de conversão · Origem do tráfego · Páginas mais visitadas · Dispositivos · Localização
-      </div>
+    <div>
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">📄 Top Páginas</div>
+      <div id="an-ga4-paginas" style="display:flex;flex-direction:column;gap:6px;font-size:11.5px"></div>
+    </div>
+  </div>
+
+  <!-- ──────── Google Ads ──────── -->
+  <div class="card mb20">
+    <div class="card-header">
+      <div><div class="card-title">💰 Google Ads</div><div class="card-sub">Investimento, cliques, ROAS por campanha</div></div>
+    </div>
+    <div id="an-ads-kpis" class="kpi-grid mb20">
+      <div class="kpi-card dark"><div class="kpi-label">Investido</div><div class="kpi-value" id="an-kpi-ads-cost">--</div><div class="kpi-change" id="an-kpi-ads-cost-sub">vs período anterior</div></div>
+      <div class="kpi-card"><div class="kpi-label">Cliques</div><div class="kpi-value" id="an-kpi-ads-clicks">--</div><div class="kpi-change" id="an-kpi-ads-clicks-sub">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Conversões</div><div class="kpi-value" id="an-kpi-ads-conv">--</div><div class="kpi-change" id="an-kpi-ads-conv-sub">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">CPA</div><div class="kpi-value" id="an-kpi-ads-cpa">--</div><div class="kpi-change" id="an-kpi-ads-cpa-sub">custo por conversão</div></div>
+    </div>
+
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px">Investimento diário</div>
+      <div style="font-size:11px;color:var(--text3)">custo R$ (laranja) · conversões (verde)</div>
+    </div>
+    <div id="an-ads-chart" class="chart-area" style="height:140px;margin-bottom:18px"></div>
+
+    <div>
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">🥇 Top Campanhas</div>
+      <div id="an-ads-campanhas" style="display:flex;flex-direction:column;gap:6px;font-size:11.5px"></div>
     </div>
   </div>
 
@@ -9908,6 +9950,9 @@ function go(el, viewId) {
   if (viewId === 'performance' || viewId === 'analytics') {
     loadOnce('performance', () => typeof loadPerformanceData === 'function' && loadPerformanceData());
   }
+  if (viewId === 'analytics') {
+    if (typeof loadAnalytics === 'function') loadAnalytics();
+  }
   if (viewId === 'financeiro') {
     loadOnce('financeiro', () => {
       if (typeof loadFinanceiro === 'function') loadFinanceiro();
@@ -15367,6 +15412,266 @@ async function loadCanalAnalytics() {
 async function loadPerformanceData() {
   await Promise.all([loadFunilVendas(), loadCanalAnalytics(), loadPerfTopProdutos()]);
 }
+
+// ════════════════════════════════════════════════
+// ANALYTICS — GA4 + Google Ads (ciclo 56)
+// ════════════════════════════════════════════════
+const _ANALYTICS_FMT_PCT = (n) => (n>0?'+':'') + (Math.round(n*10)/10) + '%';
+const _ANALYTICS_FMT_INT = (n) => (n||0).toLocaleString('pt-BR');
+const _ANALYTICS_FMT_BRL = (n) => 'R$ ' + (n||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+
+function _anSetKpi(idValue, idSub, novo, anterior, fmt) {
+  const elV = document.getElementById(idValue);
+  const elS = document.getElementById(idSub);
+  if (elV) elV.textContent = fmt ? fmt(novo) : (_ANALYTICS_FMT_INT(novo));
+  if (elS && anterior > 0) {
+    const pct = ((novo - anterior) / anterior) * 100;
+    elS.textContent = `${_ANALYTICS_FMT_PCT(pct)} vs período anterior`;
+    elS.className = 'kpi-change ' + (pct >= 0 ? 'up' : 'down');
+  } else if (elS) {
+    elS.textContent = '—';
+    elS.className = 'kpi-change';
+  }
+}
+
+function _anRenderChart(elId, points, valorKey, valorKey2, cor1, cor2) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!points.length) { el.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:11px;padding:30px">Sem dados</div>'; return; }
+  const max1 = Math.max(...points.map(p => Number(p[valorKey] || 0)), 1);
+  const max2 = valorKey2 ? Math.max(...points.map(p => Number(p[valorKey2] || 0)), 1) : 1;
+  el.innerHTML = points.map(p => {
+    const v1 = Number(p[valorKey] || 0);
+    const v2 = valorKey2 ? Number(p[valorKey2] || 0) : 0;
+    const h1 = (v1 / max1) * 80;
+    const h2 = valorKey2 ? (v2 / max2) * 40 : 0;
+    const dataLbl = p.data ? new Date(p.data).toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'}) : '';
+    return `<div class="bar-group" title="${dataLbl} · ${valorKey}: ${_ANALYTICS_FMT_INT(v1)}${valorKey2 ? ' · ' + valorKey2 + ': ' + _ANALYTICS_FMT_INT(v2) : ''}">
+      <div class="bar-wrap" style="position:relative;display:flex;align-items:flex-end;height:100%">
+        <div class="bar" style="height:${h1}%;background:${cor1};width:60%;opacity:0.85"></div>
+        ${valorKey2 ? `<div class="bar" style="height:${h2}%;background:${cor2};width:40%;opacity:0.85;margin-left:1px"></div>` : ''}
+      </div>
+      <div class="bar-label">${dataLbl}</div>
+    </div>`;
+  }).join('');
+}
+
+window.loadAnalytics = async function() {
+  const dias = parseInt(document.getElementById('an-periodo')?.value || '30');
+
+  // Calcula janelas: período atual e anterior (mesma duração)
+  const hoje = new Date();
+  const fmt = (d) => d.toISOString().slice(0,10);
+  const atualFim = fmt(hoje);
+  const atualIni = fmt(new Date(hoje.getTime() - dias*86400000));
+  const antFim = fmt(new Date(hoje.getTime() - dias*86400000 - 86400000));
+  const antIni = fmt(new Date(hoje.getTime() - 2*dias*86400000));
+
+  try {
+    // ─── GA4 ───
+    const [ga4DiaAtual, ga4DiaAnt, ga4Canais, ga4Devices, ga4Paginas] = await Promise.all([
+      sb.from('analytics_ga4_dia').select('*').gte('data', atualIni).lte('data', atualFim).order('data', {ascending: true}),
+      sb.from('analytics_ga4_dia').select('sessions, users, page_views, conversions').gte('data', antIni).lte('data', antFim),
+      sb.from('analytics_ga4_canais').select('canal, sessions, users, conversions').gte('data', atualIni).lte('data', atualFim),
+      sb.from('analytics_ga4_dispositivos').select('device_category, sessions, users, conversions').gte('data', atualIni).lte('data', atualFim),
+      sb.from('analytics_ga4_paginas').select('page_path, page_title, page_views').gte('data', atualIni).lte('data', atualFim),
+    ]);
+
+    // KPIs GA4 (soma do período)
+    const sumKey = (rows, k) => (rows||[]).reduce((s,r) => s + Number(r[k]||0), 0);
+    const atualSessions = sumKey(ga4DiaAtual.data, 'sessions');
+    const atualUsers = sumKey(ga4DiaAtual.data, 'users');
+    const atualPv = sumKey(ga4DiaAtual.data, 'page_views');
+    const atualConv = sumKey(ga4DiaAtual.data, 'conversions');
+    const antSessions = sumKey(ga4DiaAnt.data, 'sessions');
+    const antUsers = sumKey(ga4DiaAnt.data, 'users');
+    const antPv = sumKey(ga4DiaAnt.data, 'page_views');
+    const antConv = sumKey(ga4DiaAnt.data, 'conversions');
+
+    _anSetKpi('an-kpi-sessions', 'an-kpi-sessions-sub', atualSessions, antSessions);
+    _anSetKpi('an-kpi-users', 'an-kpi-users-sub', atualUsers, antUsers);
+    _anSetKpi('an-kpi-pv', 'an-kpi-pv-sub', atualPv, antPv);
+    _anSetKpi('an-kpi-conv', 'an-kpi-conv-sub', atualConv, antConv);
+
+    // Gráfico GA4
+    _anRenderChart('an-ga4-chart', ga4DiaAtual.data || [], 'sessions', 'conversions', '#3b82f6', '#16a34a');
+
+    // Top canais
+    const canalAgg = {};
+    for (const r of (ga4Canais.data || [])) {
+      if (!canalAgg[r.canal]) canalAgg[r.canal] = { sessions: 0, conv: 0 };
+      canalAgg[r.canal].sessions += Number(r.sessions || 0);
+      canalAgg[r.canal].conv += Number(r.conversions || 0);
+    }
+    const canaisSort = Object.entries(canalAgg).sort((a,b) => b[1].sessions - a[1].sessions).slice(0, 6);
+    const canalMaxSes = canaisSort[0]?.[1].sessions || 1;
+    const elCanais = document.getElementById('an-ga4-canais');
+    if (elCanais) elCanais.innerHTML = canaisSort.map(([nome, m]) => {
+      const pct = (m.sessions / canalMaxSes) * 100;
+      return `<div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px">
+          <span style="font-weight:600">${esc(nome)}</span>
+          <span style="color:var(--text3)">${_ANALYTICS_FMT_INT(m.sessions)} sess · ${_ANALYTICS_FMT_INT(m.conv)} conv</span>
+        </div>
+        <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#3b82f6,#7c3aed);border-radius:3px"></div>
+        </div>
+      </div>`;
+    }).join('');
+
+    // Devices
+    const devAgg = {};
+    for (const r of (ga4Devices.data || [])) {
+      if (!devAgg[r.device_category]) devAgg[r.device_category] = { sessions: 0, conv: 0 };
+      devAgg[r.device_category].sessions += Number(r.sessions || 0);
+      devAgg[r.device_category].conv += Number(r.conversions || 0);
+    }
+    const devSort = Object.entries(devAgg).sort((a,b) => b[1].sessions - a[1].sessions);
+    const devMax = devSort[0]?.[1].sessions || 1;
+    const devEmoji = { mobile: '📱', desktop: '💻', tablet: '📲', smart_tv: '📺' };
+    const elDev = document.getElementById('an-ga4-devices');
+    if (elDev) elDev.innerHTML = devSort.map(([nome, m]) => {
+      const pct = (m.sessions / devMax) * 100;
+      return `<div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px">
+          <span style="font-weight:600">${devEmoji[nome]||'📊'} ${esc(nome)}</span>
+          <span style="color:var(--text3)">${_ANALYTICS_FMT_INT(m.sessions)} sess</span>
+        </div>
+        <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#f59e0b,#ef4444);border-radius:3px"></div>
+        </div>
+      </div>`;
+    }).join('');
+
+    // Top páginas (agrega no período)
+    const pagAgg = {};
+    for (const r of (ga4Paginas.data || [])) {
+      if (!pagAgg[r.page_path]) pagAgg[r.page_path] = { views: 0, title: r.page_title || '' };
+      pagAgg[r.page_path].views += Number(r.page_views || 0);
+    }
+    const pagSort = Object.entries(pagAgg).sort((a,b) => b[1].views - a[1].views).slice(0, 10);
+    const pagMax = pagSort[0]?.[1].views || 1;
+    const elPag = document.getElementById('an-ga4-paginas');
+    if (elPag) elPag.innerHTML = pagSort.map(([path, m]) => {
+      const pct = (m.views / pagMax) * 100;
+      return `<div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+        <div style="min-width:0">
+          <div style="font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((m.title||path).slice(0,80))}</div>
+          <div style="font-size:10.5px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(path.slice(0,90))}</div>
+          <div style="height:3px;background:var(--surface2);border-radius:2px;margin-top:4px;overflow:hidden">
+            <div style="height:100%;width:${pct}%;background:#7c3aed"></div>
+          </div>
+        </div>
+        <div style="font-weight:700;color:var(--text)">${_ANALYTICS_FMT_INT(m.views)}</div>
+      </div>`;
+    }).join('');
+
+    // ─── Google Ads ───
+    const [adsDiaAtual, adsDiaAnt, adsCampanhas] = await Promise.all([
+      sb.from('analytics_ads_dia').select('*').gte('data', atualIni).lte('data', atualFim).order('data', {ascending: true}),
+      sb.from('analytics_ads_dia').select('cost, clicks, conversions').gte('data', antIni).lte('data', antFim),
+      sb.from('analytics_ads_campanhas').select('campaign_name, status, channel_type, cost, clicks, impressions, conversions').gte('data', atualIni).lte('data', atualFim),
+    ]);
+
+    const sumF = (rows, k) => (rows||[]).reduce((s,r) => s + parseFloat(r[k]||0), 0);
+    const aCost = sumF(adsDiaAtual.data, 'cost');
+    const aClicks = sumF(adsDiaAtual.data, 'clicks');
+    const aConv = sumF(adsDiaAtual.data, 'conversions');
+    const aCpa = aConv > 0 ? aCost / aConv : 0;
+    const xCost = sumF(adsDiaAnt.data, 'cost');
+    const xClicks = sumF(adsDiaAnt.data, 'clicks');
+    const xConv = sumF(adsDiaAnt.data, 'conversions');
+    const xCpa = xConv > 0 ? xCost / xConv : 0;
+
+    _anSetKpi('an-kpi-ads-cost', 'an-kpi-ads-cost-sub', aCost, xCost, _ANALYTICS_FMT_BRL);
+    _anSetKpi('an-kpi-ads-clicks', 'an-kpi-ads-clicks-sub', aClicks, xClicks);
+    _anSetKpi('an-kpi-ads-conv', 'an-kpi-ads-conv-sub', Math.round(aConv), Math.round(xConv));
+    _anSetKpi('an-kpi-ads-cpa', 'an-kpi-ads-cpa-sub', aCpa, xCpa, _ANALYTICS_FMT_BRL);
+
+    // Gráfico Ads
+    _anRenderChart('an-ads-chart', adsDiaAtual.data || [], 'cost', 'conversions', '#f59e0b', '#16a34a');
+
+    // Top campanhas (agrega no período)
+    const campAgg = {};
+    for (const r of (adsCampanhas.data || [])) {
+      if (!campAgg[r.campaign_name]) campAgg[r.campaign_name] = { cost: 0, clicks: 0, conv: 0, status: r.status, channel: r.channel_type };
+      campAgg[r.campaign_name].cost += parseFloat(r.cost || 0);
+      campAgg[r.campaign_name].clicks += Number(r.clicks || 0);
+      campAgg[r.campaign_name].conv += parseFloat(r.conversions || 0);
+    }
+    const campSort = Object.entries(campAgg).sort((a,b) => b[1].cost - a[1].cost).slice(0, 10);
+    const campMax = campSort[0]?.[1].cost || 1;
+    const statusBadge = (s) => {
+      const map = { ENABLED: ['#dcfce7','#166534','Ativa'], PAUSED: ['#fef3c7','#92400e','Pausada'], REMOVED: ['#fee2e2','#991b1b','Removida'] };
+      const c = map[s] || ['#e5e7eb','#374151', s];
+      return `<span style="background:${c[0]};color:${c[1]};font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:4px">${c[2]}</span>`;
+    };
+    const elCamp = document.getElementById('an-ads-campanhas');
+    if (elCamp) elCamp.innerHTML = campSort.map(([nome, m]) => {
+      const pct = (m.cost / campMax) * 100;
+      const cpa = m.conv > 0 ? m.cost / m.conv : 0;
+      return `<div style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:4px">
+          <div style="font-weight:600;color:var(--text);font-size:11.5px;line-height:1.3;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nome)}</div>
+          ${statusBadge(m.status)}
+        </div>
+        <div style="display:flex;gap:14px;font-size:10.5px;color:var(--text3);margin-bottom:6px">
+          <span>💰 <strong style="color:var(--text)">${_ANALYTICS_FMT_BRL(m.cost)}</strong></span>
+          <span>🖱 ${_ANALYTICS_FMT_INT(m.clicks)} cliques</span>
+          <span>🎯 ${_ANALYTICS_FMT_INT(Math.round(m.conv))} conv</span>
+          ${cpa > 0 ? `<span>📊 CPA ${_ANALYTICS_FMT_BRL(cpa)}</span>` : ''}
+        </div>
+        <div style="height:4px;background:var(--surface2);border-radius:2px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#f59e0b,#dc2626)"></div>
+        </div>
+      </div>`;
+    }).join('');
+
+    // Última sync
+    const { data: meta } = await sb.from('analytics_sync_meta').select('provider, last_sync_at, last_sync_status');
+    const lastEl = document.getElementById('an-last-sync');
+    if (lastEl && meta && meta.length) {
+      const ultimo = meta.reduce((max, m) => !max || (m.last_sync_at > max.last_sync_at) ? m : max, null);
+      if (ultimo) {
+        const ts = new Date(ultimo.last_sync_at);
+        const min = Math.floor((Date.now() - ts.getTime()) / 60000);
+        lastEl.textContent = `· última sync: ${min < 1 ? 'agora' : min < 60 ? min + ' min atrás' : ts.toLocaleString('pt-BR', {hour:'2-digit', minute:'2-digit'})}`;
+      }
+    }
+  } catch (e) {
+    console.error('[analytics]', e);
+    showToast('Erro ao carregar Analytics: ' + (e.message || e));
+  }
+};
+
+window.syncAnalyticsAgora = async function() {
+  const btn = document.getElementById('an-btn-sync');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Sincronizando...'; }
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    const dias = parseInt(document.getElementById('an-periodo')?.value || '30');
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/sync-analytics`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${session?.access_token}`,
+      },
+      body: JSON.stringify({ provider: 'all', dias_atras: dias }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    const okGa = j.ga4?.ok ? `GA4 ${j.ga4.rows} rows` : 'GA4 erro';
+    const okAds = j.ads?.ok ? `Ads ${j.ads.rows} rows` : 'Ads erro';
+    showToast(`✅ ${okGa} · ${okAds}`);
+    await loadAnalytics();
+  } catch (e) {
+    console.error('[sync-analytics]', e);
+    showToast('Erro: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Atualizar agora'; }
+  }
+};
 
 async function loadPerfTopProdutos() {
   try {
