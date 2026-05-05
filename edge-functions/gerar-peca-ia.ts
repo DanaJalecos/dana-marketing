@@ -215,10 +215,12 @@ CRITICAL RULE #5 — DETAILS:
 The final prompt must be 250-400 words, describing IN ORDER:
 1. The product (5-6 sentences analyzing the real image — color, fit, fabric, details)
 2. The model wearing it (posture, expression, age, ethnicity, hair)
-3. The COMPOSITION (where the model is placed in the frame, scene organization) — the entire frame is photographic content, NO reserved boxes or empty placeholders
+3. The COMPOSITION (where the model is placed in the frame, scene organization) — the entire frame is photographic content, naturally filled with environment
 4. THE THEME ELEMENTS (be specific and detailed about the props, environment, objects — this is the most important part, list 3-5 specific items that fill the scene naturally)
 5. The lighting (warm, natural, golden hour, soft shadows, etc.)
-6. Final anti-text instruction: "The image is a clean editorial photograph with ZERO text, ZERO logos, ZERO brand wordmarks, ZERO badges, ZERO circles or graphic stickers, ZERO empty placeholder boxes, ZERO frames or borders. Pure photographic scene — no graphic design overlays of any kind."
+6. Final clean-photo instruction (use this EXACT phrasing — short and positive, do NOT repeat negation lists): "Pure editorial photograph, no graphic design overlays."
+
+IMPORTANT: end with a SHORT positive sentence. Do NOT pile up "ZERO this, ZERO that, NO this, NO that" — Gemini Image can confuse heavy negation with a description request and return text instead of an image.
 
 CRITICAL RULE #6 — ASPECT RATIO IN PROMPT:
 Always start your prompt with the aspect ratio for the piece type, e.g.:

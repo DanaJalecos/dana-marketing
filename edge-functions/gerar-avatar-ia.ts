@@ -191,48 +191,66 @@ Deno.serve(async (req) => {
     // Aspect ratio: default 1:1, ou '9:16' pra personas (corpo todo vertical), '16:9' pra mockups de campanha
     const aspectRatio = body.aspect_ratio || (contexto === 'persona' ? '9:16' : contexto === 'campanha_interna' ? '16:9' : '1:1')
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_IMAGE_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts }],
-          generationConfig: {
-            responseModalities: ['IMAGE'],
-            imageConfig: { aspectRatio },
-          },
-        }),
+    // Função pra chamar Gemini com possibilidade de retry
+    async function callGemini(partsToSend: any[]): Promise<{ ok: true; base64: string; mime: string } | { ok: false; status: number; body: string; type: 'http' | 'no_image' }> {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_IMAGE_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: partsToSend }],
+            generationConfig: {
+              responseModalities: ['IMAGE'],
+              imageConfig: { aspectRatio },
+            },
+          }),
+        }
+      )
+      if (!res.ok) {
+        return { ok: false, status: res.status, body: (await res.text()).slice(0, 300), type: 'http' }
       }
-    )
+      const data = await res.json()
+      const ret = data?.candidates?.[0]?.content?.parts || []
+      const img = ret.find((p: any) => p.inlineData?.data)
+      if (!img) {
+        return { ok: false, status: 200, body: JSON.stringify(data).slice(0, 500), type: 'no_image' }
+      }
+      return { ok: true, base64: img.inlineData.data, mime: img.inlineData.mimeType || 'image/png' }
+    }
 
-    if (!geminiRes.ok) {
-      const erro = await geminiRes.text()
-      console.error('[gerar-avatar-ia] Gemini erro:', geminiRes.status, erro)
+    // 1ª tentativa
+    let result = await callGemini(parts)
+
+    // Se falhou por "sem imagem" (não HTTP error), retry com prompt simplificado
+    // Isso ajuda quando Gemini se confunde com prompts longos/com muita negação e devolve texto.
+    if (!result.ok && result.type === 'no_image') {
+      console.warn('[gerar-avatar-ia] retry: Gemini não devolveu imagem, simplificando prompt...')
+      // Pega só a 1ª frase + instrução curta de "gerar imagem"
+      const firstSentence = (promptFinal || '').split('.')[0].slice(0, 800)
+      const simplifiedPrompt = `Generate a clean editorial photograph (no text, no graphics overlays, just photographic scene). ${firstSentence}.`
+      const partsRetry = [...parts.slice(0, -1), { text: simplifiedPrompt }]
+      result = await callGemini(partsRetry)
+    }
+
+    if (!result.ok) {
+      console.error(`[gerar-avatar-ia] Gemini ${result.type} erro:`, result.status, result.body)
       await admin.from('avatares_ia_log').insert({
         user_id: userId, user_nome: userNome, user_cargo: userCargo,
         contexto, contexto_ref_id: contextoRefId, prompt, url: null,
         status: 'erro',
-        erro_msg: `Gemini ${geminiRes.status}: ${erro.slice(0, 200)}`,
+        erro_msg: result.type === 'http' ? `Gemini ${result.status}: ${result.body}` : `Sem inlineData no retorno (mesmo após retry)`,
       })
-      return json({ error: 'Falha ao gerar imagem', detalhe: erro.slice(0, 300) }, 500)
+      return json(
+        result.type === 'http'
+          ? { error: 'Falha ao gerar imagem', detalhe: result.body }
+          : { error: 'Gemini não retornou imagem mesmo após retry. Tenta gerar de novo ou ajusta o tema.' },
+        500
+      )
     }
 
-    const geminiData = await geminiRes.json()
-    const partsRet = geminiData?.candidates?.[0]?.content?.parts || []
-    const imgPart = partsRet.find((p: any) => p.inlineData?.data)
-    if (!imgPart) {
-      console.error('[gerar-avatar-ia] sem imagem no retorno', JSON.stringify(geminiData).slice(0, 500))
-      await admin.from('avatares_ia_log').insert({
-        user_id: userId, user_nome: userNome, user_cargo: userCargo,
-        contexto, contexto_ref_id: contextoRefId, prompt, url: null,
-        status: 'erro',
-        erro_msg: 'Sem inlineData no retorno do Gemini',
-      })
-      return json({ error: 'Gemini não retornou imagem. Reformule o prompt.' }, 500)
-    }
-    const base64 = imgPart.inlineData.data
-    const mime = imgPart.inlineData.mimeType || 'image/png'
+    const base64 = result.base64
+    const mime = result.mime
 
     // ── 8. Upload pra ImgBB (externo, gratis, link permanente) ──
     const tamanhoBytes = Math.floor(base64.length * 3 / 4)
