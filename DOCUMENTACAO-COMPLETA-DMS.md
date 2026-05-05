@@ -5310,4 +5310,110 @@ DROP TABLE produto_imagens, produto_catalogo_site CASCADE;
 
 ---
 
-**Fim da documentação · Atualizado em 04/05/2026 — ciclo 54 (Estúdio IA com fidelidade visual real) · v5.8**
+---
+
+## 55. CICLO 04/05/2026 (TARDE) — Estúdio IA: catálogo do site (251 produtos curados, descarta Bling)
+
+**Pedido:** Juan trouxe `catalogo_super_completo_dana.md` com 251 produtos do site, com tabela markdown estruturada (SKU/Ref, Cor hex, Composição, Tecido, Tamanhos, Preço + descrição + 2.529 imagens). Decisão de produto: Estúdio IA passa a usar **APENAS** o catálogo do site, **descartando** o sync Bling (4.753 SKUs com muitos descontinuados/sem foto).
+
+### 55.1 Backend (DMS Supabase)
+
+**ALTER TABLE produto_catalogo_site** — colunas novas:
+```sql
+ALTER TABLE produto_catalogo_site
+  ADD COLUMN cor_hex TEXT,            -- "FFFFFF" (cor canônica do site)
+  ADD COLUMN tecido TEXT,             -- "Gabardine"
+  ADD COLUMN composicao TEXT,         -- "100% Poliéster"
+  ADD COLUMN imagens_relacionadas TEXT[];
+
+ALTER TABLE estudio_pecas
+  ADD COLUMN produto_sku_ref TEXT,    -- aceita codigo do site (TEXT, não BIGINT)
+  ALTER COLUMN produto_id DROP NOT NULL;
+```
+
+**Repopulação**: parser `parsear-catalogo-super-completo.py` extrai do markdown:
+- 251 produtos (todos com pelo menos 1 imagem)
+- 220 com descrição rica
+- 174 com cor hex
+- 180 com tecido
+- 203 com preço
+- 250 com tamanhos
+- **2.521 imagens principais + 805 relacionadas = 3.326 URLs total**
+
+### 55.2 Frontend `estBuscarProdutoNow` — fonte mudou
+
+**Antes:** consulta `produtos` (sync Bling, 4.753 itens, 88% sem foto persistente).
+**Depois:** consulta `produto_catalogo_site` direto. Sem batch lookup duplo. Sempre persistente.
+
+```js
+sb.from('produto_catalogo_site')
+  .select('sku_ref, nome, preco, imagem_principal, descricao, cores, tamanhos,
+           url_pagina, sexo, categoria, cor_hex, tecido, composicao')
+  .or(`nome.ilike.${padrao},sku_ref.ilike.${padrao}`)
+```
+
+Resultado: **100% dos cards mostram imagem real** (251 produtos curados, todos com foto CDN persistente).
+
+### 55.3 `estGerar` — campos extras
+
+`gerar-peca-ia` agora recebe 5 campos novos:
+- `produto_cor_hex` (canonical)
+- `produto_tecido`
+- `produto_composicao`
+- `produto_sexo`
+- `produto_categoria`
+
+`estudio_pecas` salva `produto_sku_ref` (TEXT) ao invés de `produto_id` (BIGINT do Bling).
+
+### 55.4 `gerar-peca-ia` v15
+
+`buildUserPromptText` injeta os campos novos no User Prompt:
+```
+PRODUCT DATA (from Dana Jalecos official site):
+- Name: "Jaleco Feminino Chloe Branco"
+- SKU code: 378-ZI-008-000-F
+- Category: Jalecos
+- Target gender: Feminino
+- Canonical color (hex): #FFFFFF — use this EXACT color, do not infer from JPEG
+- Fabric: Gabardine
+- Composition: 100% Poliéster
+- Price: R$ 226.10
+- Official description (from danajalecos.com.br): Uma opção perfeita para quem...
+```
+
+A IA tem ancoragem dupla: imagem real (vision) + cor canônica hex (texto). Resolve problema de "hue shift" em JPEG.
+
+### 55.5 Resultado prático
+
+| Antes (ciclo 54) | Depois (ciclo 55) |
+|---|---|
+| Cards com 12% de imagem real (88% placeholder) | **100% com imagem real** |
+| `gerar-peca-ia` recebe só URL Bling expirada | Recebe URL CDN persistente + cor hex + tecido + composição |
+| IA inventava cor genérica | IA usa cor canônica do site (#FFFFFF) |
+| Buscas com produtos descontinuados/duplicados | Apenas 251 produtos atualmente vendidos |
+
+### 55.6 Vendedora não vê mais (intencional)
+
+Os 4.500 SKUs do Bling não cadastrados no site **somem** da busca do Estúdio IA:
+- Variações duplicadas (combos, tamanhos avulsos)
+- Produtos descontinuados
+- Itens internos de produção (matéria-prima, etc)
+
+Isso é o esperado: Estúdio IA é pra criar material das peças que a Dana **vende ATIVAMENTE no site**.
+
+### 55.7 Reversibilidade
+
+```sql
+-- Reverter Estúdio IA pra usar tabela 'produtos' Bling: git revert + redeploy
+DELETE FROM produto_catalogo_site WHERE updated_at >= '2026-05-04';
+```
+
+### 55.8 Próximos passos sugeridos
+
+- Atualizar markdown periodicamente (após lançamentos / mudanças de catálogo)
+- UI admin pra subir markdown e re-rodar parser sem precisar de SQL/Python
+- Frontend mostrar metadata extra (cor hex, tecido) no card preview do produto selecionado
+
+---
+
+**Fim da documentação · Atualizado em 04/05/2026 tarde — ciclo 55 (Estúdio IA usa apenas catálogo do site) · v5.9**
