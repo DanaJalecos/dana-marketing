@@ -2702,7 +2702,8 @@ select.input { cursor: pointer; }
 
   <div class="nav-section">
     <div class="nav-label">Sistema</div>
-    <div class="nav-item" onclick="go(this,'apis')" style="position:relative">
+    <!-- Ciclo 58: "Conectar APIs" escondido (era mock visual). Integrações reais já estão no Analytics, Estoque, etc. -->
+    <div class="nav-item" onclick="go(this,'apis')" style="position:relative;display:none">
       <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 8H2.5A1.5 1.5 0 011 6.5v-2A1.5 1.5 0 012.5 3h11A1.5 1.5 0 0115 4.5v2A1.5 1.5 0 0113.5 8H11"/><rect x="5" y="6" width="6" height="7" rx="1"/></svg></div>Conectar APIs
       <div style="width:7px;height:7px;background:var(--red);border-radius:50%;margin-left:auto"></div>
     </div>
@@ -2991,25 +2992,7 @@ select.input { cursor: pointer; }
         </div>
       </a>
 
-      <!-- Google Analytics 4 -->
-      <a href="https://analytics.google.com/" target="_blank" style="text-decoration:none;color:inherit">
-        <div style="padding:16px;border:1px solid var(--border);border-radius:10px;background:linear-gradient(135deg,#f9ab00 0%,#e8710a 100%);color:white;cursor:pointer;transition:transform 0.15s" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform=''">
-          <img src="https://vh-info.com/wp-content/uploads/2025/08/Download-the-GA4-Logo.png" alt="Google Analytics 4" style="width:36px;height:36px;object-fit:contain;margin-bottom:8px;border-radius:6px;background:rgba(255,255,255,0.95);padding:4px">
-          <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;margin-bottom:3px">Google Analytics 4</div>
-          <div style="font-size:11px;opacity:0.85;line-height:1.4">Tráfego do site, usuários, conversões, funis, origem dos visitantes</div>
-          <div style="font-size:10px;font-weight:700;margin-top:10px;opacity:0.7">Abrir ↗</div>
-        </div>
-      </a>
-
-      <!-- Google Ads -->
-      <a href="https://ads.google.com/" target="_blank" style="text-decoration:none;color:inherit">
-        <div style="padding:16px;border:1px solid var(--border);border-radius:10px;background:linear-gradient(135deg,#4285f4 0%,#34a853 100%);color:white;cursor:pointer;transition:transform 0.15s" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform=''">
-          <img src="https://cdn-icons-png.flaticon.com/256/2875/2875421.png" alt="Google Ads" style="width:36px;height:36px;object-fit:contain;margin-bottom:8px;border-radius:6px;background:rgba(255,255,255,0.95);padding:4px">
-          <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;margin-bottom:3px">Google Ads</div>
-          <div style="font-size:11px;opacity:0.85;line-height:1.4">Campanhas de Search, Shopping, Display e YouTube</div>
-          <div style="font-size:10px;font-weight:700;margin-top:10px;opacity:0.7">Abrir ↗</div>
-        </div>
-      </a>
+      <!-- Ciclo 58: GA4 e Google Ads removidos daqui (já têm integração nativa abaixo no Painel Integrado) -->
 
       <!-- Google Search Console -->
       <a href="https://search.google.com/search-console" target="_blank" style="text-decoration:none;color:inherit">
@@ -3041,15 +3024,7 @@ select.input { cursor: pointer; }
         </div>
       </a>
 
-      <!-- Mercado Livre -->
-      <a href="https://www.mercadolivre.com.br/metricas/home" target="_blank" style="text-decoration:none;color:inherit">
-        <div style="padding:16px;border:1px solid var(--border);border-radius:10px;background:linear-gradient(135deg,#ffe600 0%,#fff159 100%);color:#2d3277;cursor:pointer;transition:transform 0.15s" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform=''">
-          <img src="https://www.lofrano.com.br/wp-content/uploads/2025/07/mercado-livre.png" alt="Mercado Livre" style="width:36px;height:36px;object-fit:contain;margin-bottom:8px;border-radius:6px;background:rgba(255,255,255,0.95);padding:4px">
-          <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;margin-bottom:3px">Mercado Livre</div>
-          <div style="font-size:11px;opacity:0.85;line-height:1.4">Métricas de vendas, anúncios, reputação do seller</div>
-          <div style="font-size:10px;font-weight:700;margin-top:10px;opacity:0.7">Abrir ↗</div>
-        </div>
-      </a>
+      <!-- Ciclo 58: Mercado Livre removido daqui (vai ter integração nativa abaixo no Painel Integrado) -->
 
       <!-- Shopee -->
       <a href="https://seller.shopee.com.br/" target="_blank" style="text-decoration:none;color:inherit">
@@ -3150,6 +3125,36 @@ select.input { cursor: pointer; }
     <div>
       <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">🥇 Top Campanhas</div>
       <div id="an-ads-campanhas" style="display:flex;flex-direction:column;gap:6px;font-size:11.5px"></div>
+    </div>
+  </div>
+
+  <!-- ──────── Mercado Livre (ciclo 58) ──────── -->
+  <div class="card mb20">
+    <div class="card-header">
+      <div><div class="card-title">🛒 Mercado Livre</div><div class="card-sub">Pedidos, lucro líquido (descontando ML), margem · seller DANA_JALECOS</div></div>
+    </div>
+    <div id="an-ml-kpis" class="kpi-grid mb20">
+      <div class="kpi-card dark"><div class="kpi-label">Bruto</div><div class="kpi-value" id="an-kpi-ml-bruto">--</div><div class="kpi-change" id="an-kpi-ml-bruto-sub">vs período anterior</div></div>
+      <div class="kpi-card"><div class="kpi-label">Líquido</div><div class="kpi-value" id="an-kpi-ml-liquido">--</div><div class="kpi-change" id="an-kpi-ml-liquido-sub">após comissão ML</div></div>
+      <div class="kpi-card"><div class="kpi-label">Margem</div><div class="kpi-value" id="an-kpi-ml-margem">--</div><div class="kpi-change" id="an-kpi-ml-margem-sub">líquido / bruto</div></div>
+      <div class="kpi-card"><div class="kpi-label">Pedidos</div><div class="kpi-value" id="an-kpi-ml-pedidos">--</div><div class="kpi-change" id="an-kpi-ml-unidades-sub">unidades vendidas</div></div>
+    </div>
+
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px">Faturamento mensal</div>
+      <div style="font-size:11px;color:var(--text3)">bruto (cinza) · líquido (verde)</div>
+    </div>
+    <div id="an-ml-chart" class="chart-area" style="height:140px;margin-bottom:18px"></div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">🥇 Top Produtos · Curva ABC</div>
+        <div id="an-ml-top-produtos" style="display:flex;flex-direction:column;gap:6px;font-size:11.5px"></div>
+      </div>
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">📦 Por Tipo de Anúncio</div>
+        <div id="an-ml-por-tipo" style="display:flex;flex-direction:column;gap:8px;font-size:11.5px"></div>
+      </div>
     </div>
   </div>
 
@@ -3384,10 +3389,10 @@ select.input { cursor: pointer; }
       Esta seção mostrará suas campanhas <strong style="color:var(--text)">ativas em tempo real</strong> com métricas de performance assim que você conectar as plataformas de anúncios.
     </div>
     <div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-bottom:24px">
-      <button class="btn btn-primary btn-sm" onclick="document.querySelector('[onclick*=apis]')?.click()">🔌 Conectar APIs</button>
+      <button class="btn btn-ghost btn-sm" onclick="document.querySelector('[onclick*=analytics]')?.click()">📊 Ver Analytics</button>
       <button class="btn btn-ghost btn-sm" onclick="document.querySelector('[onclick*=briefingvisual]')?.click()">📋 Ver briefings salvos</button>
     </div>
-    <div style="font-size:10.5px;font-weight:700;padding:4px 10px;border-radius:6px;background:var(--surface2);color:var(--text3);letter-spacing:0.5px;display:inline-block">AGUARDANDO META ADS · GOOGLE ADS · TIKTOK ADS</div>
+    <div style="font-size:10.5px;font-weight:700;padding:4px 10px;border-radius:6px;background:var(--surface2);color:var(--text3);letter-spacing:0.5px;display:inline-block">META ADS · TIKTOK ADS — em breve</div>
   </div>
 
   <!-- Preview do que virá -->
@@ -15666,6 +15671,121 @@ window.loadAnalytics = async function() {
       </div>`;
     }).join('');
 
+    // ─── Mercado Livre (ciclo 58) ───
+    const [mlPedAtual, mlPedAnt] = await Promise.all([
+      sb.from('analytics_ml_pedidos').select('total_amount, lucro_liquido, quantity, mlb_id, titulo_item, listing_type_id, date_closed').gte('date_closed', atualIni).lte('date_closed', atualFim + 'T23:59:59').eq('status', 'paid'),
+      sb.from('analytics_ml_pedidos').select('total_amount, lucro_liquido, quantity').gte('date_closed', antIni).lte('date_closed', antFim + 'T23:59:59').eq('status', 'paid'),
+    ]);
+
+    const mlSumKey = (rows, k) => (rows||[]).reduce((s,r) => s + parseFloat(r[k]||0), 0);
+    const mlBruto = mlSumKey(mlPedAtual.data, 'total_amount');
+    const mlLiquido = mlSumKey(mlPedAtual.data, 'lucro_liquido');
+    const mlMargem = mlBruto > 0 ? (mlLiquido / mlBruto * 100) : 0;
+    const mlPedidos = (mlPedAtual.data || []).length;
+    const mlUnidades = mlSumKey(mlPedAtual.data, 'quantity');
+    const xBruto = mlSumKey(mlPedAnt.data, 'total_amount');
+    const xLiquido = mlSumKey(mlPedAnt.data, 'lucro_liquido');
+    const xPedidos = (mlPedAnt.data || []).length;
+
+    _anSetKpi('an-kpi-ml-bruto', 'an-kpi-ml-bruto-sub', mlBruto, xBruto, _ANALYTICS_FMT_BRL);
+    _anSetKpi('an-kpi-ml-liquido', 'an-kpi-ml-liquido-sub', mlLiquido, xLiquido, _ANALYTICS_FMT_BRL);
+    const elMar = document.getElementById('an-kpi-ml-margem');
+    if (elMar) elMar.textContent = mlMargem.toFixed(1) + '%';
+    _anSetKpi('an-kpi-ml-pedidos', null, mlPedidos, xPedidos);
+    const elUni = document.getElementById('an-kpi-ml-unidades-sub');
+    if (elUni) elUni.textContent = `${_ANALYTICS_FMT_INT(mlUnidades)} unidades vendidas`;
+
+    // Faturamento mensal (agrega por mês YYYY-MM)
+    const mesAgg = {};
+    for (const r of (mlPedAtual.data || [])) {
+      const mes = (r.date_closed || '').slice(0, 7);
+      if (!mes) continue;
+      if (!mesAgg[mes]) mesAgg[mes] = { data: mes + '-01', bruto: 0, liquido: 0 };
+      mesAgg[mes].bruto += parseFloat(r.total_amount || 0);
+      mesAgg[mes].liquido += parseFloat(r.lucro_liquido || 0);
+    }
+    const mesArr = Object.values(mesAgg).sort((a, b) => a.data.localeCompare(b.data));
+    _anRenderChart('an-ml-chart', mesArr, 'bruto', 'liquido', '#9ca3af', '#16a34a');
+
+    // Top produtos (Curva ABC)
+    const prodAgg = {};
+    for (const r of (mlPedAtual.data || [])) {
+      const k = r.mlb_id;
+      if (!prodAgg[k]) prodAgg[k] = { mlb: k, titulo: r.titulo_item || k, unidades: 0, bruto: 0, liquido: 0 };
+      prodAgg[k].unidades += parseInt(r.quantity || 0);
+      prodAgg[k].bruto += parseFloat(r.total_amount || 0);
+      prodAgg[k].liquido += parseFloat(r.lucro_liquido || 0);
+    }
+    const prodSort = Object.values(prodAgg).sort((a, b) => b.bruto - a.bruto);
+    // Curva ABC: pct acumulado
+    let acumulado = 0;
+    const prodComClasse = prodSort.map(p => {
+      const pct = mlBruto > 0 ? (p.bruto / mlBruto * 100) : 0;
+      acumulado += pct;
+      const classe = acumulado <= 80 ? 'A' : acumulado <= 95 ? 'B' : 'C';
+      return { ...p, pct, pct_acum: acumulado, classe };
+    });
+    const elProd = document.getElementById('an-ml-top-produtos');
+    if (elProd) {
+      const top10 = prodComClasse.slice(0, 10);
+      const maxBruto = top10[0]?.bruto || 1;
+      const classeColor = { A: ['#dcfce7', '#166534'], B: ['#fef3c7', '#92400e'], C: ['#fee2e2', '#991b1b'] };
+      elProd.innerHTML = top10.map(p => {
+        const pctBar = (p.bruto / maxBruto) * 100;
+        const c = classeColor[p.classe];
+        return `<div style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface)">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:3px">
+            <div style="font-weight:600;font-size:11px;line-height:1.3;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.titulo)}</div>
+            <span style="background:${c[0]};color:${c[1]};font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;flex-shrink:0">${p.classe}</span>
+          </div>
+          <div style="display:flex;gap:10px;font-size:10px;color:var(--text3);margin-bottom:4px">
+            <span><strong style="color:var(--text)">${_ANALYTICS_FMT_BRL(p.bruto)}</strong></span>
+            <span>${p.unidades}u</span>
+            <span>${p.pct.toFixed(1)}%</span>
+          </div>
+          <div style="height:3px;background:var(--surface2);border-radius:2px;overflow:hidden">
+            <div style="height:100%;width:${pctBar}%;background:linear-gradient(90deg,#f59e0b,#dc2626)"></div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    // Por tipo de anúncio (gold_pro vs gold_special vs free)
+    const tipoAgg = {};
+    for (const r of (mlPedAtual.data || [])) {
+      const t = r.listing_type_id || 'sem_tipo';
+      if (!tipoAgg[t]) tipoAgg[t] = { qtd: 0, bruto: 0, liquido: 0 };
+      tipoAgg[t].qtd++;
+      tipoAgg[t].bruto += parseFloat(r.total_amount || 0);
+      tipoAgg[t].liquido += parseFloat(r.lucro_liquido || 0);
+    }
+    const tipoLabel = {
+      gold_pro: '🏆 Premium (gold_pro)',
+      gold_special: '⭐ Clássico (gold_special)',
+      free: '🆓 Grátis (free)',
+      sem_tipo: '❓ Sem tipo cadastrado',
+    };
+    const tipoSort = Object.entries(tipoAgg).sort((a, b) => b[1].bruto - a[1].bruto);
+    const tipoMax = tipoSort[0]?.[1].bruto || 1;
+    const elTipo = document.getElementById('an-ml-por-tipo');
+    if (elTipo) elTipo.innerHTML = tipoSort.map(([t, m]) => {
+      const pct = (m.bruto / tipoMax) * 100;
+      const margemTipo = m.bruto > 0 ? (m.liquido / m.bruto * 100) : 0;
+      return `<div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px">
+          <span style="font-weight:600">${tipoLabel[t] || t}</span>
+          <span style="color:var(--text3)">${m.qtd} pedidos · ${margemTipo.toFixed(0)}% margem</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--text3);margin-bottom:4px">
+          <span>Bruto: ${_ANALYTICS_FMT_BRL(m.bruto)}</span>
+          <span>Líq: ${_ANALYTICS_FMT_BRL(m.liquido)}</span>
+        </div>
+        <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#fbbf24,#0ea5e9);border-radius:3px"></div>
+        </div>
+      </div>`;
+    }).join('');
+
     // Última sync
     const { data: meta } = await sb.from('analytics_sync_meta').select('provider, last_sync_at, last_sync_status');
     const lastEl = document.getElementById('an-last-sync');
@@ -15689,20 +15809,31 @@ window.syncAnalyticsAgora = async function() {
   try {
     const { data: { session } } = await sb.auth.getSession();
     const dias = parseInt(document.getElementById('an-periodo')?.value || '30');
-    const r = await fetch(`${SUPABASE_URL}/functions/v1/sync-analytics`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${session?.access_token}`,
-      },
-      body: JSON.stringify({ provider: 'all', dias_atras: dias }),
-    });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-    const okGa = j.ga4?.ok ? `GA4 ${j.ga4.rows} rows` : 'GA4 erro';
-    const okAds = j.ads?.ok ? `Ads ${j.ads.rows} rows` : 'Ads erro';
-    showToast(`✅ ${okGa} · ${okAds}`);
+    const baseHeaders = {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${session?.access_token}`,
+    };
+    // Roda em paralelo: Google (GA4 + Ads) + Mercado Livre
+    const [resGoogle, resML] = await Promise.all([
+      fetch(`${SUPABASE_URL}/functions/v1/sync-analytics`, {
+        method: 'POST', headers: baseHeaders,
+        body: JSON.stringify({ provider: 'all', dias_atras: dias }),
+      }),
+      fetch(`${SUPABASE_URL}/functions/v1/sync-ml-analytics`, {
+        method: 'POST', headers: baseHeaders,
+        body: JSON.stringify({ dias_atras: dias }),
+      }),
+    ]);
+    const jG = await resGoogle.json().catch(() => ({}));
+    const jM = await resML.json().catch(() => ({}));
+    // Backfill listing_type ML após sync (pra atualizar comissão)
+    try { await sb.rpc('ml_backfill_listing_type'); } catch (e) { console.warn('[ml backfill]', e); }
+
+    const okGa = jG.ga4?.ok ? `GA4 ${jG.ga4.rows}` : 'GA4 erro';
+    const okAds = jG.ads?.ok ? `Ads ${jG.ads.rows}` : 'Ads erro';
+    const okML = jM.ok ? `ML ${jM.orders_inseridos}+${jM.anuncios_inseridos}` : 'ML erro';
+    showToast(`✅ ${okGa} · ${okAds} · ${okML}`);
     await loadAnalytics();
   } catch (e) {
     console.error('[sync-analytics]', e);
