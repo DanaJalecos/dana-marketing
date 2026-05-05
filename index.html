@@ -3467,12 +3467,14 @@ select.input { cursor: pointer; }
     <button class="btn btn-primary btn-sm" id="inf-btn-novo" onclick="abrirModalNovoInfluenciador()">+ Novo Influenciador</button>
   </div>
 
-  <!-- KPIs -->
-  <div class="kpi-grid mb20">
-    <div class="kpi-card"><div class="kpi-label">Total de Influenciadores</div><div class="kpi-value" id="inf-kpi-total">0</div><div class="kpi-change up" id="inf-kpi-ativos">0 ativos</div></div>
-    <div class="kpi-card"><div class="kpi-label">Receita Total</div><div class="kpi-value" id="inf-kpi-receita">R$ 0,00</div><div class="kpi-change up" id="inf-kpi-vendas">0 vendas geradas</div></div>
-    <div class="kpi-card"><div class="kpi-label">Taxa de Conversão Média</div><div class="kpi-value" id="inf-kpi-conv">0.00%</div><div class="kpi-change up">Média de todos os influenciadores</div></div>
-    <div class="kpi-card"><div class="kpi-label">Top Performer</div><div class="kpi-value" id="inf-kpi-top">—</div><div class="kpi-change up" id="inf-kpi-top-sub">R$ 0,00</div></div>
+  <!-- KPIs (ciclo 57: 6 cards alinhado com template Controle_Influenciadores.xlsx) -->
+  <div class="kpi-grid mb20" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+    <div class="kpi-card dark"><div class="kpi-label">Total / Ativos</div><div class="kpi-value" id="inf-kpi-total">0</div><div class="kpi-change up" id="inf-kpi-ativos">0 ativos</div></div>
+    <div class="kpi-card"><div class="kpi-label">Total Cupons Usados</div><div class="kpi-value" id="inf-kpi-cupons">0</div><div class="kpi-change up" id="inf-kpi-vendas">0 vendas geradas</div></div>
+    <div class="kpi-card"><div class="kpi-label">Receita Total</div><div class="kpi-value" id="inf-kpi-receita">R$ 0,00</div><div class="kpi-change up" id="inf-kpi-receita-dia">R$ 0/dia</div></div>
+    <div class="kpi-card"><div class="kpi-label">Ticket Médio</div><div class="kpi-value" id="inf-kpi-ticket">R$ 0,00</div><div class="kpi-change up">por venda gerada</div></div>
+    <div class="kpi-card"><div class="kpi-label">Taxa de Conversão</div><div class="kpi-value" id="inf-kpi-conv">0.00%</div><div class="kpi-change up">média geral</div></div>
+    <div class="kpi-card"><div class="kpi-label">Top Performer</div><div class="kpi-value" id="inf-kpi-top" style="font-size:18px">—</div><div class="kpi-change up" id="inf-kpi-top-sub">R$ 0,00</div></div>
   </div>
 
   <!-- Tabs (Fase 2 = Referências) -->
@@ -3518,13 +3520,50 @@ select.input { cursor: pointer; }
     </div>
 
     <!-- Tabela -->
-    <div class="card">
+    <div class="card mb20">
       <div style="margin-bottom:12px">
         <div class="card-title">Lista de Influenciadores</div>
         <div class="card-sub" id="inf-lista-count">0 influenciador(es) encontrado(s)</div>
       </div>
       <div id="inf-tabela" style="overflow-x:auto">
         <div style="text-align:center;color:var(--text3);font-size:12px;padding:30px">Carregando...</div>
+      </div>
+    </div>
+
+    <!-- Análises agregadas (ciclo 57) -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div class="card">
+        <div class="card-title">🌎 Performance por Região</div>
+        <div class="card-sub" style="margin-bottom:12px">Influenciadores, cupons usados e receita por região</div>
+        <div id="inf-analise-regiao" style="display:flex;flex-direction:column;gap:10px;font-size:11.5px">
+          <div style="text-align:center;color:var(--text3);padding:20px">Carregando...</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">🎯 Performance por Nicho</div>
+        <div class="card-sub" style="margin-bottom:12px">Top nichos por receita e taxa de conversão</div>
+        <div id="inf-analise-nicho" style="display:flex;flex-direction:column;gap:10px;font-size:11.5px">
+          <div style="text-align:center;color:var(--text3);padding:20px">Carregando...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Calendário de Parcerias -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+        <div>
+          <div class="card-title">📅 Calendário de Parcerias</div>
+          <div class="card-sub">Início, dias ativos e próxima revisão (90 dias após início)</div>
+        </div>
+        <select class="input" id="inf-cal-filtro" onchange="renderCalendarioParceria()" style="width:auto;min-width:160px;height:32px;font-size:11.5px">
+          <option value="todos">Todos status</option>
+          <option value="ativo" selected>Apenas ativos</option>
+          <option value="pausado">Pausados</option>
+          <option value="proxima_revisao">Revisão próxima (≤30d)</option>
+        </select>
+      </div>
+      <div id="inf-calendario" style="display:flex;flex-direction:column;gap:8px;font-size:11.5px">
+        <div style="text-align:center;color:var(--text3);padding:20px">Carregando...</div>
       </div>
     </div>
   </div>
@@ -16677,23 +16716,184 @@ function atualizarKPIsInfluenciadores() {
   const vendasTotal = _influenciadoresCache.reduce((s, i) => s + (+i.vendas_geradas || 0), 0);
   const usosTotal = _influenciadoresCache.reduce((s, i) => s + (+i.usos_cupom || 0), 0);
   const conversaoMedia = usosTotal > 0 ? (vendasTotal / usosTotal * 100) : 0;
+  const ticketMedio = vendasTotal > 0 ? receitaTotal / vendasTotal : 0;
   const top = _influenciadoresCache.slice().sort((a, b) => (+b.receita || 0) - (+a.receita || 0))[0];
+
+  // Receita/dia: soma receita_diaria de cada influencer com inicio_parceria preenchido
+  const hoje = new Date();
+  let receitaDiaSomada = 0;
+  let diasContabilizados = 0;
+  for (const i of _influenciadoresCache) {
+    if (!i.inicio_parceria || !(+i.receita > 0)) continue;
+    const dt = new Date(i.inicio_parceria);
+    const dias = Math.max(1, Math.floor((hoje - dt) / 86400000));
+    receitaDiaSomada += (+i.receita) / dias;
+    diasContabilizados++;
+  }
+  const receitaDiaMedia = diasContabilizados > 0 ? receitaDiaSomada / diasContabilizados : 0;
+
   const fmtR = (v) => 'R$ ' + (Math.round(v * 100) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
 
   set('inf-kpi-total', total);
   set('inf-kpi-ativos', ativos + ' ativos');
-  set('inf-kpi-receita', fmtR(receitaTotal));
+  set('inf-kpi-cupons', usosTotal);
   set('inf-kpi-vendas', vendasTotal + ' vendas geradas');
+  set('inf-kpi-receita', fmtR(receitaTotal));
+  set('inf-kpi-receita-dia', fmtR(receitaDiaMedia) + '/dia média');
+  set('inf-kpi-ticket', fmtR(ticketMedio));
   set('inf-kpi-conv', conversaoMedia.toFixed(2) + '%');
   if (top && top.nome) {
-    set('inf-kpi-top', top.nome.split(' ')[0]);
+    set('inf-kpi-top', (top.nome.split(' ')[0] || top.nome).slice(0, 16));
     set('inf-kpi-top-sub', fmtR(+top.receita || 0));
   } else {
     set('inf-kpi-top', '—');
     set('inf-kpi-top-sub', 'R$ 0,00');
   }
+
+  // Renderiza análises e calendário
+  renderAnaliseRegiao();
+  renderAnaliseNicho();
+  renderCalendarioParceria();
 }
+
+// ─── Análises agregadas (ciclo 57) ───
+function _influAggBy(field) {
+  const map = {};
+  for (const i of _influenciadoresCache) {
+    const key = (i[field] || '').trim() || 'Sem definição';
+    if (!map[key]) map[key] = { qtd: 0, cupons: 0, vendas: 0, receita: 0, conv: 0 };
+    map[key].qtd++;
+    map[key].cupons += +i.usos_cupom || 0;
+    map[key].vendas += +i.vendas_geradas || 0;
+    map[key].receita += +i.receita || 0;
+  }
+  for (const k of Object.keys(map)) {
+    map[k].conv = map[k].cupons > 0 ? (map[k].vendas / map[k].cupons * 100) : 0;
+    map[k].ticket = map[k].vendas > 0 ? map[k].receita / map[k].vendas : 0;
+  }
+  return Object.entries(map).sort((a, b) => b[1].receita - a[1].receita);
+}
+
+function renderAnaliseRegiao() {
+  const el = document.getElementById('inf-analise-regiao');
+  if (!el) return;
+  const dados = _influAggBy('regiao');
+  if (!dados.length) { el.innerHTML = '<div style="color:var(--text3);text-align:center;padding:14px">Sem dados</div>'; return; }
+  const fmtR = (v) => 'R$ ' + (Math.round(v * 100) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const max = dados[0][1].receita || 1;
+  el.innerHTML = dados.map(([nome, m]) => {
+    const pct = (m.receita / max) * 100;
+    return `<div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+        <span style="font-weight:600">${esc(nome)}</span>
+        <span style="color:var(--text3)">${m.qtd} influ · ${m.cupons} cupons · ${fmtR(m.receita)}</span>
+      </div>
+      <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#3b82f6,#7c3aed);border-radius:3px"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderAnaliseNicho() {
+  const el = document.getElementById('inf-analise-nicho');
+  if (!el) return;
+  const dados = _influAggBy('nicho').slice(0, 8);
+  if (!dados.length) { el.innerHTML = '<div style="color:var(--text3);text-align:center;padding:14px">Sem dados</div>'; return; }
+  const fmtR = (v) => 'R$ ' + (Math.round(v * 100) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const max = dados[0][1].receita || 1;
+  el.innerHTML = dados.map(([nome, m]) => {
+    const pct = (m.receita / max) * 100;
+    return `<div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px;gap:10px">
+        <span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(nome)}">${esc((nome || '').slice(0, 50))}</span>
+        <span style="color:var(--text3);white-space:nowrap">${m.qtd} · ${fmtR(m.receita)} · ${m.conv.toFixed(0)}% conv</span>
+      </div>
+      <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#16a34a,#0ea5e9);border-radius:3px"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.renderCalendarioParceria = function() {
+  const el = document.getElementById('inf-calendario');
+  if (!el) return;
+  const filtro = document.getElementById('inf-cal-filtro')?.value || 'todos';
+  const hoje = new Date();
+  const fmtData = (d) => d ? new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+
+  let lista = _influenciadoresCache.slice();
+  if (filtro === 'ativo' || filtro === 'pausado') lista = lista.filter(i => i.status === filtro);
+  if (filtro === 'proxima_revisao') {
+    lista = lista.filter(i => {
+      if (!i.inicio_parceria) return false;
+      const dt = new Date(i.inicio_parceria);
+      const proxRev = new Date(dt.getTime() + 90 * 86400000);
+      const diasAteRevisao = Math.floor((proxRev - hoje) / 86400000);
+      return diasAteRevisao >= 0 && diasAteRevisao <= 30;
+    });
+  }
+
+  // Ordena por proxima_revisao asc (mais próximas primeiro)
+  lista.sort((a, b) => {
+    const dA = a.inicio_parceria ? new Date(a.inicio_parceria).getTime() + 90 * 86400000 : Infinity;
+    const dB = b.inicio_parceria ? new Date(b.inicio_parceria).getTime() + 90 * 86400000 : Infinity;
+    return dA - dB;
+  });
+
+  if (!lista.length) {
+    el.innerHTML = '<div style="color:var(--text3);text-align:center;padding:18px">Nenhum influenciador no filtro selecionado</div>';
+    return;
+  }
+
+  const statusChip = (s) => {
+    if (s === 'ativo') return '<span class="chip ativo">Ativo</span>';
+    if (s === 'pausado') return '<span class="chip rev">Pausado</span>';
+    return '<span class="chip" style="background:#f0f0f0;color:#888">Inativo</span>';
+  };
+
+  el.innerHTML = `<table style="width:100%;font-size:11.5px">
+    <thead><tr>
+      <th>Nome</th>
+      <th>Instagram</th>
+      <th>Início</th>
+      <th style="text-align:right">Dias Ativos</th>
+      <th>Status</th>
+      <th>Próxima Revisão</th>
+      <th style="text-align:right">Receita/Dia</th>
+    </tr></thead>
+    <tbody>
+      ${lista.map(i => {
+        let inicio = i.inicio_parceria ? new Date(i.inicio_parceria) : null;
+        let dias = inicio ? Math.max(0, Math.floor((hoje - inicio) / 86400000)) : 0;
+        let proxRev = inicio ? new Date(inicio.getTime() + 90 * 86400000) : null;
+        let proxRevTxt = '—';
+        let proxRevClass = '';
+        if (proxRev) {
+          const diasAteRev = Math.floor((proxRev - hoje) / 86400000);
+          if (diasAteRev < 0) { proxRevTxt = `${fmtData(proxRev)} (atrasada ${Math.abs(diasAteRev)}d)`; proxRevClass = 'color:var(--red);font-weight:600'; }
+          else if (diasAteRev <= 7) { proxRevTxt = `${fmtData(proxRev)} (em ${diasAteRev}d)`; proxRevClass = 'color:var(--amber);font-weight:600'; }
+          else if (diasAteRev <= 30) { proxRevTxt = `${fmtData(proxRev)} (em ${diasAteRev}d)`; proxRevClass = 'color:var(--text2)'; }
+          else proxRevTxt = fmtData(proxRev);
+        }
+        const receitaDia = (dias > 0 && +i.receita > 0) ? (+i.receita / dias) : 0;
+        const fmtR = (v) => 'R$ ' + v.toFixed(2).replace('.', ',');
+        const insta = i.instagram ? esc(i.instagram.startsWith('@') ? i.instagram : '@' + i.instagram.replace(/.*instagram\.com\//, '').replace(/[?\/].*$/, '')) : '—';
+        return `<tr>
+          <td class="em">${esc(i.nome)}</td>
+          <td style="color:var(--text3)">${insta}</td>
+          <td>${fmtData(i.inicio_parceria)}</td>
+          <td style="text-align:right">${dias}d</td>
+          <td>${statusChip(i.status)}</td>
+          <td style="${proxRevClass}">${proxRevTxt}</td>
+          <td style="text-align:right">${receitaDia > 0 ? fmtR(receitaDia) : '—'}</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>`;
+};
 
 function atualizarFiltroNichos() {
   const sel = document.getElementById('inf-filtro-nicho');
