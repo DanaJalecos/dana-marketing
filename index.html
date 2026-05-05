@@ -19713,11 +19713,99 @@ window.estCarregarGaleria = async function() {
         <div style="padding:8px 10px">
           <div style="font-size:11px;font-weight:600;line-height:1.3;height:30px;overflow:hidden">${tipoEmoji[p.tipo_peca] || '🎨'} ${esc(p.produto_nome || '—')}</div>
           <div style="font-size:10px;color:var(--text3);margin-top:2px">${esc(p.tema || 'Genérico')} · ${new Date(p.created_at).toLocaleDateString('pt-BR').slice(0,5)}</div>
+          <button class="btn btn-ghost btn-sm" onclick="estAbrirVincularCampanha('${p.id}')" style="font-size:10.5px;width:100%;margin-top:6px;padding:5px;text-align:center" title="Vincular essa peça a uma campanha interna">🔗 Vincular a campanha</button>
         </div>
       </div>
     `).join('');
   } catch (e) {
     console.warn('[estudio] galeria:', e);
+  }
+};
+
+// ─── Vincular peça a campanha interna (ciclo 56) ───
+window.estAbrirVincularCampanha = async function(pecaId) {
+  // Pega a peça
+  const { data: peca, error: errPeca } = await sb.from('estudio_pecas').select('*').eq('id', pecaId).maybeSingle();
+  if (errPeca || !peca) { showToast('Erro ao carregar peça'); return; }
+  // Lista campanhas internas (ativas, planejadas, em execução)
+  const { data: campanhas, error: errC } = await sb.from('campanhas_internas')
+    .select('id, nome, status, data_inicio, data_fim')
+    .in('status', ['planejamento', 'em_execucao', 'planejada', 'ativa'])
+    .order('data_inicio', { ascending: false })
+    .limit(50);
+  if (errC) { showToast('Erro: ' + errC.message); return; }
+  if (!campanhas?.length) {
+    // Se não encontrar com status filtrados, pega todas
+    const { data: todas } = await sb.from('campanhas_internas').select('id, nome, status, data_inicio, data_fim').order('data_inicio', { ascending: false }).limit(50);
+    if (!todas?.length) { showToast('Nenhuma campanha interna cadastrada. Crie uma na seção Campanhas Internas primeiro.'); return; }
+    campanhas.push(...todas);
+  }
+
+  // Modal
+  const modalHtml = `
+    <div class="modal-overlay open" id="est-vincular-modal" style="z-index:10000" onclick="if(event.target===this){this.remove()}">
+      <div class="modal" style="max-width:520px;max-height:80vh;display:flex;flex-direction:column">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title">🔗 Vincular peça à campanha</div>
+            <div class="card-sub">${esc(peca.produto_nome || 'Peça')}${peca.tema ? ' · ' + esc(peca.tema) : ''}</div>
+          </div>
+          <button class="modal-close" onclick="document.getElementById('est-vincular-modal').remove()">×</button>
+        </div>
+        <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:14px">
+          <img src="${esc(peca.imagem_url)}" style="width:90px;height:90px;object-fit:cover;border-radius:8px;flex-shrink:0" onerror="this.style.display='none'">
+          <div style="flex:1;font-size:12px;color:var(--text3);line-height:1.5">
+            Selecione a campanha onde essa peça vai aparecer como anexo. Ela vai ficar disponível na seção <strong>Anexos & Links</strong> da campanha escolhida.
+          </div>
+        </div>
+        <div style="flex:1;overflow-y:auto;max-height:50vh;display:flex;flex-direction:column;gap:6px">
+          ${campanhas.map(c => `
+            <button onclick="estVincularPecaCampanha('${peca.id}','${c.id}','${esc(c.nome).replace(/'/g, '&apos;')}')"
+              style="display:flex;align-items:center;justify-content:space-between;text-align:left;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;transition:all .15s"
+              onmouseover="this.style.borderColor='#7c3aed';this.style.background='var(--surface2)'"
+              onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--surface)'">
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:600;font-size:12.5px;color:var(--text)">${esc(c.nome)}</div>
+                <div style="font-size:10.5px;color:var(--text3);margin-top:2px">
+                  ${c.data_inicio ? new Date(c.data_inicio).toLocaleDateString('pt-BR') : '—'}${c.data_fim ? ' → ' + new Date(c.data_fim).toLocaleDateString('pt-BR') : ''}
+                  · status: ${esc(c.status || '?')}
+                </div>
+              </div>
+              <span style="font-size:14px;color:var(--text3);margin-left:8px">→</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    </div>`;
+  const div = document.createElement('div');
+  div.innerHTML = modalHtml;
+  document.body.appendChild(div.firstElementChild);
+};
+
+window.estVincularPecaCampanha = async function(pecaId, campanhaId, campanhaNome) {
+  try {
+    // Pega dados da peça pra preencher os metadados do material
+    const { data: peca, error: errP } = await sb.from('estudio_pecas').select('*').eq('id', pecaId).maybeSingle();
+    if (errP || !peca) throw new Error('Peça não encontrada');
+
+    // Insere em campanha_interna_materiais
+    const { error: errInsert } = await sb.from('campanha_interna_materiais').insert({
+      campanha_id: campanhaId,
+      tipo: 'imagem_estudio_ia',
+      url: peca.imagem_url,
+      nome: `${peca.produto_nome || 'Peça IA'}${peca.tema ? ' · ' + peca.tema : ''} (${peca.tipo_peca})`,
+      descricao: `Gerado pelo Estúdio IA. Tipo: ${peca.tipo_peca}${peca.tema ? '. Tema: ' + peca.tema : ''}${peca.copy_extra ? '. Copy: ' + peca.copy_extra : ''}.`,
+      mime_type: 'image/png',
+      adicionado_por: currentUser?.id || null,
+      adicionado_por_nome: currentProfile?.nome || null,
+    });
+    if (errInsert) throw errInsert;
+
+    document.getElementById('est-vincular-modal')?.remove();
+    showToast(`✓ Peça vinculada a "${campanhaNome.replace(/&apos;/g, "'")}"`);
+  } catch (e) {
+    console.error('[estudio] vincular:', e);
+    showToast('Erro: ' + (e.message || e));
   }
 };
 

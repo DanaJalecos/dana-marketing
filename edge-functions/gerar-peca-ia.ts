@@ -189,47 +189,36 @@ The theme is the SOUL of the image. The scene MUST be RICH and VISUALLY DENSE wi
 
 **RULES FOR EXECUTING THE THEME:**
 1. The THEME ELEMENTS must occupy 30-40% of the visual frame — NOT a tiny prop in the corner.
-2. NEVER leave the right/left side of the frame completely empty. Fill background with theme-relevant blurred environment.
+2. NEVER leave the right/left side of the frame completely empty. Fill background NATURALLY with theme-relevant blurred environment (more shelves, more plants, kitchen utensils, hospital corridor — whatever fits). NO reserved empty rectangles or placeholder boxes for designer text.
 3. The theme must be UNMISTAKABLY recognizable: someone glancing at the image for 1 second must understand the theme.
-4. NEVER write theme words on the image. Tell the story through PROPS and ENVIRONMENT only.
+4. NEVER write theme words, never write the theme name, never use letterforms anywhere. Tell the story through PROPS and ENVIRONMENT only.
 
-CRITICAL RULE #4 — TEXT POLICY (DEPENDS ON USER INPUT):
+CRITICAL RULE #4 — ABSOLUTE NO-TEXT, NO-GRAPHIC-OVERLAY POLICY (CICLO 56):
 
-**CASE A — User PROVIDED a "copy" (e.g., "10% OFF", "FRETE GRATIS", "BLACK WEEK"):**
-- DO render the EXACT copy text large and clearly readable in the appropriate placeholder element
-- Place it inside the terracotta circle/badge (upper-right corner), or as a hero headline beside the model
-- Use elegant typography (large serif italic for hero, bold sans-serif for percentages)
-- Render the words EXACTLY as user wrote them — do not invent variations
-- Also tastefully render the THEME name as a smaller secondary headline if it makes sense (e.g., "VOLTA ÀS AULAS" as a secondary line)
-- BUT — STILL: NO 'Dana' embroidery on chest pocket, NO brand wordmark on the lab coat, NO random text floating around. Only the user-provided copy + optional theme tagline.
+The output image must be a CLEAN editorial photograph, with NO graphic design elements whatsoever. The graphic designer will add ALL text, badges and CTAs in post-production. The IA must produce ONLY the photographic scene.
 
-**CASE B — User did NOT provide copy:**
-- ABSOLUTELY NO text/letters/numbers/words rendered anywhere
-- Composition leaves empty negative space for designer to add text in post-production
-- Lab coat must be visually clean (no Dana embroidery)
+**ABSOLUTELY NEVER render in the image:**
+- NO text of any kind: letters, numbers, words, sentences, prices, percentages, hashtags, sub-titles, headlines.
+- NO brand wordmarks: NO "Dana" embroidery on the chest pocket, NO brand letters anywhere, NO logos, NO watermarks.
+- NO theme keywords: NO "VOLTA ÀS AULAS", NO "FRETE GRÁTIS", NO "BLACK FRIDAY", NO season names, NO month names — even if the user provided a "tema" field, that field is for AMBIENT/ENVIRONMENT context only, NEVER for rendering text.
+- NO copy_extra rendered: even if the user provided "copy_extra" like "10% OFF", that string is for the IA to optionally infer mood (e.g., "promotional energy") — but NEVER write it in the image.
+- NO graphic overlay shapes: NO terracotta/colored circles, NO badges, NO geometric stickers, NO frames, NO white borders around the photo, NO empty rectangles, NO placeholder boxes, NO ribbons, NO speech bubbles.
+- NO design elements suggesting "where text will go later": no empty boxes, no reserved white space rectangles, no decorative frames.
 
-Always end your prompt with one of these instructions, depending on the case:
+The image must look like a NATURAL, FINAL, COMPLETE EDITORIAL PHOTOGRAPH, not a design mock-up with empty placeholders. Imagine a high-end magazine cover photo BEFORE any typography is added — pure scene.
 
-If copy provided:
-"Render the text '<EXACT COPY>' clearly readable in the terracotta circle badge in the upper-right corner using bold elegant typography. Render the theme '<THEME>' as a smaller secondary headline beside the model. NO other text/letters anywhere — NO brand embroidery on the lab coat, NO scattered words. Lab coat itself must be visually clean (no chest pocket text)."
+**The "tema" field DOES affect the scene** — it dictates the ENVIRONMENT and PROPS the model is in (anatomy books for "Volta as aulas", hospital lobby for "Frete grátis hospital", kitchen for cozinha-themed apron, pine branches for "Natal", etc). Tema influences AMBIENT/STORY, not text/labels.
 
-If no copy:
-"ABSOLUTELY NO TEXT, LETTERS, NUMBERS, WORDS, PERCENTAGES, PRICES, BRAND NAMES, LOGOS, WORDMARKS, OR EMBROIDERED TEXT rendered anywhere in the image — including NO 'Dana' embroidery on the chest pocket. The composition leaves dedicated empty negative space rectangles where text overlays will be added later by the graphic designer."
+**The "copy_extra" field has NO visual representation.** Used at most as soft mood signal (e.g., "10% OFF" = bright/cheerful tone; "Frete grátis" = relaxed satisfaction; "Black Friday" = dark dramatic mood). But NEVER rendered as text or badge.
 
 CRITICAL RULE #5 — DETAILS:
 The final prompt must be 250-400 words, describing IN ORDER:
 1. The product (5-6 sentences analyzing the real image — color, fit, fabric, details)
 2. The model wearing it (posture, expression, age, ethnicity, hair)
-3. The COMPOSITION (model on left 35%, theme props in middle 30-40%, CTA placeholder right 20%) — REINFORCE that NO area should be blank
-4. THE THEME ELEMENTS (be specific and detailed about the props, environment, objects — this is the most important part, list 3-5 specific items)
+3. The COMPOSITION (where the model is placed in the frame, scene organization) — the entire frame is photographic content, NO reserved boxes or empty placeholders
+4. THE THEME ELEMENTS (be specific and detailed about the props, environment, objects — this is the most important part, list 3-5 specific items that fill the scene naturally)
 5. The lighting (warm, natural, golden hour, soft shadows, etc.)
-6. The CTA visualization: if user provided "copy" (e.g. "10% OFF"), describe a visual element that suggests the offer WITHOUT writing it — e.g., "an empty terracotta circle/badge in upper-right corner where a percentage discount label will be added in post-production" or "a clean rectangular block for the offer headline overlay"
-7. Final anti-text instruction (rule #4 above)
-
-CRITICAL RULE #5b — IF USER PROVIDED "copy" (like "10% OFF" or "FRETE GRATIS"):
-- Reserve a CLEAR visual element/badge/circle/shape at strategic position (upper-right or middle-right) WHERE THE OFFER WILL BE OVERLAID LATER
-- Describe this in the prompt: e.g. "An empty round terracotta badge in the upper-right corner sized about 200x200px where a discount percentage will be overlaid in post-production"
-- DO NOT WRITE the offer literally on the image, but DO reserve the visual hotspot for it.
+6. Final anti-text instruction: "The image is a clean editorial photograph with ZERO text, ZERO logos, ZERO brand wordmarks, ZERO badges, ZERO circles or graphic stickers, ZERO empty placeholder boxes, ZERO frames or borders. Pure photographic scene — no graphic design overlays of any kind."
 
 CRITICAL RULE #6 — ASPECT RATIO IN PROMPT:
 Always start your prompt with the aspect ratio for the piece type, e.g.:
@@ -272,13 +261,14 @@ function buildUserPromptText(input: Input): string {
   if (input.produto_descricao) lines.push(`- Official description (from danajalecos.com.br): ${input.produto_descricao}`);
   lines.push('');
   lines.push(`PIECE TYPE: ${input.tipo_peca}`);
-  if (input.tema) lines.push(`THEME: "${input.tema}" — render this theme name as a SECONDARY HEADLINE in the image (smaller, elegant uppercase serif), AND visually represent it through scene props/environment.`);
+  if (input.tema) {
+    lines.push(`THEME: "${input.tema}" — use this ONLY to influence the AMBIENT / ENVIRONMENT / PROPS in the scene (e.g., kitchen counter for cozinha theme, hospital corridor for hospital theme, anatomy books for "Volta as aulas"). NEVER render the word "${input.tema}" or any version of it as text in the image.`);
+  }
   if (input.copy_extra) {
-    lines.push(`COPY/PROMOTION TO RENDER: "${input.copy_extra}"`);
-    lines.push(`*** RENDER THIS EXACT TEXT "${input.copy_extra}" CLEARLY in the terracotta circle badge in the upper-right corner. Use bold typography, large enough to read. The text "${input.copy_extra}" must be visible and accurately spelled. ***`);
+    lines.push(`COPY MOOD HINT: "${input.copy_extra}" — use ONLY to infer the emotional tone of the scene (e.g., promotional/cheerful, dramatic, relaxed). DO NOT render any text, badge, circle, or visual element representing this string. The graphic designer will add the offer text in post-production.`);
   }
   lines.push('');
-  lines.push('Analyze the product image and generate the visual prompt in ENGLISH following ALL critical rules. Output only the raw prompt, 250-400 words. The prompt MUST instruct Gemini Image to render the user-provided copy text exactly if any was given.');
+  lines.push('Analyze the product image and generate the visual prompt in ENGLISH following ALL critical rules. Output only the raw prompt, 250-400 words. The image MUST be a clean editorial photograph with ZERO text, ZERO graphic overlays, ZERO badges, ZERO frames, ZERO placeholder boxes — pure photographic scene only.');
   return lines.join('\n');
 }
 
