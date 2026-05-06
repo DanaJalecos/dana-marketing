@@ -6031,6 +6031,35 @@ docs: add Section 60 documenting cycle 59 execution
 
 Worktree usa branch `claude/vibrant-davinci`. Push pra `origin/main` deploya pro Vercel (após sync staging dir pro repo `DanaJalecos/dana-marketing`).
 
+
+### 60.9 Auto-sync do Analytics ativado (cron jobs)
+
+Após deploy do ciclo 59, identificado que as edge functions `sync-analytics` e
+`sync-ml-analytics` só rodavam manualmente (botão "🔄 Atualizar agora"). Resultado:
+dados estáticos no banco se ninguém clicasse.
+
+**Crons criados** (via Management API + registrados em `sql-scripts/sql-cron-analytics.sql`):
+
+| jobid | jobname | schedule (UTC) | BRT | Provider |
+|---|---|---|---|---|
+| 25 | `sync-analytics-diario` | `7 6 * * *` | 03:07 | GA4 + Google Ads |
+| 26 | `sync-ml-analytics-6h` | `17 0,6,12,18 * * *` | 21h/03h/09h/15h | Mercado Livre |
+
+Justificativa de horários:
+- **GA4 às 03:07 BRT**: Google fecha dia anterior em GA4 ~02h BRT (timezone delay).
+- **ML 4×/dia**: vendas em tempo real — 6h em 6h pega novos pedidos sem martelar API.
+- Minutos `:07` e `:17` evitam coincidir com syncs Bling existentes
+  (concentrados em `:00`/`:05`/`:10`/`:15`/.../`:55`).
+
+**Validação manual pós-criação**:
+- `sync-analytics`: 1.941 GA4 rows + 124 Ads rows em 12.5s
+- `sync-ml-analytics`: 42 orders + 28 anúncios em 3.4s
+
+Total de crons ativos no DMS: **26** (24 anteriores + 2 novos de Analytics).
+
+Pra desativar futuramente: `SELECT cron.alter_job(25, active := false);` (ou `26`).
+
+
 ---
 
-**Fim da documentação · Atualizado em 06/05/2026 — ciclo 59 (URLs reais via History API) executado · v6.1**
+**Fim da documentação · Atualizado em 06/05/2026 — ciclo 59 + auto-sync Analytics · v6.2**
