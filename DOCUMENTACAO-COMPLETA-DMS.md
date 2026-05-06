@@ -5416,4 +5416,273 @@ DELETE FROM produto_catalogo_site WHERE updated_at >= '2026-05-04';
 
 ---
 
-**Fim da documentação · Atualizado em 04/05/2026 tarde — ciclo 55 (Estúdio IA usa apenas catálogo do site) · v5.9**
+---
+
+## 59. CICLO 05/05/2026 — BACKLOG: URLs reais (HTML5 History API + Vercel rewrites)
+
+**Status:** PLANEJADO — não implementado. Pronto pra retomar depois.
+
+### 59.1 Problema atual
+
+O DMS é um SPA single-file (`index.html`, ~24k linhas, 1.4 MB). Toda navegação acontece via função `go(this, 'briefingvisual')` que esconde/mostra `<div class="view" id="view-X">` — **sem alterar a URL**. Resultado:
+
+- URL fica sempre `https://danamarketing.vercel.app/` independente da seção
+- ❌ Não dá pra compartilhar link direto pra uma seção (`/briefing-visual/briefings-salvos`)
+- ❌ Botão voltar/avançar do navegador não funciona corretamente
+- ❌ F5 sempre volta pra Home (perde contexto)
+- ❌ SEO ruim — Google só vê uma página
+- ❌ Bookmarks são inúteis
+
+### 59.2 Por que NÃO criar arquivos HTML separados
+
+User levantou a ideia de criar um arquivo HTML por seção (ex: `/briefing-visual/index.html`). **Não vai funcionar** porque:
+
+1. **Cada navegação perde estado em memória:**
+   - Sessão Supabase precisa re-autenticar a cada click
+   - Realtime subscriptions (Prospecção, tarefas, alertas) caem
+   - Caches: `_prspCache`, `_estState`, `_anFiltros`, ML lookup, produto_catalogo_site cache, etc — todos perdidos
+   - Estado de filtros (Ex: filtro de status na Prospecção) reseta
+2. **Manutenção insustentável:**
+   - 50+ views × 1.4 MB = ~70 MB total se cada arquivo for cópia
+   - Mudou um JS global? Tem que atualizar em 50 arquivos
+   - Versão do schema mudou? Idem
+3. **Performance pior:**
+   - Cache do navegador menos eficiente (1 file de 1.4MB vs 50 files menores ainda perde por re-parsing)
+   - Realtime: cada page load reabre WebSocket
+
+### 59.3 Solução correta: HTML5 History API + Vercel rewrites
+
+Mantém SPA single-file, mas adiciona URLs reais que **funcionam de verdade** (refresh, share, bookmark, back/forward).
+
+**Como funciona:**
+
+```
+1. Usuário clica "Briefing Visual"
+   → JS chama go(this, 'briefingvisual')
+   → go() agora também chama history.pushState({}, '', '/briefing-visual')
+   → URL muda na barra (sem reload da página!)
+   → View renderizada normalmente
+
+2. Usuário cola URL ou dá F5 em /briefing-visual/briefings-salvos
+   → Vercel rewrite manda pro index.html (mesmo HTML de sempre)
+   → JS lê window.location.pathname no boot
+   → Chama o equivalente a go(null, 'briefingvisual') + ativa sub-tab "briefings-salvos"
+
+3. Botão voltar/avançar do navegador
+   → Event 'popstate' dispara
+   → JS lê novo pathname e troca a view
+```
+
+### 59.4 O que precisa ser feito
+
+#### A) Vercel rewrites (`vercel.json`)
+
+Atualizar arquivo na raiz do repo:
+
+```json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": null,
+  "outputDirectory": ".",
+  "framework": null,
+  "headers": [...],
+  "rewrites": [
+    { "source": "/((?!.*\\..*|api/).*)", "destination": "/index.html" }
+  ]
+}
+```
+
+A regex exclui requests com extensão (`.png`, `.css`, etc) e a pasta `/api/`.
+
+#### B) Mapping URL ↔ View (no JS do `index.html`)
+
+Adicionar um objeto `URL_TO_VIEW` que mapeia paths pra view + tab:
+
+```javascript
+const URL_TO_VIEW = {
+  '/': { view: 'home' },
+  '/analytics': { view: 'analytics' },
+  '/relatorio': { view: 'relatorio' },
+  '/ecommerce': { view: 'ecommerce' },
+  '/loja-fisica': { view: 'lojafisica' },
+  '/marketplaces': { view: 'marketplaces' },
+  '/canais-vendas': { view: 'canaisvendas' },
+  '/cliente-360': { view: 'cliente360' },
+  '/prospeccao': { view: 'prospeccao' },
+  '/financeiro': { view: 'financeiro' },
+  '/projecoes': { view: 'projecoes' },
+  '/roi': { view: 'roi' },
+  '/canais-aquisicao': { view: 'canaisaquisicao' },
+  '/campanhas': { view: 'campanhas' },
+  '/campanhas-internas': { view: 'campanhas-internas' },
+  '/construtor': { view: 'construtor' },
+  '/criativos': { view: 'criativos' },
+  '/briefing-visual': { view: 'briefingvisual' },
+  '/briefing-visual/briefings-salvos': { view: 'briefingvisual', tab: 'salvos' },
+  '/briefing-visual/materiais': { view: 'briefingvisual', tab: 'materiais' },
+  '/estudio-ia': { view: 'estudio' },
+  '/influenciadores': { view: 'influenciadores' },
+  '/influenciadores/calendario': { view: 'influenciadores', tab: 'calendario' },
+  '/influenciadores/referencias': { view: 'influenciadores', tab: 'referencias' },
+  '/prova-social': { view: 'provasocial' },
+  '/personas': { view: 'personas' },
+  '/keywords': { view: 'keywords' },
+  '/mercado': { view: 'mercado' },
+  '/referencias': { view: 'referencias' },
+  '/performance': { view: 'performance' },
+  '/tarefas': { view: 'tarefas' },
+  '/calendario': { view: 'calendario' },
+  '/admin': { view: 'admin' },
+};
+
+// Inversa: pra cada view → URL canônica
+const VIEW_TO_URL = Object.fromEntries(
+  Object.entries(URL_TO_VIEW)
+    .filter(([url, cfg]) => !cfg.tab)
+    .map(([url, cfg]) => [cfg.view, url])
+);
+```
+
+#### C) Atualizar função `go()` (em `index.html` ~linha 9786)
+
+Adicionar `history.pushState` quando o usuário clica:
+
+```javascript
+function go(el, viewKey, opts = {}) {
+  // ... código atual de switch view ...
+
+  // CICLO 59: atualiza URL sem reload
+  if (!opts.fromHistory) {
+    const url = VIEW_TO_URL[viewKey] || ('/' + viewKey);
+    if (window.location.pathname !== url) {
+      history.pushState({ view: viewKey }, '', url);
+    }
+  }
+}
+```
+
+#### D) Listener `popstate` (back/forward do navegador)
+
+```javascript
+window.addEventListener('popstate', (e) => {
+  const path = window.location.pathname;
+  const cfg = URL_TO_VIEW[path] || URL_TO_VIEW['/'];
+  go(null, cfg.view, { fromHistory: true });
+  if (cfg.tab) {
+    // Ativar sub-tab depois de a view carregar
+    setTimeout(() => activateSubTab(cfg.view, cfg.tab), 100);
+  }
+});
+```
+
+#### E) Boot (router inicial)
+
+No início do app, ler `window.location.pathname` e abrir a view certa:
+
+```javascript
+// Já tem checkAuth() no boot — adicionar depois disso:
+async function bootRouter() {
+  const path = window.location.pathname;
+  const cfg = URL_TO_VIEW[path] || URL_TO_VIEW['/'];
+  go(null, cfg.view, { fromHistory: true });
+  if (cfg.tab) {
+    setTimeout(() => activateSubTab(cfg.view, cfg.tab), 200);
+  }
+}
+```
+
+#### F) Helper `activateSubTab` (sub-tabs como "briefings-salvos", "calendario")
+
+Cada view com sub-tabs tem padrão diferente. Helpers já existentes (renomear/expor):
+
+| View | Função sub-tab existente | URL pattern |
+|---|---|---|
+| Prospecção | `prospSwitchTab(el, 'lista'/'kanban')` | `/prospeccao/lista`, `/prospeccao/kanban` |
+| Influenciadores | `switchInfluTab(el, 'lista'/'referencias')` | `/influenciadores`, `/influenciadores/referencias` |
+| Briefing Visual | (existente, achar o nome) | `/briefing-visual/briefings-salvos`, `/briefing-visual/materiais` |
+| Analytics | (não tem sub-tab atualmente — sem URL extra) | `/analytics` |
+| Estúdio IA | `switchEstTab(el, '...')` | `/estudio-ia/...` |
+| Admin | (várias sub-seções) | `/admin/usuarios`, `/admin/permissoes`, etc |
+
+Função `activateSubTab(viewKey, tabKey)` recebe view + tab e dispara o handler correto:
+```javascript
+function activateSubTab(view, tab) {
+  const handlers = {
+    'briefingvisual': (t) => brfSwitchTab(t),
+    'influenciadores': (t) => switchInfluTab(document.querySelector(`#view-influenciadores .tab[data-tab="${t}"]`), t),
+    'prospeccao': (t) => prospSwitchTab(document.querySelector(`#view-prospeccao .tab[data-tab="${t}"]`), t),
+    // ... outros
+  };
+  handlers[view]?.(tab);
+}
+```
+
+### 59.5 Casos especiais
+
+- **Hash do user agent**: alguns links antigos podem ter `/#/algo`. Adicionar fallback que detecta `location.hash` e redireciona pra path equivalente.
+- **Modais não devem mudar URL**: modais (Novo Cliente, Editar Tarefa, etc) **não precisam** de URL própria — eles são overlays sobre a view. Se quiser, futuramente: `?modal=novo-cliente`. Por ora, pular.
+- **Auth redirect**: depois de logar, se URL inicial era `/admin`, abrir admin direto (não Home).
+
+### 59.6 Tempo estimado
+
+| Etapa | Tempo |
+|---|---|
+| `vercel.json` rewrites + deploy | 5 min |
+| Mapping `URL_TO_VIEW` (60 itens das 30+ views + sub-tabs) | 20 min |
+| Atualizar `go()` com `pushState` | 10 min |
+| `popstate` listener | 5 min |
+| `bootRouter()` no init | 5 min |
+| `activateSubTab()` helper + integração com cada view com tabs | 30 min |
+| Testes (refresh em cada URL, back/forward, cold reload, share link) | 20 min |
+| Documentação ciclo 60 | 15 min |
+| **Total** | **~1h50min** |
+
+### 59.7 Riscos
+
+| Risco | Mitigação |
+|---|---|
+| Vercel rewrites quebrarem rotas de assets (PNG, CSS) | Regex exclui paths com extensão. Testar antes do deploy. |
+| `popstate` disparar duplo (do `pushState` + click) | Usar flag `opts.fromHistory` na função `go()` |
+| Sub-tabs com nome diferente entre views | `activateSubTab()` switch por viewKey |
+| URLs antigas com `#` em emails/comunicação | Fallback no boot que lê `location.hash` se path for `/` |
+| Auth redirect quebrar | Salvar URL inicial em `sessionStorage` antes do redirect e voltar pra ela após login |
+| F5 numa URL profunda + lentidão Supabase boot | Mostrar loader genérico antes da view aparecer |
+
+### 59.8 Reversibilidade
+
+- Frontend: `git revert` no commit do ciclo 59 → URL volta a ser `/` em tudo
+- Vercel: remover `rewrites` do vercel.json + deploy
+- Sem mudança de schema, sem dados afetados, zero risco de regressão
+
+### 59.9 Próximos passos pós-/clear
+
+Quando o user retomar a conversa, o prompt sugerido:
+
+> "leia DOCUMENTACAO-COMPLETA-DMS.md seção 59 e implementa URLs reais com HTML5 History API"
+
+Ou mais específico:
+
+> "implementa o ciclo 59 (URLs reais) seguindo o plano da seção 59 da DOCUMENTACAO-COMPLETA-DMS.md"
+
+### 59.10 Critical files
+
+| Arquivo | Mudanças |
+|---|---|
+| `vercel.json` (raiz do repo `_staging-dana-marketing/`) | Adicionar `rewrites` |
+| `_staging-dana-marketing/index.html` | `URL_TO_VIEW`, `VIEW_TO_URL`, `go()` ajustada, `popstate`, `bootRouter`, `activateSubTab` |
+| `.claude/worktrees/vibrant-davinci/index.html` | Mesmas mudanças (mantém sync) |
+
+### 59.11 Funções existentes a reusar
+
+| Componente | Onde | Como reusa |
+|---|---|---|
+| `go(el, key)` | ~linha 9786 | Estender com `history.pushState` |
+| `prospSwitchTab` | ~linha 18648 | Mapear pra `/prospeccao/{tab}` |
+| `switchInfluTab` | ~linha 16648 | Mapear pra `/influenciadores/{tab}` |
+| `switchEstTab` | (achar via grep) | Mapear pra `/estudio-ia/{tab}` |
+| `brfSwitchTab` | (achar via grep) | Mapear pra `/briefing-visual/{tab}` |
+| `checkAuth` | boot | Encadear `bootRouter()` depois |
+
+---
+
+**Fim da documentação · Atualizado em 05/05/2026 — ciclo 59 PLANEJADO (URLs reais via HTML5 History API + Vercel rewrites) · v6.0**
