@@ -5418,6 +5418,229 @@ DELETE FROM produto_catalogo_site WHERE updated_at >= '2026-05-04';
 
 ---
 
+## 56. CICLO 04-05/05/2026 — Estúdio IA polish + bug fixes operacionais
+
+### 56.1 Heurística melhor imagem principal (corrige scrubs estampados)
+
+**Bug detectado:** scrubs com estampa pediátrica (Pet Love, Dinos, Liga da Fofura, Fada do Dente, Fazendinha, Games) estavam todos exibindo a MESMA foto genérica (`scrub-feminino-manga-curta-azulmarinho2.jpg`) porque o markdown do site tinha "Imagens do Produto" listando a vitrine genérica de cores e "Imagens de Variações/Relacionados" com as fotos REAIS da estampa específica.
+
+**Solução:** script `corrigir-imagem-principal.py`:
+1. Tokeniza nome do produto, descarta termos genéricos (jaleco/scrub/feminino/branco/azul/etc)
+2. Procura nas imagens em ordem — a 1ª URL cujo path contenha alguma palavra específica do nome (pet-love, dinos, fada-do-dente) ganha
+3. Se NENHUMA bate → usa `imagens_relacionadas[0]` (são as fotos WhatsApp reais do time da Dana)
+4. **Resultado: 31 produtos corrigidos**, 220 mantidos. Cada scrub estampado agora mostra a foto certa.
+
+### 56.2 `gerar-peca-ia` v16 → v17 — clean editorial photograph
+
+**Pedido:** remover do prompt da IA todos os textos rendrizados ("10% OFF", "COZINHA", "Frete grátis", "HOSPITAL"), badges/círculos terracotta, bordas brancas e retângulos placeholder. Manter tema influenciando ambiente, mas zero texto/elementos gráficos.
+
+**v16 (reformula CRITICAL RULE #4):**
+- Tema continua afetando AMBIENT/PROPS (cozinha, hospital, anatomy books)
+- copy_extra vira só "mood signal" (promotional/relaxed/dramatic) — nunca renderiza
+- ZERO textos, badges, círculos, frames, placeholder boxes, brand wordmarks
+
+**v17 (suaviza final do prompt):**
+- Bug observado: prompt terminando com pilha "ZERO text, ZERO logos, ZERO badges..." fazia Gemini Image **interpretar como pedido de descrição textual** ao invés de geração de imagem (resposta sem `inlineData`)
+- Final agora é frase curta positiva: `"Pure editorial photograph, no graphic design overlays."`
+- Regras zero-texto continuam dentro do system prompt
+
+### 56.3 `gerar-avatar-ia` v18 → v19 — image_produto_url + retry
+
+**v18:** aceita `image_produto_url` no body. Pipeline:
+1. Fetch da URL CDN do site → base64
+2. Injeta no `parts[0]` antes do logo (game-changer)
+3. Prompt enhancer: `"CRITICAL: The FIRST image is the EXACT product the model must wear. Match color, cut, collar, sleeves, embroidery position PRECISELY."`
+4. Resultado: jaleco gerado é **visualmente idêntico** ao produto real
+
+**v19:** retry automático quando Gemini não devolve imagem
+- Detecta resposta sem `inlineData` (200 OK mas só texto)
+- Refaz com prompt simplificado: `"Generate a clean editorial photograph (no text, no graphics overlays, just photographic scene). [primeira frase do prompt original]."`
+- Só falha se retry também falhar — mensagem clara pro user
+
+### 56.4 Botão "🔗 Vincular a campanha" no card da galeria
+
+Cada peça gerada agora tem botão de vínculo:
+1. Click → modal lista campanhas internas (status: planejamento/em_execucao/etc) com data + status
+2. User clica numa → `INSERT INTO campanha_interna_materiais` com:
+   - `tipo: 'imagem_estudio_ia'`
+   - `url`: da imagem gerada
+   - `nome`: produto + tema + tipo_peca
+   - `descricao`: metadados (tipo, tema, copy_extra)
+3. Aparece automaticamente na seção **Anexos & Links** da campanha (mesma seção do mockup que user mostrou)
+
+### 56.5 Bug fixes operacionais
+
+**A) Bug "Evolução Diária — Abril 2026" hardcoded:**
+- Título do gráfico estava fixo no HTML (linha 2873)
+- Fix: span com id `evolucao-diaria-mes` populado dinamicamente em `renderChart()` via `new Date().getMonth()` + array de meses pt-BR
+- Agora atualiza sozinho na virada do mês (sem precisar de ação)
+
+**B) Filtro default da Prospecção: "Novos" → "Todos status"**
+- HTML linha 7226: select com option `value="novo" selected` mudado pra `value="" selected` (Todos)
+- Vendedoras agora veem TODOS os leads dela de cara (antes escondia contatados/em_negociacao)
+
+**C) Vendedor novo Diego Ruiz mapping (`vendedor_mapping` DMS):**
+```sql
+INSERT INTO vendedor_mapping (bling_vendedor_id, empresa, profile_id, display_name, ativo, excluir_ranking)
+VALUES (15596875225, 'matriz', 'da4448cd-1647-4381-9788-90b036df4df5', 'Diego Ruiz', true, false);
+```
+- Diego tem 10 pedidos no Bling, 8 clientes únicos, R$ 6.701,91 finalizados
+- Cargo `vendedor` já tem permissão `cliente360 = true` (sem mudança extra)
+
+**D) CSV/XLSX detalhado dos produtos Bling Matriz (ferramenta operacional):**
+- `Produtos-Bling-Matriz-Detalhado.csv` (587 KB · 2.205 SKUs · 25 colunas)
+- `Produtos-Bling-Matriz-Detalhado.xlsx` (282 KB · com header congelado, filtros, zebra, tipos numéricos)
+- Enriquecimento via API Bling v3: descricao, marca, gtin, ncm, peso, dimensões, campos custom (sexo, categoria), parser regex pra tamanho/cor, cruzamento com ficha_produtos (custo_total + BOM)
+- Cobertura: 99.4% NCM, 85.9% marca, 81.9% peso, 76.2% cor, 46.3% custo de ficha
+- Cache JSONL local em `.claude/backups/bling-produtos-cache.jsonl` (29 MB) pra rerodar sem hammer Bling
+- Não afeta DMS — ferramenta interna pra análise/marketing
+
+---
+
+## 57. CICLO 05/05/2026 — Influenciadores: KPIs expandidos + 3 dashboards
+
+**Pedido:** alinhar a aba Influenciadores com o template `Controle_Influenciadores.xlsx` que o user trouxe. Tabela base já estava OK (16 registros reais, schema completo), faltavam dashboards agregados.
+
+### 57.1 KPIs (4 → 6 cards)
+
+| Antes | Agora |
+|---|---|
+| Total de Influenciadores | **Total / Ativos** (combinado) |
+| Receita Total | **Total Cupons Usados** ⭐ novo |
+| Conversão Média | **Receita Total** + sub "receita/dia média" |
+| Top Performer | **Ticket Médio** ⭐ novo |
+| | **Taxa de Conversão** |
+| | **Top Performer** |
+
+### 57.2 🌎 Performance por Região
+
+Card com lista visual + barras de progresso:
+- Sudeste, Sul, Nordeste, Norte, Centro Oeste
+- Para cada: qtd influencers, total cupons, receita total
+- Largura da barra = receita relativa (gradient azul→roxo)
+
+### 57.3 🎯 Performance por Nicho (top 8)
+
+Mesma estrutura, ordenado por receita decrescente:
+- Lifestyle, Fitness, Saúde, Negócios, etc
+- Inclui taxa de conversão por nicho (gradient verde→azul)
+
+### 57.4 📅 Calendário de Parcerias
+
+Tabela com:
+- Nome · Instagram · Início · **Dias Ativos** · Status · **Próxima Revisão** (90d após início) · **Receita/Dia**
+- Highlights automáticos:
+  - 🟥 Vermelho: revisão atrasada (passou de 90d sem revisar)
+  - 🟧 Amber: revisão em ≤7d
+  - Cinza: ≤30d
+- Filtro: Todos / Ativos / Pausados / **Revisão próxima (≤30d)**
+
+### 57.5 Funções JS adicionadas
+
+- `_influAggBy(field)` — helper genérico de agregação por field (regiao/nicho)
+- `renderAnaliseRegiao()`, `renderAnaliseNicho()`, `renderCalendarioParceria()`
+- `atualizarKPIsInfluenciadores()` expandida com cálculo de ticket médio + receita/dia média (só conta influencers com inicio_parceria preenchido)
+
+---
+
+## 58. CICLO 05/05/2026 — Analytics nativo (GA4 + Google Ads + Mercado Livre) + cleanup
+
+### 58.1 Conectar APIs escondido (era mock visual)
+
+A seção "Conectar APIs" no menu Sistema era **simulação completa** — `goConnectStep(2)` rodava `setTimeout(2200ms)` e sempre dava ✅ "Conexão estabelecida". Salvava só no `localStorage['dms-apis-v1']`. Não chamava nenhuma API real.
+
+**Fix:** item de menu agora `display:none`. View `#view-apis` continua existindo (sem prejuízo). Botões em outras seções que apontavam pra ela foram redirecionados pra Analytics.
+
+### 58.2 Remove 3 cards de "Dashboards Externos"
+
+Eram 3 cards que abriam dashboards web externos em nova aba. Agora redundantes:
+- ❌ Google Analytics 4 → JÁ tem painel nativo no DMS
+- ❌ Google Ads → JÁ tem painel nativo no DMS
+- ❌ Mercado Livre → ganhou painel nativo neste ciclo
+
+Mantidos: Search Console, Shopee, Amazon, etc — dashboards externos sem integração nativa ainda.
+
+### 58.3 Google Analytics 4 (integração nativa anterior)
+
+Tabelas: `analytics_ga4_dia`, `analytics_ga4_canais`, `analytics_ga4_paginas`
+Edge function: `sync-analytics` (multi-provider)
+Secrets: `GA_CLIENT_ID`, `GA_CLIENT_SECRET`, `GA_REFRESH_TOKEN`, `GA_PROPERTY_ID`
+Stack: OAuth refresh + GA4 Data API v1beta (`runReport`)
+
+Métricas coletadas: sessions, totalUsers, screenPageViews, conversions, bounceRate, sessionsBySource
+
+**Stats validados:** 425 sessões/dia · 1163 pageviews · 18 conversions/dia
+
+### 58.4 Google Ads (integração nativa anterior)
+
+Edge function compartilha `sync-analytics`.
+Secrets: `ADS_CLIENT_ID`, `ADS_CLIENT_SECRET`, `ADS_REFRESH_TOKEN`, `ADS_DEVELOPER_TOKEN`, `ADS_CUSTOMER_ID`
+Stack: OAuth refresh + Google Ads API **v20** (searchStream)
+
+GAQL principal:
+```sql
+SELECT campaign.id, campaign.name, campaign.status,
+       metrics.cost_micros, metrics.clicks, metrics.impressions, metrics.conversions
+FROM campaign WHERE segments.date DURING LAST_30_DAYS ORDER BY metrics.cost_micros DESC
+```
+
+3 campanhas Dana (Dana Jalecos, Smart Shop test, etc) — sem gastos atuais (campanhas pausadas).
+
+### 58.5 Mercado Livre — integração nova ⭐
+
+**Backend:**
+- 3 tabelas:
+  - `analytics_ml_connections` — token storage (refresh_token rotativo)
+  - `analytics_ml_anuncios` — cache de items pra cruzar listing_type_id
+  - `analytics_ml_pedidos` — 1 row por order_item, com **comissão + tarifa fixa + lucro_liquido como GENERATED STORED**
+- Cálculos automáticos:
+  - `comissao` = total_amount × {0.17 (gold_pro), 0.13 (gold_special), 0 (free)}
+  - `tarifa_fixa` = R$ 6,75/6,50/6,25 × qtd quando preço unit < R$ 79
+  - `lucro_liquido` = total - comissão - tarifa_fixa
+- Função SQL `ml_backfill_listing_type()` (RPC) reconcilia comissão depois do sync
+
+**Edge function `sync-ml-analytics`:**
+1. Lê `ml_connections` do banco; se token expirado → faz refresh OAuth ML
+2. **Salva NOVO refresh_token** (ML invalida o antigo a cada refresh — bug crítico evitado)
+3. Pagina `/orders/search` (50/page, max 3000)
+4. Filtra `status='paid'` + transforma cada item em row
+5. Coleta `mlbIds` únicos → `/items?ids=X,Y,Z` (max 20/batch) pra popular `analytics_ml_anuncios`
+6. UPSERT em `analytics_ml_pedidos` (id = `{order_id}-{idx}`)
+7. Loga em `analytics_sync_meta` (provider='ml')
+
+**Secrets ML:**
+- `ML_CLIENT_ID` = `1647614878601869`
+- `ML_CLIENT_SECRET` = `KZWeokw9ZZccIS7Zqvg0LFx7HZCArt5m`
+- `ML_REFRESH_TOKEN` = (rotativo, salvo em `analytics_ml_connections` após primeiro refresh)
+- `ML_USER_ID` = `2130400423` (DANA_JALECOS)
+
+**Sync inicial 90 dias:**
+- 497 pedidos puxados → 439 pagos inseridos
+- 121 anúncios únicos cacheados
+- **R$ 117.100,80 bruto · R$ 96.727,79 líquido · 82.6% margem**
+- Mês recordista: Abril/2026 com **R$ 51.803,57 bruto** (198 pedidos)
+
+**Frontend (Painel Integrado → Analytics):**
+- Bloco "🛒 Mercado Livre" com:
+  - 4 KPIs (Bruto / Líquido / Margem / Pedidos) com comparação vs período anterior
+  - Gráfico mensal: bruto (cinza) + líquido (verde)
+  - **Top Produtos com Curva ABC**: top 10 por receita, classes A/B/C com cores (verde/amber/vermelho)
+  - **Por tipo de anúncio**: gold_pro vs gold_special vs free, com margem de cada
+- Botão "🔄 Atualizar agora" agora roda Google + ML em paralelo + chama `ml_backfill_listing_type()` RPC
+
+### 58.6 Documentação fonte
+
+Guia standalone em `Itens Projeto/INTEGRACAO_ML_E_ANALYTICS.md` com:
+- Credenciais (App ID, refresh_token rotativo, ml_user_id)
+- Schema SQL completo
+- Cálculo de comissão (Brasil 2026): gold_pro 17%, gold_special 13%, free 0%
+- Tarifa fixa: R$ 6,25-6,75 por unidade quando preço < R$ 79
+- Curva ABC (80/20)
+- Resiliência (429 retry, 401 refresh)
+- Troubleshooting
+
+---
+
 ## 59. CICLO 05/05/2026 — BACKLOG: URLs reais (HTML5 History API + Vercel rewrites)
 
 **Status:** PLANEJADO — não implementado. Pronto pra retomar depois.
