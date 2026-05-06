@@ -7,9 +7,9 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>Dana Marketing System</title>
-<link rel="icon" type="image/png" href="assets/logos/logo-sozinha-branca.png">
-<link rel="shortcut icon" type="image/png" href="assets/logos/logo-sozinha-branca.png">
-<link rel="apple-touch-icon" href="assets/logos/logo-sozinha-branca.png">
+<link rel="icon" type="image/png" href="/assets/logos/logo-sozinha-branca.png">
+<link rel="shortcut icon" type="image/png" href="/assets/logos/logo-sozinha-branca.png">
+<link rel="apple-touch-icon" href="/assets/logos/logo-sozinha-branca.png">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300&family=Unica+One&display=swap" rel="stylesheet">
 <script>
 // Anti-flash: aplica data-theme em <html> antes do CSS render pra evitar flicker
@@ -623,14 +623,14 @@ body {
 /* Fonte oficial da marca Dana Jalecos */
 @font-face {
   font-family: 'Northlane';
-  src: url('./assets/fonts/Northlane-One.otf') format('opentype');
+  src: url('/assets/fonts/Northlane-One.otf') format('opentype');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
   font-family: 'Northlane';
-  src: url('./assets/fonts/Northlane-Two.otf') format('opentype');
+  src: url('/assets/fonts/Northlane-Two.otf') format('opentype');
   font-weight: 700;
   font-style: normal;
   font-display: swap;
@@ -2577,7 +2577,7 @@ select.input { cursor: pointer; }
 <nav class="sidebar">
   <button class="sidebar-close-btn" onclick="toggleMobileSidebar(false)" aria-label="Fechar menu">✕</button>
   <div class="logo-area">
-    <img src="assets/logos/principal-horizontal-branca.png" alt="Dana Jalecos Exclusivos" style="width:85%;max-width:160px;height:auto;display:block;margin:0">
+    <img src="/assets/logos/principal-horizontal-branca.png" alt="Dana Jalecos Exclusivos" style="width:85%;max-width:160px;height:auto;display:block;margin:0">
     <div class="logo-sub">Marketing System</div>
   </div>
 
@@ -9923,6 +9923,12 @@ function toggleMobileSidebar(forceState) {
 // 'estudio' saiu daqui — agora controlado via cargo_permissoes pro Juan liberar manualmente
 const ADMIN_ONLY_VIEWS = ['admin'];
 
+// Views completamente ocultas do menu — ninguém vê (nem admin).
+// applyNavPermissions respeita isso (sobrescreve o reset de display); go() bloqueia
+// acesso direto via URL e redireciona pra firstAllowedView.
+// 'apis' (Conectar APIs) era mock visual; integrações reais vivem em Analytics/Estoque/etc.
+const HIDDEN_NAV_VIEWS = ['apis'];
+
 // Retorna o primeiro viewId que o usuario logado tem permissao pra acessar.
 // Usado no login inicial (sem hash/localStorage) e como fallback quando go()
 // bloqueia uma navegacao negada.
@@ -9950,8 +9956,8 @@ function firstAllowedView() {
     'financeiro','projecoes','roi',
     'canaisaquisicao','campanhas','construtor','criativos','briefingvisual','influenciadores','provasocial',
     'personas','keywords','mercado','referencias','performance',
-    'cliente360',    // fallback antes de apis
-    'apis',
+    'cliente360',    // último fallback
+    // 'apis' removido — view descontinuada (ver HIDDEN_NAV_VIEWS)
   ];
   for (const v of ordem) {
     if (userPermissoes[v] !== false) return v;
@@ -9961,6 +9967,16 @@ function firstAllowedView() {
 
 function go(el, viewId, opts) {
   opts = opts || {};
+  // 0. Views completamente removidas do menu (ex: 'apis' descontinuado).
+  //    Tentativa de acesso direto via URL → redireciona pra firstAllowedView silenciosamente.
+  if (HIDDEN_NAV_VIEWS.includes(viewId)) {
+    const fb = firstAllowedView();
+    if (fb && fb !== viewId) {
+      const navEl = document.querySelector('[onclick*="\''+fb+'\'"]');
+      return go(navEl, fb);
+    }
+    return;
+  }
   // 1. Bloqueio hard-coded: seções admin-only
   if (ADMIN_ONLY_VIEWS.includes(viewId) && currentProfile?.cargo !== 'admin') {
     if (typeof showToast === 'function') showToast('🚫 Acesso negado — apenas administradores');
@@ -10146,7 +10162,7 @@ function loadCliente360() {
   const iframe = document.getElementById('cliente360-iframe');
   if (!iframe) return;
   if (!iframe.getAttribute('data-loaded')) {
-    iframe.src = `./cliente-360.html?v=${CLIENTE360_VERSION}`;
+    iframe.src = `/cliente-360.html?v=${CLIENTE360_VERSION}`;
     iframe.setAttribute('data-loaded', '1');
   }
 }
@@ -19752,6 +19768,8 @@ function applyNavPermissions() {
     const match = item.getAttribute('onclick')?.match(/go\(this,'(\w+)'\)/);
     if (!match) return;
     const secao = match[1];
+    // Views ocultas pra todos (ex: 'apis' descontinuado) — ignora cargo
+    if (HIDDEN_NAV_VIEWS.includes(secao)) { item.style.display = 'none'; return; }
     // Views só-admin ficam ocultas pra outros cargos
     if (!ehAdmin && ADMIN_ONLY_VIEWS.includes(secao)) { item.style.display = 'none'; return; }
     if (userPermissoes[secao] === false) {
