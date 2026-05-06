@@ -5905,7 +5905,132 @@ Ou mais específico:
 | `switchEstTab` | (achar via grep) | Mapear pra `/estudio-ia/{tab}` |
 | `brfSwitchTab` | (achar via grep) | Mapear pra `/briefing-visual/{tab}` |
 | `checkAuth` | boot | Encadear `bootRouter()` depois |
+---
+
+## 60. CICLO 59 EXECUTADO — URLs reais (HTML5 History API + Vercel rewrites)
+
+Implementação do plano descrito na Section 59. Migração de **hash-based** (`#briefing-visual`) para **path-based** routing (`/briefing-visual`), preservando 100% da infra existente (`VIEW_META`, `VIEW_ID_TO_SLUG`, `firstAllowedView`, `ADMIN_ONLY_VIEWS`, `userPermissoes`).
+
+### 60.1 Decisões aprovadas (29/04 antes de implementar)
+
+1. **Sub-tab default auto-completa** via `replaceState` (`/admin` → `/admin/usuarios`).
+2. **GH Pages mirror documenta limitação** (sem 404.html trick — mirror é backup, Vercel é oficial).
+3. **Auth redirect preserva pathname** via `sessionStorage('dms-post-login-path')`.
+
+### 60.2 Mudanças aplicadas
+
+#### Arquivo `_staging-dana-marketing/vercel.json`
+Adicionado bloco `rewrites` SPA:
+
+```json
+"rewrites": [
+  { "source": "/((?!.*\\..*|api/).*)", "destination": "/index.html" }
+]
+```
+
+Regex exclui paths com `.` (assets, `.html`, `.css`) e `/api/*`. Tudo o mais cai no `index.html` — F5 em `/admin/permissoes` mantém a rota.
+
+#### Arquivo `index.html` (worktree + staging)
+
+**Bloco novo após `buildSlugMaps()` (~linha 9826):**
+- `SUBTAB_SWITCHERS` — 6 entradas (prospeccao/admin/influenciadores/briefingvisual/criativos/mercado) que delegam pras funções `prospSwitchTab`, `switchAdminTab`, etc.
+- `VALID_SUBTABS` — valores aceitos por view.
+- `DEFAULT_SUBTAB` — tab default (auto-completada na URL).
+- `findSubtabBtn(viewId, tabKey)` — busca botão via `[onclick*="'tab'"]` em `#view-X`.
+- `activateSubTab(viewId, tabKey)` — valida + chama switcher (com `setTimeout(50)` pra DOM render).
+- `parsePath(pathname)` → `{ viewId, subtab }` — split, lookup em `VIEW_SLUG_TO_ID`, valida sub.
+- `buildPath(viewId, subtab?)` → string — `'home'` vira `/`, demais `/<slug>[/<subtab>]`.
+
+**`go(el, viewId, opts)` modificada:**
+- Aceita `opts.subtab` e `opts.fromHistory`.
+- Auto-resolve subtab default via `DEFAULT_SUBTAB[viewId]` se nenhum vier.
+- Substituiu `pushState('#'+slug)` por `pushState/replaceState` com path completo.
+- Auto-complete (subtab default) usa `replaceState` (não polui histórico com 2 entradas pra mesma view).
+- Skip pushState se `fromHistory:true` (evita loop popstate↔pushState).
+- Mobile sidebar não fecha em `fromHistory:true` (back/forward não é toque do user).
+- Após render, chama `activateSubTab(viewId, subtab)` se subtab presente.
+
+**`popstate` listener reescrito (~10148):**
+- Lê `parsePath(location.pathname)` em vez de `location.hash`.
+- Chama `go(navEl, viewId, { fromHistory: true, subtab })`.
+
+**Boot router (~13150):**
+- Prioridade: post-login-path > pathname atual > localStorage > `firstAllowedView()`.
+- Migração graciosa: se chegar com `#xxx`, faz `replaceState` pro path equivalente antes do parse.
+- `location.hash` só sobrevive como migração one-shot.
+
+**`checkAuth()` (~19694):**
+- Antes de mostrar login-screen (sessão expirada), salva `location.pathname + location.search` em `sessionStorage('dms-post-login-path')`.
+- Só salva se `pathname !== '/'` (login direto na raiz não precisa restaurar).
+
+**`doLogin()` pós-`showApp()` (~19816):**
+- Lê `sessionStorage('dms-post-login-path')` → resolve via `parsePath` → `go()` direto pra lá (override do localStorage).
+- Valida permissões antes (não burla `ADMIN_ONLY_VIEWS` nem `userPermissoes`).
+- Se path inválido/sem permissão, cai pro fluxo localStorage existente.
+
+**`abrirLinkAlerta(ref, alertaId, dados)` (~13556):**
+- Se `dados.subtab` presente, passa `{ subtab: dados.subtab }` pro `go()`.
+- Prep pra alertas futuros que querem deep-link em sub-aba específica (ex: comentário em criativo aprovado → `/criativos/aprovados`).
+
+### 60.3 Não-mudanças (validação)
+
+- `cliente-360.html` e `cliente-360-boot.js` — intocados. Iframe permanece em `/cliente-360`. Deep-link interno via postMessage/sessionStorage continua funcionando.
+- `firstAllowedView()` — sem mudança. Continua sendo fallback final.
+- `ADMIN_ONLY_VIEWS` e `userPermissoes` — sem mudança. `go()` mantém os 2 gates de bloqueio.
+- `localStorage('dms-active-view')` — mantido como fallback secundário.
+- `applyNavPermissions()` — sem mudança.
+
+### 60.4 Validações
+
+- **Sintaxe JS**: 7 scripts inline → 0 erros (`new Function()` parse).
+- **JSON**: `vercel.json` válido.
+- **`grep location.hash` no index.html**: 1 única ocorrência (linha 13160, na migração legacy do boot — esperada).
+- **`grep pushState|replaceState`**: 6 ocorrências — todas path-based, sem hash residual.
+- **Diff worktree vs staging**: 25.377 linhas idênticas.
+
+### 60.5 Matriz de testes manuais (pendente do user)
+
+| # | Cenário | URL esperada | Comportamento |
+|---|---|---|---|
+| 1 | Click "Financeiro" no sidebar | `/financeiro` | View renderiza, URL muda |
+| 2 | F5 em `/financeiro` | `/financeiro` | View mantém |
+| 3 | F5 em `/admin/permissoes` | `/admin/permissoes` | Aba Permissões ativa |
+| 4 | Click `/admin` no sidebar | `/admin/usuarios` (auto-complete) | Tab Usuários ativa |
+| 5 | Back após click | URL anterior | View anterior, sem reload |
+| 6 | Bookmark `#financeiro` | `/financeiro` (replaceState) | View abre |
+| 7 | Logout em `/criativos/aprovados` → login | `/` (logout deliberado limpa estado) | Vai pra firstAllowedView |
+| 8 | Sessão expirou em `/admin/permissoes` → login | `/admin/permissoes` | Restaura via post-login-path |
+| 9 | URL `/inexistente` | `/` (firstAllowedView) | Sem 404 |
+| 10 | URL `/cliente-360` | `/cliente-360` | Iframe C360 carrega |
+| 11 | Designer tenta `/admin` | `/` (bloqueado) | Toast "🚫 Acesso negado" |
+| 12 | Compartilhar link `/influenciadores/referencias` | URL preservada | Outro usuário abre na aba certa |
+
+### 60.6 Limitações conhecidas
+
+- **GH Pages mirror** (`DanaComercial/dana-marketing`): F5 em URL profunda dará 404. Aceitável — espelho é backup, Vercel oficial.
+- **Auto-redirect com subtab default**: views com `DEFAULT_SUBTAB` sempre vão renderizar URL com sub-path mesmo se user só clicar no sidebar. Esperado — facilita compartilhar links.
+- **`logActivity('visualizou', ...)`** dispara em popstate (back/forward). Trade-off menor — back/forward conta como "visualização nova" no log.
+- **Loop hipotético popstate↔pushState** mitigado via `opts.fromHistory: true` skip.
+
+### 60.7 Reversibilidade total
+
+- `git revert` por fase reverte mudanças incrementalmente.
+- Vercel: remover `rewrites` do `vercel.json` + redeploy.
+- Sem mudança de schema, sem risco de dados.
+- Hash legado continua resolvendo via `replaceState` mesmo após reversão.
+
+### 60.8 Commits sugeridos (ainda não criados — user decide)
+
+```
+chore: add Vercel rewrites for SPA path routing
+feat(routing): add subtab switcher registry + path parser/builder
+feat(routing): write path-based URLs from go(), read from popstate/boot
+feat(routing): preserve path through auth redirect, support alert subtabs
+docs: add Section 60 documenting cycle 59 execution
+```
+
+Worktree usa branch `claude/vibrant-davinci`. Push pra `origin/main` deploya pro Vercel (após sync staging dir pro repo `DanaJalecos/dana-marketing`).
 
 ---
 
-**Fim da documentação · Atualizado em 05/05/2026 — ciclo 59 PLANEJADO (URLs reais via HTML5 History API + Vercel rewrites) · v6.0**
+**Fim da documentação · Atualizado em 06/05/2026 — ciclo 59 (URLs reais via History API) executado · v6.1**

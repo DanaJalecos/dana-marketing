@@ -9824,6 +9824,92 @@ const VIEW_SLUG_TO_ID = {};
   delete VIEW_SLUG_TO_ID['cliente-360'];
 })();
 
+// ── NAVIGATION · Sub-tab registries (ciclo 59 — URLs reais) ──
+// Mapas que permitem URLs profundas tipo /admin/permissoes, /briefing-visual/materiais.
+// Cada view com sub-abas tem 3 entradas:
+//  - SUBTAB_SWITCHERS: a função que troca a aba (recebe el, tab)
+//  - VALID_SUBTABS:    valores aceitos no path
+//  - DEFAULT_SUBTAB:   tab default ao entrar na view sem sub-path (auto-completa via replaceState)
+// Funções existentes mantêm assinatura — wrapper apenas resolve o botão correto via DOM.
+const SUBTAB_SWITCHERS = {
+  prospeccao:      (btn, tab) => (typeof prospSwitchTab === 'function') && prospSwitchTab(btn, tab),
+  admin:           (btn, tab) => (typeof switchAdminTab === 'function') && switchAdminTab(btn, tab),
+  influenciadores: (btn, tab) => (typeof switchInfluTab === 'function') && switchInfluTab(btn, tab),
+  briefingvisual:  (btn, tab) => (typeof switchBriefingTab === 'function') && switchBriefingTab(btn, tab),
+  criativos:       (btn, tab) => (typeof switchCri === 'function') && switchCri(btn, tab),
+  mercado:         (btn, tab) => (typeof switchMkt === 'function') && switchMkt(btn, tab),
+};
+const VALID_SUBTABS = {
+  prospeccao:      ['lista','kanban'],
+  admin:           ['usuarios','permissoes','atividades','custos-ia','sync-retries'],
+  influenciadores: ['lista','referencias'],
+  briefingvisual:  ['salvos','materiais','brandkit'],
+  criativos:       ['aguardando','aprovados','reprovados','todo','publicados'],
+  mercado:         ['noticias','tendencias','concorrentes','oportunidades'],
+};
+const DEFAULT_SUBTAB = {
+  prospeccao:      'kanban',
+  admin:           'usuarios',
+  influenciadores: 'lista',
+  briefingvisual:  'salvos',
+  criativos:       'aguardando',
+  mercado:         'noticias',
+};
+
+// Procura o botão de aba via onclick (seletor reusa o padrão de cada switcher).
+// Retorna null se não achar — funções tolerantes (prospSwitchTab, switchCri) lidam OK,
+// outras (switchAdminTab, switchBriefingTab, switchInfluTab, switchMkt) só não destacam
+// visualmente o tab ativo, mas o painel ainda troca via .active no panel correspondente.
+function findSubtabBtn(viewId, tabKey) {
+  const root = document.getElementById('view-' + viewId);
+  if (!root) return null;
+  // Busca botão cujo onclick contenha 'tabKey' (com aspas simples)
+  const sel = `[onclick*="'${tabKey}'"]`;
+  return root.querySelector(sel);
+}
+
+// Ativa uma sub-tab dentro de uma view. Usado por:
+// - go(viewId, { subtab }) após render
+// - popstate ao navegar back/forward
+// - boot router quando F5 numa URL profunda
+// setTimeout de 50ms garante que o painel da view já foi renderizado antes do switcher tocar nele.
+function activateSubTab(viewId, tabKey) {
+  if (!VALID_SUBTABS[viewId] || !VALID_SUBTABS[viewId].includes(tabKey)) {
+    console.warn('[routing] subtab inválido:', viewId, tabKey);
+    return;
+  }
+  const fn = SUBTAB_SWITCHERS[viewId];
+  if (!fn) return;
+  setTimeout(() => {
+    const btn = findSubtabBtn(viewId, tabKey);
+    try { fn(btn, tabKey); } catch (e) { console.warn('[routing] activateSubTab falhou:', viewId, tabKey, e); }
+  }, 50);
+}
+
+// Parser/builder de path-based URLs (ciclo 59).
+// parsePath('/admin/permissoes') → { viewId: 'admin', subtab: 'permissoes' }
+// parsePath('/financeiro')       → { viewId: 'financeiro', subtab: null }
+// parsePath('/')                 → { viewId: null, subtab: null }   (caller decide fallback)
+// parsePath('/inexistente')      → { viewId: null, subtab: null }
+function parsePath(pathname) {
+  const clean = (pathname || '/').replace(/\/+$/, '') || '/';
+  if (clean === '/' || clean === '') return { viewId: null, subtab: null };
+  const parts = clean.split('/').filter(Boolean); // remove '' do split inicial
+  const viewSlug = parts[0];
+  const sub = parts[1] || null;
+  const viewId = VIEW_SLUG_TO_ID[viewSlug] || null;
+  // Se a sub-tab não é válida pra essa view, ignora (cai no default da view)
+  const validSub = (viewId && sub && VALID_SUBTABS[viewId]?.includes(sub)) ? sub : null;
+  return { viewId, subtab: validSub };
+}
+function buildPath(viewId, subtab) {
+  const slug = VIEW_ID_TO_SLUG[viewId] || viewId;
+  if (!slug || slug === 'home') {
+    return subtab ? '/' + subtab : '/';
+  }
+  return '/' + slug + (subtab ? '/' + subtab : '');
+}
+
 // ═══ MOBILE · toggle sidebar (drawer em <=768px) ═══
 function toggleMobileSidebar(forceState) {
   const open = forceState === undefined ? !document.body.classList.contains('sidebar-open') : !!forceState;
@@ -9873,7 +9959,8 @@ function firstAllowedView() {
   return 'perfil'; // fallback absoluto (perfil sempre acessivel)
 }
 
-function go(el, viewId) {
+function go(el, viewId, opts) {
+  opts = opts || {};
   // 1. Bloqueio hard-coded: seções admin-only
   if (ADMIN_ONLY_VIEWS.includes(viewId) && currentProfile?.cargo !== 'admin') {
     if (typeof showToast === 'function') showToast('🚫 Acesso negado — apenas administradores');
@@ -9894,8 +9981,9 @@ function go(el, viewId) {
     }
     return;
   }
-  // Fecha sidebar em mobile ao navegar
-  if (window.innerWidth <= 768) toggleMobileSidebar(false);
+  // Fecha sidebar em mobile ao navegar — exceto se vier de back/forward (popstate),
+  // pois nesse caso o user não tocou em nada e fechar a sidebar seria ruidoso.
+  if (window.innerWidth <= 768 && !opts.fromHistory) toggleMobileSidebar(false);
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if(el) el.classList.add('active');
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -9912,11 +10000,29 @@ function go(el, viewId) {
     else { btn.style.display = 'none'; }
   } else { btn.style.display = 'none'; }
   try { localStorage.setItem('dms-active-view', viewId); } catch(e) {}
-  // Atualiza URL hash (pushState não dispara hashchange/popstate, então é seguro)
-  const slug = VIEW_ID_TO_SLUG[viewId] || viewId;
-  const newHash = '#' + slug;
-  if (location.hash !== newHash) {
-    try { history.pushState(null, '', newHash); } catch(e) {}
+  // ── URL path-based (ciclo 59) ──
+  // Resolve subtab efetiva: explícita em opts > default da view (se existir).
+  // Auto-complete de default rola via replaceState pra refletir na URL ('/admin' → '/admin/usuarios').
+  let effectiveSubtab = opts.subtab || null;
+  if (!effectiveSubtab && DEFAULT_SUBTAB[viewId]) {
+    effectiveSubtab = DEFAULT_SUBTAB[viewId];
+  }
+  const newPath = buildPath(viewId, effectiveSubtab);
+  if (location.pathname !== newPath && !opts.fromHistory) {
+    try {
+      // Auto-complete (URL antiga sem subtab → URL nova com subtab default): replaceState
+      // pra não poluir histórico com 2 entries que renderizam a mesma view.
+      const usingDefault = effectiveSubtab && !opts.subtab;
+      if (usingDefault && location.pathname === buildPath(viewId, null)) {
+        history.replaceState({ view: viewId, subtab: effectiveSubtab }, '', newPath);
+      } else {
+        history.pushState({ view: viewId, subtab: effectiveSubtab }, '', newPath);
+      }
+    } catch(e) {}
+  }
+  // Ativa sub-tab depois do painel renderizar (50ms guard interno em activateSubTab)
+  if (effectiveSubtab && SUBTAB_SWITCHERS[viewId]) {
+    activateSubTab(viewId, effectiveSubtab);
   }
   // Esconde o filtro global de empresa quando estiver em Cliente 360 (filtro proprio la dentro)
   const empSel = document.getElementById('empresa-selector');
@@ -10045,17 +10151,15 @@ function loadCliente360() {
   }
 }
 
-// Responde aos botões back/forward do browser
+// Responde aos botões back/forward do browser (ciclo 59 — path-based).
+// fromHistory:true faz go() pular o pushState/replaceState (evita loop popstate↔pushState).
 window.addEventListener('popstate', () => {
-  const hash = (location.hash || '').slice(1);
-  if (!hash) return;
-  const viewId = VIEW_SLUG_TO_ID[hash] || hash;
-  if (!VIEW_META[viewId] && viewId !== 'perfil') return;
-  const navEl = document.querySelector('[onclick*="\''+viewId+'\'"]');
-  // Chama go sem fazer pushState de novo (remove temp do hash pra evitar loop)
-  const prevSlug = VIEW_ID_TO_SLUG[viewId] || viewId;
-  history.replaceState(null, '', '#' + prevSlug);
-  go(navEl, viewId);
+  const parsed = parsePath(location.pathname);
+  // Sem viewId resolvível: ignora (mantém estado atual). Pode acontecer em URLs muito antigas
+  // ou quando o usuário navegou pra fora e voltou — o app não vai re-renderizar.
+  if (!parsed.viewId) return;
+  const navEl = document.querySelector('[onclick*="\''+parsed.viewId+'\'"]');
+  go(navEl, parsed.viewId, { fromHistory: true, subtab: parsed.subtab });
 });
 
 // Views que exportam PDF (action='Exportar PDF' no VIEW_META)
@@ -13038,26 +13142,52 @@ window.addEventListener('load', async () => {
   if (typeof initUpgradeFeatures === 'function') initUpgradeFeatures();
   // Recarregar a cada 5 minutos
   setInterval(() => { if (typeof loadSupabaseData === 'function') loadSupabaseData(); }, 300000);
-  // Restaurar view (agora com currentProfile já carregado)
-  // Prioridade: URL hash > localStorage > primeira view permitida pelo cargo
+  // Restaurar view (agora com currentProfile já carregado).
+  // Prioridade: post-login redirect > URL pathname > URL hash legado > localStorage > primeira view permitida.
+  // Ciclo 59: path-based routing. Hash antigo (#financeiro) migra graciosamente pra path (/financeiro)
+  // via replaceState — usuário com bookmark vê URL bonita após primeira visita.
   try {
-    const hash = (location.hash || '').slice(1);
     let targetView = null;
-    if (hash) {
-      targetView = VIEW_SLUG_TO_ID[hash] || (VIEW_META[hash] ? hash : null);
+    let targetSubtab = null;
+    // 0. Auth redirect: caminho preservado antes do login (ciclo 59 fase 6)
+    let postLoginPath = null;
+    try { postLoginPath = sessionStorage.getItem('dms-post-login-path'); } catch(e) {}
+    if (postLoginPath) {
+      try { sessionStorage.removeItem('dms-post-login-path'); } catch(e) {}
+      try { history.replaceState(null, '', postLoginPath); } catch(e) {}
     }
+    // 1. Migração hash legado (#xxx) → path (/xxx)
+    const legacyHash = (location.hash || '').slice(1);
+    if (legacyHash && location.pathname === '/') {
+      const legacyView = VIEW_SLUG_TO_ID[legacyHash] || (VIEW_META[legacyHash] ? legacyHash : null);
+      if (legacyView) {
+        const slug = VIEW_ID_TO_SLUG[legacyView] || legacyView;
+        try { history.replaceState(null, '', '/' + slug); } catch(e) {}
+      } else {
+        // Hash inválido — limpa pra não confundir o parsePath abaixo
+        try { history.replaceState(null, '', '/'); } catch(e) {}
+      }
+    }
+    // 2. Pathname atual
+    const parsed = parsePath(location.pathname);
+    if (parsed.viewId) {
+      targetView = parsed.viewId;
+      targetSubtab = parsed.subtab;
+    }
+    // 3. Fallback localStorage
     if (!targetView) {
       targetView = localStorage.getItem('dms-active-view');
     }
-    // Se targetView e null OU o usuario nao tem permissao → primeira view permitida
+    // 4. Se targetView é null OU o usuário não tem permissão → primeira view permitida
     const naoTem = (v) => v && v !== 'perfil' && userPermissoes[v] === false;
     const adminBloq = (v) => v && ADMIN_ONLY_VIEWS.includes(v) && currentProfile?.cargo !== 'admin';
     if (!targetView || naoTem(targetView) || adminBloq(targetView)) {
       targetView = firstAllowedView();
+      targetSubtab = null; // se caiu no fallback, ignora subtab da URL antiga
     }
     if (targetView) {
       const navEl = document.querySelector('[onclick*="\''+targetView+'\'"]');
-      go(navEl, targetView);
+      go(navEl, targetView, targetSubtab ? { subtab: targetSubtab } : undefined);
     }
   } catch(e) { console.warn('[init] restoreView:', e); }
   // animate KPI bars
@@ -13422,8 +13552,11 @@ function abrirLinkAlerta(ref, alertaId, dados) {
   let viewId = ref;
   if (VIEW_SLUG_TO_ID && VIEW_SLUG_TO_ID[ref]) viewId = VIEW_SLUG_TO_ID[ref];
   const navEl = document.querySelector(`[onclick*="go(this,'${viewId}')"]`);
-  if (navEl) go(navEl, viewId);
-  else if (typeof go === 'function') go(null, viewId);
+  // Ciclo 59: se o alerta tem `dados.subtab`, abre direto na aba certa
+  // (ex: alerta de comentário em criativo → /criativos/aprovados).
+  const opts = (dados && dados.subtab) ? { subtab: dados.subtab } : undefined;
+  if (navEl) go(navEl, viewId, opts);
+  else if (typeof go === 'function') go(null, viewId, opts);
 
   // Deep-link: se tem criativo_id, troca pra aba do status e destaca o card
   if (dados && dados.criativo_id && viewId === 'criativos') {
@@ -19564,6 +19697,13 @@ window.prospKanbanDrop = async function(event, novoStatus) {
 async function checkAuth() {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) {
+    // Ciclo 59: preserva URL profunda pra retomar após login.
+    // Só salva se não for a raiz (login direto em '/' não precisa restaurar).
+    try {
+      if (location.pathname && location.pathname !== '/') {
+        sessionStorage.setItem('dms-post-login-path', location.pathname + location.search);
+      }
+    } catch(e) {}
     document.getElementById('login-screen').style.display = 'flex';
     return;
   }
@@ -19677,32 +19817,54 @@ async function doLogin() {
         setTimeout(() => showToast('👋 Bem-vinda! Troque sua senha temporaria aqui em Perfil.'), 400);
       }
     } else {
-      let salva = localStorage.getItem('dms-active-view');
-      // Override antibug: se o ultimo localStorage foi cliente360 e o cargo
-      // NAO e vendedor, ignora (vai pra firstAllowedView). Isso evita ficar
-      // preso no C360 quando o user caiu la por engano em sessao anterior.
-      if (salva === 'cliente360' && currentProfile?.cargo !== 'vendedor') {
-        salva = null;
-        localStorage.removeItem('dms-active-view');
-      }
-      // Override antibug 2: se a view salva nao existe mais no DOM (foi
-      // removida ou renomeada — ex: meus_clientes virou aba interna do C360),
-      // descarta e cai em firstAllowedView. Antes deixava o user numa tela
-      // em branco com o hash apontando pra view morta.
-      if (salva && !document.getElementById('view-' + salva) && salva !== 'perfil') {
-        console.warn('[init] view salva "' + salva + '" nao existe no DOM, ignorando');
-        salva = null;
-        localStorage.removeItem('dms-active-view');
-      }
-      const naoTem = (v) => v && v !== 'perfil' && userPermissoes[v] === false;
-      const adminBloq = (v) => v && ADMIN_ONLY_VIEWS.includes(v) && currentProfile?.cargo !== 'admin';
-      let target = salva;
-      if (!target || naoTem(target) || adminBloq(target)) {
-        target = firstAllowedView();
-      }
-      if (target) {
-        const navEl = document.querySelector('[onclick*="\''+target+'\'"]');
-        go(navEl, target);
+      let restored = false;
+      // Ciclo 59 fase 6: prioridade pra URL profunda preservada antes do login
+      // (ex: user clicou em /admin/permissoes deslogado → checkAuth salvou pathname →
+      // após login bem-sucedido voltamos direto pra lá).
+      try {
+        const postLoginPath = sessionStorage.getItem('dms-post-login-path');
+        if (postLoginPath) {
+          sessionStorage.removeItem('dms-post-login-path');
+          const parsed = parsePath(postLoginPath);
+          if (parsed.viewId) {
+            const naoTem2 = parsed.viewId !== 'perfil' && userPermissoes[parsed.viewId] === false;
+            const adminBloq2 = ADMIN_ONLY_VIEWS.includes(parsed.viewId) && currentProfile?.cargo !== 'admin';
+            if (!naoTem2 && !adminBloq2 && document.getElementById('view-' + parsed.viewId)) {
+              const navEl2 = document.querySelector('[onclick*="\''+parsed.viewId+'\'"]');
+              go(navEl2, parsed.viewId, parsed.subtab ? { subtab: parsed.subtab } : undefined);
+              restored = true;
+            }
+          }
+        }
+      } catch(e) {}
+      if (!restored) {
+        let salva = localStorage.getItem('dms-active-view');
+        // Override antibug: se o ultimo localStorage foi cliente360 e o cargo
+        // NAO e vendedor, ignora (vai pra firstAllowedView). Isso evita ficar
+        // preso no C360 quando o user caiu la por engano em sessao anterior.
+        if (salva === 'cliente360' && currentProfile?.cargo !== 'vendedor') {
+          salva = null;
+          localStorage.removeItem('dms-active-view');
+        }
+        // Override antibug 2: se a view salva nao existe mais no DOM (foi
+        // removida ou renomeada — ex: meus_clientes virou aba interna do C360),
+        // descarta e cai em firstAllowedView. Antes deixava o user numa tela
+        // em branco com o hash apontando pra view morta.
+        if (salva && !document.getElementById('view-' + salva) && salva !== 'perfil') {
+          console.warn('[init] view salva "' + salva + '" nao existe no DOM, ignorando');
+          salva = null;
+          localStorage.removeItem('dms-active-view');
+        }
+        const naoTem = (v) => v && v !== 'perfil' && userPermissoes[v] === false;
+        const adminBloq = (v) => v && ADMIN_ONLY_VIEWS.includes(v) && currentProfile?.cargo !== 'admin';
+        let target = salva;
+        if (!target || naoTem(target) || adminBloq(target)) {
+          target = firstAllowedView();
+        }
+        if (target) {
+          const navEl = document.querySelector('[onclick*="\''+target+'\'"]');
+          go(navEl, target);
+        }
       }
     }
   } catch(e) { console.warn('Post-login redirect:', e); }
