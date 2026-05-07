@@ -167,12 +167,22 @@
     const ok = await waitForSupabase();
     if (!ok) { console.error('[c360] Supabase SDK não carregou'); return false; }
     state.sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    // Verifica sessão (compartilhada via localStorage, mesmo dominio)
-    const { data: { session } } = await state.sb.auth.getSession();
+    // Verifica sessão (compartilhada via localStorage, mesmo dominio).
+    // Race condition na primeira carga após login: o iframe pode iniciar antes
+    // do parent persistir o token no localStorage. Retry 6× com 250ms = 1.5s
+    // de janela total, suficiente pra Supabase v2 commitar a sessão.
+    let session = null;
+    for (let i = 0; i < 6; i++) {
+      const { data } = await state.sb.auth.getSession();
+      if (data?.session) { session = data.session; break; }
+      // Tenta também ler direto do localStorage (alguns navegadores demoram pra
+      // o evento 'storage' propagar — getSession lê do storage diretamente)
+      await new Promise(r => setTimeout(r, 250));
+    }
     if (!session) {
-      console.warn('[c360] Sem sessão — redirecionando pra login');
+      console.warn('[c360] Sem sessão após retries — redirecionando pra login');
       if (window.parent && window.parent !== window.self) {
-        window.parent.location.hash = '';
+        try { window.parent.location.hash = ''; } catch (e) {}
       }
       return false;
     }
