@@ -796,6 +796,56 @@ body {
 .kpi-change.up { color: var(--green); }
 .kpi-change.dn { color: var(--red); }
 .kpi-change.neutral { color: var(--text3); }
+
+/* Mini-sparkline embaixo do KPI value (Fase 0 ciclo Analytics IA) */
+.kpi-spark {
+  width: 100%; height: 28px;
+  display: block; margin-top: -2px; margin-bottom: 2px;
+  opacity: 0.85;
+}
+.kpi-spark .spark-line { fill: none; stroke-width: 1.5; }
+.kpi-spark .spark-fill { opacity: 0.18; stroke: none; }
+.kpi-spark.up   .spark-line, .kpi-spark.up   .spark-fill { stroke: var(--green); fill: var(--green); }
+.kpi-spark.dn   .spark-line, .kpi-spark.dn   .spark-fill { stroke: var(--red); fill: var(--red); }
+.kpi-spark.flat .spark-line, .kpi-spark.flat .spark-fill { stroke: var(--text3); fill: var(--text3); }
+.kpi-card.dark .kpi-spark.up   .spark-line, .kpi-card.dark .kpi-spark.up   .spark-fill { stroke: #4ade80; fill: #4ade80; }
+.kpi-card.dark .kpi-spark.dn   .spark-line, .kpi-card.dark .kpi-spark.dn   .spark-fill { stroke: #f87171; fill: #f87171; }
+
+/* Skeleton shimmer pra loading do Analytics */
+@keyframes an-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton-shimmer {
+  background: linear-gradient(90deg, var(--surface2) 0%, var(--surface3) 50%, var(--surface2) 100%);
+  background-size: 800px 100%;
+  animation: an-shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+  color: transparent !important;
+}
+.skeleton-shimmer * { visibility: hidden; }
+html[data-theme="dark"] .skeleton-shimmer {
+  background: linear-gradient(90deg, #222 0%, #2a2a2a 50%, #222 100%);
+  background-size: 800px 100%;
+}
+
+/* Pílula de contexto do período (Fase 0) */
+.an-context-pilula {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 14px;
+  background: linear-gradient(135deg, var(--surface2), var(--surface3));
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11.5px; color: var(--text2);
+  margin-bottom: 14px;
+  font-weight: 500;
+}
+.an-context-pilula strong { color: var(--text); font-weight: 700; }
+.an-context-pilula .sep { color: var(--text3); }
+html[data-theme="dark"] .an-context-pilula {
+  background: linear-gradient(135deg, #1a1a1a, #222);
+  border-color: #2e2e2e;
+}
 .meta-bar-row { display: flex; justify-content: space-between; font-size: 10.5px; margin-bottom: 4px; }
 .meta-bar-row span { color: var(--text3); }
 .meta-bar-row strong { color: var(--text2); font-weight: 700; }
@@ -3052,11 +3102,11 @@ select.input { cursor: pointer; }
     </div>
   </div>
 
-  <!-- BLOCO 2: Painel integrado GA4 + Google Ads (ciclo 56) -->
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:12px;flex-wrap:wrap">
+  <!-- BLOCO 2: Painel integrado GA4 + Google Ads (ciclo 56 + Fase 0 Analytics IA) -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:12px;flex-wrap:wrap">
     <div>
       <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:17px">📈 Painel Integrado</div>
-      <div style="font-size:11.5px;color:var(--text3)">Dados sincronizados do GA4 + Google Ads — atualização automática</div>
+      <div style="font-size:11.5px;color:var(--text3)">GA4 + Google Ads + Mercado Livre — sincronização automática</div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <select id="an-periodo" class="input" style="height:34px;padding:0 10px;font-size:11.5px" onchange="loadAnalytics()">
@@ -3069,24 +3119,27 @@ select.input { cursor: pointer; }
     </div>
   </div>
 
+  <!-- Pílula de contexto do período (Fase 0): mostra "Últimos N dias · vs N anteriores (data-data)" -->
+  <div id="an-context-pilula" class="an-context-pilula">
+    <span>📅</span>
+    <strong id="an-context-periodo">Últimos 30 dias</strong>
+    <span class="sep">·</span>
+    <span>vs período anterior <span id="an-context-datas" style="color:var(--text3)"></span></span>
+  </div>
+
   <!-- ──────── GA4 ──────── -->
   <div class="card mb20">
     <div class="card-header">
       <div><div class="card-title">📊 Google Analytics 4</div><div class="card-sub">Tráfego, usuários, conversões do site</div></div>
     </div>
     <div id="an-ga4-kpis" class="kpi-grid mb20">
-      <div class="kpi-card dark"><div class="kpi-label">Sessões</div><div class="kpi-value" id="an-kpi-sessions">--</div><div class="kpi-change" id="an-kpi-sessions-sub">vs período anterior</div></div>
-      <div class="kpi-card"><div class="kpi-label">Usuários</div><div class="kpi-value" id="an-kpi-users">--</div><div class="kpi-change" id="an-kpi-users-sub">—</div></div>
-      <div class="kpi-card"><div class="kpi-label">Visualizações</div><div class="kpi-value" id="an-kpi-pv">--</div><div class="kpi-change" id="an-kpi-pv-sub">—</div></div>
-      <div class="kpi-card"><div class="kpi-label">Conversões</div><div class="kpi-value" id="an-kpi-conv">--</div><div class="kpi-change" id="an-kpi-conv-sub">—</div></div>
+      <div class="kpi-card dark"><div class="kpi-label">Sessões</div><div class="kpi-value" id="an-kpi-sessions">--</div><svg class="kpi-spark" id="an-spark-sessions" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-sessions-sub">vs período anterior</div></div>
+      <div class="kpi-card"><div class="kpi-label">Usuários</div><div class="kpi-value" id="an-kpi-users">--</div><svg class="kpi-spark" id="an-spark-users" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-users-sub">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Visualizações</div><div class="kpi-value" id="an-kpi-pv">--</div><svg class="kpi-spark" id="an-spark-pv" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-pv-sub">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Conversões</div><div class="kpi-value" id="an-kpi-conv">--</div><svg class="kpi-spark" id="an-spark-conv" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-conv-sub">—</div></div>
     </div>
 
-    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
-      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px">Tráfego diário</div>
-      <div style="font-size:11px;color:var(--text3)">sessões (azul) · conversões (verde)</div>
-    </div>
-    <div id="an-ga4-chart" class="chart-area" style="height:160px;margin-bottom:18px"></div>
-
+    <!-- Reorder Fase 0: tabelas top-N PRIMEIRO (drill mental natural), gráfico vai pro fim -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px">
       <div>
         <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">🌐 Top Canais</div>
@@ -3098,10 +3151,16 @@ select.input { cursor: pointer; }
       </div>
     </div>
 
-    <div>
+    <div style="margin-bottom:18px">
       <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">📄 Top Páginas</div>
       <div id="an-ga4-paginas" style="display:flex;flex-direction:column;gap:6px;font-size:11.5px"></div>
     </div>
+
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px">Tráfego diário · linha do tempo</div>
+      <div style="font-size:11px;color:var(--text3)">sessões (azul) · conversões (verde)</div>
+    </div>
+    <div id="an-ga4-chart" class="chart-area" style="height:160px"></div>
   </div>
 
   <!-- ──────── Google Ads ──────── -->
@@ -3110,22 +3169,23 @@ select.input { cursor: pointer; }
       <div><div class="card-title">💰 Google Ads</div><div class="card-sub">Investimento, cliques, ROAS por campanha</div></div>
     </div>
     <div id="an-ads-kpis" class="kpi-grid mb20">
-      <div class="kpi-card dark"><div class="kpi-label">Investido</div><div class="kpi-value" id="an-kpi-ads-cost">--</div><div class="kpi-change" id="an-kpi-ads-cost-sub">vs período anterior</div></div>
-      <div class="kpi-card"><div class="kpi-label">Cliques</div><div class="kpi-value" id="an-kpi-ads-clicks">--</div><div class="kpi-change" id="an-kpi-ads-clicks-sub">—</div></div>
-      <div class="kpi-card"><div class="kpi-label">Conversões</div><div class="kpi-value" id="an-kpi-ads-conv">--</div><div class="kpi-change" id="an-kpi-ads-conv-sub">—</div></div>
-      <div class="kpi-card"><div class="kpi-label">CPA</div><div class="kpi-value" id="an-kpi-ads-cpa">--</div><div class="kpi-change" id="an-kpi-ads-cpa-sub">custo por conversão</div></div>
+      <div class="kpi-card dark"><div class="kpi-label">Investido</div><div class="kpi-value" id="an-kpi-ads-cost">--</div><svg class="kpi-spark" id="an-spark-ads-cost" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ads-cost-sub">vs período anterior</div></div>
+      <div class="kpi-card"><div class="kpi-label">Cliques</div><div class="kpi-value" id="an-kpi-ads-clicks">--</div><svg class="kpi-spark" id="an-spark-ads-clicks" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ads-clicks-sub">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Conversões</div><div class="kpi-value" id="an-kpi-ads-conv">--</div><svg class="kpi-spark" id="an-spark-ads-conv" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ads-conv-sub">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">CPA</div><div class="kpi-value" id="an-kpi-ads-cpa">--</div><svg class="kpi-spark" id="an-spark-ads-cpa" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ads-cpa-sub">custo por conversão</div></div>
     </div>
 
-    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
-      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px">Investimento diário</div>
-      <div style="font-size:11px;color:var(--text3)">custo R$ (laranja) · conversões (verde)</div>
-    </div>
-    <div id="an-ads-chart" class="chart-area" style="height:140px;margin-bottom:18px"></div>
-
-    <div>
+    <!-- Reorder Fase 0: top campanhas antes do gráfico -->
+    <div style="margin-bottom:18px">
       <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">🥇 Top Campanhas</div>
       <div id="an-ads-campanhas" style="display:flex;flex-direction:column;gap:6px;font-size:11.5px"></div>
     </div>
+
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px">Investimento diário · linha do tempo</div>
+      <div style="font-size:11px;color:var(--text3)">custo R$ (laranja) · conversões (verde)</div>
+    </div>
+    <div id="an-ads-chart" class="chart-area" style="height:140px"></div>
   </div>
 
   <!-- ──────── Mercado Livre (ciclo 58) ──────── -->
@@ -3134,19 +3194,14 @@ select.input { cursor: pointer; }
       <div><div class="card-title">🛒 Mercado Livre</div><div class="card-sub">Pedidos, lucro líquido (descontando ML), margem · seller DANA_JALECOS</div></div>
     </div>
     <div id="an-ml-kpis" class="kpi-grid mb20">
-      <div class="kpi-card dark"><div class="kpi-label">Bruto</div><div class="kpi-value" id="an-kpi-ml-bruto">--</div><div class="kpi-change" id="an-kpi-ml-bruto-sub">vs período anterior</div></div>
-      <div class="kpi-card"><div class="kpi-label">Líquido</div><div class="kpi-value" id="an-kpi-ml-liquido">--</div><div class="kpi-change" id="an-kpi-ml-liquido-sub">após comissão ML</div></div>
-      <div class="kpi-card"><div class="kpi-label">Margem</div><div class="kpi-value" id="an-kpi-ml-margem">--</div><div class="kpi-change" id="an-kpi-ml-margem-sub">líquido / bruto</div></div>
-      <div class="kpi-card"><div class="kpi-label">Pedidos</div><div class="kpi-value" id="an-kpi-ml-pedidos">--</div><div class="kpi-change" id="an-kpi-ml-unidades-sub">unidades vendidas</div></div>
+      <div class="kpi-card dark"><div class="kpi-label">Bruto</div><div class="kpi-value" id="an-kpi-ml-bruto">--</div><svg class="kpi-spark" id="an-spark-ml-bruto" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ml-bruto-sub">vs período anterior</div></div>
+      <div class="kpi-card"><div class="kpi-label">Líquido</div><div class="kpi-value" id="an-kpi-ml-liquido">--</div><svg class="kpi-spark" id="an-spark-ml-liquido" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ml-liquido-sub">após comissão ML</div></div>
+      <div class="kpi-card"><div class="kpi-label">Margem</div><div class="kpi-value" id="an-kpi-ml-margem">--</div><svg class="kpi-spark" id="an-spark-ml-margem" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ml-margem-sub">líquido / bruto</div></div>
+      <div class="kpi-card"><div class="kpi-label">Pedidos</div><div class="kpi-value" id="an-kpi-ml-pedidos">--</div><svg class="kpi-spark" id="an-spark-ml-pedidos" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ml-unidades-sub">unidades vendidas</div></div>
     </div>
 
-    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
-      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px">Faturamento mensal</div>
-      <div style="font-size:11px;color:var(--text3)">bruto (cinza) · líquido (verde)</div>
-    </div>
-    <div id="an-ml-chart" class="chart-area" style="height:140px;margin-bottom:18px"></div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <!-- Reorder Fase 0: tops antes do gráfico -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px">
       <div>
         <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">🥇 Top Produtos · Curva ABC</div>
         <div id="an-ml-top-produtos" style="display:flex;flex-direction:column;gap:6px;font-size:11.5px"></div>
@@ -3156,6 +3211,12 @@ select.input { cursor: pointer; }
         <div id="an-ml-por-tipo" style="display:flex;flex-direction:column;gap:8px;font-size:11.5px"></div>
       </div>
     </div>
+
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px">Faturamento mensal · linha do tempo</div>
+      <div style="font-size:11px;color:var(--text3)">bruto (cinza) · líquido (verde)</div>
+    </div>
+    <div id="an-ml-chart" class="chart-area" style="height:140px"></div>
   </div>
 
 </div>
@@ -15627,6 +15688,63 @@ function _anSetKpi(idValue, idSub, novo, anterior, fmt) {
   }
 }
 
+// Fase 0 (Analytics IA) — Mini-sparkline SVG embaixo do KPI value
+// Recebe array de pontos {data: 'yyyy-mm-dd', valor: N} e renderiza no SVG do id passado.
+// Detecta tendência (up/dn/flat) comparando última metade vs primeira metade dos pontos.
+function _anRenderSparkline(svgId, points, valueKey) {
+  const svg = document.getElementById(svgId);
+  if (!svg) return;
+  if (!points || points.length < 2) { svg.innerHTML = ''; svg.classList.remove('up','dn','flat'); return; }
+  const vals = points.map(p => Number(p[valueKey] || 0));
+  const max = Math.max(...vals, 1);
+  const min = Math.min(...vals, 0);
+  const range = max - min || 1;
+  const W = 100, H = 28, pad = 1;
+  const stepX = (W - pad*2) / Math.max(points.length - 1, 1);
+  // Coordenadas
+  const coords = vals.map((v, i) => {
+    const x = pad + i * stepX;
+    const y = H - pad - ((v - min) / range) * (H - pad*2);
+    return [x, y];
+  });
+  const pathLine = 'M' + coords.map(([x,y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' L');
+  const pathFill = pathLine + ` L${(W-pad).toFixed(1)},${H} L${pad},${H} Z`;
+  // Tendência: média da segunda metade vs primeira metade
+  const half = Math.floor(vals.length / 2);
+  const firstAvg = vals.slice(0, half).reduce((s,v) => s+v, 0) / Math.max(half, 1);
+  const secondAvg = vals.slice(half).reduce((s,v) => s+v, 0) / Math.max(vals.length - half, 1);
+  const delta = firstAvg > 0 ? ((secondAvg - firstAvg) / firstAvg) * 100 : 0;
+  const trend = Math.abs(delta) < 5 ? 'flat' : (delta >= 0 ? 'up' : 'dn');
+  svg.classList.remove('up','dn','flat');
+  svg.classList.add(trend);
+  svg.innerHTML = `<path class="spark-fill" d="${pathFill}"/><path class="spark-line" d="${pathLine}"/>`;
+}
+
+// Fase 0 — Aplica/remove classe skeleton-shimmer nos elementos passados
+function _anSetSkeleton(ids, on) {
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (on) el.classList.add('skeleton-shimmer');
+    else    el.classList.remove('skeleton-shimmer');
+  });
+}
+
+// Fase 0 — Atualiza a pílula de contexto do período com datas explícitas
+function _anUpdateContextPilula(dias, atualIni, atualFim, antIni, antFim) {
+  const elPer = document.getElementById('an-context-periodo');
+  const elDat = document.getElementById('an-context-datas');
+  if (elPer) elPer.textContent = `Últimos ${dias} dias`;
+  if (elDat) {
+    const fmtBR = (iso) => {
+      if (!iso) return '';
+      const [a,m,d] = iso.split('-');
+      return `${d}/${m}`;
+    };
+    elDat.textContent = ` (${fmtBR(antIni)}–${fmtBR(antFim)} → ${fmtBR(atualIni)}–${fmtBR(atualFim)})`;
+  }
+}
+
 function _anRenderChart(elId, points, valorKey, valorKey2, cor1, cor2) {
   const el = document.getElementById(elId);
   if (!el) return;
@@ -15660,6 +15778,15 @@ window.loadAnalytics = async function() {
   const antFim = fmt(new Date(hoje.getTime() - dias*86400000 - 86400000));
   const antIni = fmt(new Date(hoje.getTime() - 2*dias*86400000));
 
+  // Fase 0: pílula de contexto + skeleton loader nos 12 KPI cards
+  _anUpdateContextPilula(dias, atualIni, atualFim, antIni, antFim);
+  const _ANALYTICS_KPI_VALUE_IDS = [
+    'an-kpi-sessions','an-kpi-users','an-kpi-pv','an-kpi-conv',
+    'an-kpi-ads-cost','an-kpi-ads-clicks','an-kpi-ads-conv','an-kpi-ads-cpa',
+    'an-kpi-ml-bruto','an-kpi-ml-liquido','an-kpi-ml-margem','an-kpi-ml-pedidos',
+  ];
+  _anSetSkeleton(_ANALYTICS_KPI_VALUE_IDS, true);
+
   try {
     // ─── GA4 ───
     const [ga4DiaAtual, ga4DiaAnt, ga4Canais, ga4Devices, ga4Paginas] = await Promise.all([
@@ -15685,6 +15812,14 @@ window.loadAnalytics = async function() {
     _anSetKpi('an-kpi-users', 'an-kpi-users-sub', atualUsers, antUsers);
     _anSetKpi('an-kpi-pv', 'an-kpi-pv-sub', atualPv, antPv);
     _anSetKpi('an-kpi-conv', 'an-kpi-conv-sub', atualConv, antConv);
+
+    // Fase 0: sparklines GA4 (a partir do array diário do período)
+    const ga4Pts = ga4DiaAtual.data || [];
+    _anRenderSparkline('an-spark-sessions', ga4Pts, 'sessions');
+    _anRenderSparkline('an-spark-users',    ga4Pts, 'users');
+    _anRenderSparkline('an-spark-pv',       ga4Pts, 'page_views');
+    _anRenderSparkline('an-spark-conv',     ga4Pts, 'conversions');
+    _anSetSkeleton(['an-kpi-sessions','an-kpi-users','an-kpi-pv','an-kpi-conv'], false);
 
     // Gráfico GA4
     _anRenderChart('an-ga4-chart', ga4DiaAtual.data || [], 'sessions', 'conversions', '#3b82f6', '#16a34a');
@@ -15781,6 +15916,15 @@ window.loadAnalytics = async function() {
     _anSetKpi('an-kpi-ads-conv', 'an-kpi-ads-conv-sub', Math.round(aConv), Math.round(xConv));
     _anSetKpi('an-kpi-ads-cpa', 'an-kpi-ads-cpa-sub', aCpa, xCpa, _ANALYTICS_FMT_BRL);
 
+    // Fase 0: sparklines Ads
+    const adsPts = adsDiaAtual.data || [];
+    const adsPtsCpa = adsPts.map(r => ({ ...r, _cpa: parseFloat(r.conversions || 0) > 0 ? parseFloat(r.cost || 0) / parseFloat(r.conversions || 0) : 0 }));
+    _anRenderSparkline('an-spark-ads-cost',   adsPts, 'cost');
+    _anRenderSparkline('an-spark-ads-clicks', adsPts, 'clicks');
+    _anRenderSparkline('an-spark-ads-conv',   adsPts, 'conversions');
+    _anRenderSparkline('an-spark-ads-cpa',    adsPtsCpa, '_cpa');
+    _anSetSkeleton(['an-kpi-ads-cost','an-kpi-ads-clicks','an-kpi-ads-conv','an-kpi-ads-cpa'], false);
+
     // Gráfico Ads
     _anRenderChart('an-ads-chart', adsDiaAtual.data || [], 'cost', 'conversions', '#f59e0b', '#16a34a');
 
@@ -15843,6 +15987,25 @@ window.loadAnalytics = async function() {
     _anSetKpi('an-kpi-ml-pedidos', null, mlPedidos, xPedidos);
     const elUni = document.getElementById('an-kpi-ml-unidades-sub');
     if (elUni) elUni.textContent = `${_ANALYTICS_FMT_INT(mlUnidades)} unidades vendidas`;
+
+    // Fase 0: sparklines ML — agrega pedidos diariamente pra ter série temporal
+    const mlDiaAgg = {};
+    for (const r of (mlPedAtual.data || [])) {
+      const d = (r.date_closed || '').slice(0, 10);
+      if (!d) continue;
+      if (!mlDiaAgg[d]) mlDiaAgg[d] = { data: d, bruto: 0, liquido: 0, pedidos: 0 };
+      mlDiaAgg[d].bruto += parseFloat(r.total_amount || 0);
+      mlDiaAgg[d].liquido += parseFloat(r.lucro_liquido || 0);
+      mlDiaAgg[d].pedidos++;
+    }
+    const mlPts = Object.values(mlDiaAgg)
+      .map(d => ({ ...d, margem: d.bruto > 0 ? (d.liquido / d.bruto) * 100 : 0 }))
+      .sort((a, b) => a.data.localeCompare(b.data));
+    _anRenderSparkline('an-spark-ml-bruto',   mlPts, 'bruto');
+    _anRenderSparkline('an-spark-ml-liquido', mlPts, 'liquido');
+    _anRenderSparkline('an-spark-ml-margem',  mlPts, 'margem');
+    _anRenderSparkline('an-spark-ml-pedidos', mlPts, 'pedidos');
+    _anSetSkeleton(['an-kpi-ml-bruto','an-kpi-ml-liquido','an-kpi-ml-margem','an-kpi-ml-pedidos'], false);
 
     // Faturamento mensal (agrega por mês YYYY-MM)
     const mesAgg = {};
@@ -15949,6 +16112,9 @@ window.loadAnalytics = async function() {
   } catch (e) {
     console.error('[analytics]', e);
     showToast('Erro ao carregar Analytics: ' + (e.message || e));
+  } finally {
+    // Fase 0: garante remoção do skeleton mesmo se algum bloco falhou no meio do try
+    _anSetSkeleton(_ANALYTICS_KPI_VALUE_IDS, false);
   }
 };
 
