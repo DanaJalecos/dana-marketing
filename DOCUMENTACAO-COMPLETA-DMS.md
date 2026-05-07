@@ -6428,6 +6428,233 @@ Workflow de deploy a cada fase:
 Vamos começar pelo passo #1 (Motivos de Perda).
 ```
 
+
 ---
 
-**Fim da documentação · Atualizado em 06/05/2026 noite — ciclo Analytics IA completo + próximos passos · v7.0**
+## 64. CICLO 07/05/2026 — FEATURES #1 + #3 EXECUTADAS + FIX RACE C360
+
+Continuação do roadmap definido na Section 62. Manu confirmou ordem 1→2→3, mas Feature #2 (UTM Parser) foi pausada porque o usuário ainda não tem API Magazord configurada. Saltamos pra #3.
+
+### 64.1 Feature #1 — Motivos de Perda (entregue)
+
+Modal "Por quê?" disparado quando lead/cliente vai pra estado de perda. Captura motivo pré-definido (8 opções) + texto livre opcional (obrigatório quando "Outro").
+
+**Fluxos cobertos:**
+- Prospecção: drag pra coluna "Descartado" no Kanban → modal abre, rollback se cancelar (não move o card)
+- Prospecção: select de status na Lista → modal abre, restaura select se cancelar
+- Cliente 360 (cliente do Bling): Acompanhamento Comercial → status "Perdido" ou "Sem interesse" → modal só na primeira vez (se já tem motivo gravado, não pergunta de novo)
+- Cliente 360 (cliente manual): edição → status "Perdido" ou "Sem interesse" → idem
+
+**Schema** (`sql-scripts/sql-motivos-perda.sql`):
+- 3 ALTER TABLE adicionando `motivo_perda TEXT`, `motivo_perda_detalhe TEXT`, `motivo_perda_em TIMESTAMPTZ` em `prospects`, `cliente_metadata`, `clientes_manuais`
+- Índices parciais (só linhas com motivo) pros 3
+- View `motivos_perda_unificado` (UNION ALL das 3 tabelas)
+- RPC `motivos_perda_top_mes()` com timezone São Paulo
+
+**Card no Performance** ("🎯 Top motivos de perda — mês atual"): barra horizontal vermelha com contagem + %, ordenado por contagem desc. Renderiza vazio elegante quando não tem dados ("🎉 Nenhum descarte ou perda registrada nesse mês").
+
+**Helpers globais** no `index.html`:
+- `window.askMotivoPerda(opts)` → retorna `Promise<{motivo, detalhe} | null>`
+- `window.MOTIVO_PERDA_OPCOES` (8 opções) e `window.MOTIVO_PERDA_LABEL` (mapa)
+
+**Hooks no `cliente-360-boot.js`:** `c360SaveMetadata` (cliente Bling) + `c360McSalvarCliente` (cliente manual).
+
+Schema aplicado via Management API (PAT novo). Commits: `1d8d9e7` DanaComercial, `4a8d31a` DanaJalecos.
+
+### 64.2 Feature #2 — UTM Parser (PAUSADA)
+
+Pré-requisito externo: Magazord precisa estar passando UTM nos pedidos pro Bling (campo custom em `pedidos.observacoes`). Manu informou que ainda não tem API Magazord configurada. Feature pausada.
+
+Boa notícia: ~80% do "vendi quanto vindo do Insta?" já é coberto pela Feature #3 (que captura UTMs direto na URL do site no momento da visita), então a #2 vira incremental no futuro.
+
+### 64.3 Feature #3 — Lead Tracking (entregue)
+
+Captura visitantes anônimos do site Dana (Magazord) e amarra retroativamente quando viram cliente. Núcleo do "Lead Tracking" do RD Station, sem depender de email/SMS.
+
+**Componentes:**
+
+| Camada | Arquivo | Estado |
+|---|---|---|
+| Schema | `sql-scripts/sql-lead-tracking.sql` | ✅ aplicado |
+| Edge function | `edge-functions/dms-tracker-ingest.ts` v2 | ✅ ACTIVE (verify_jwt=false) |
+| Script público | `_staging-dana-marketing/dms-tracker.js` | ✅ servido pelo Vercel |
+| Aba "🔍 Comportamento" no C360 | `cliente-360-boot.js` | ✅ |
+| Filtro "Site" na Timeline existente | view `cliente_eventos_timeline` recriada | ✅ |
+
+**Schema (`sql-scripts/sql-lead-tracking.sql`)**:
+- `analytics_lead_events`: série temporal com cookie_id, contato_nome, email_hash, evento_tipo (pageview/click/form_view/form_submit/add_cart/checkout_start/purchase), url, url_path, referrer, 5 UTMs, device, browser, os, user_agent, ip_anon (mascarado /24), metadata JSONB. Índices: cookie+created, contato+created (parcial), evento_tipo, email_hash
+- `analytics_lead_identity`: cookie_id PK + contato_nome, email_hash, empresa, primeiro/último evento, resolvido_em, primeiro_referrer/utm_source/utm_campaign
+- View `analytics_jornada_cliente`: agregação por contato (pageviews, paginas_unicas, dias_visitando, segundos_jornada, add_carts, checkouts_iniciados, compras, canais, campanhas, devices)
+- RPCs `analytics_top_paginas_contato(p_contato_nome, p_empresa, p_limite)` e `analytics_eventos_contato(p_contato_nome, p_empresa, p_limite)`
+- RLS: SELECT pros 5 cargos do Analytics IA (admin + gerente_marketing + gerente_comercial + trafego_pago + producao_conteudo); INSERT só via service_role (edge); admin pode ALL pra GDPR/correção
+- View `cliente_eventos_timeline` RECRIADA com UNION ALL adicional pra `lead_event` (agregado por dia+url_path pra não explodir timeline com 200 pageviews)
+
+**Edge function `dms-tracker-ingest`**:
+- POST público (verify_jwt=false), confiamos em CORS + rate limit por IP
+- Whitelist de tipos: `pageview, click, form_view, form_submit, add_cart, checkout_start, purchase`
+- Rate limit in-memory: 60 req/min por cookie + 600 req/min por IP
+- IP anonimizado /24 server-side antes de gravar (LGPD)
+- Sanitização: trunca strings > 60-2000 chars dependendo do campo, limita metadata a 4KB
+- Resolução de identidade: quando evento traz `contato_nome` ou `email_hash`, faz UPDATE retroativo em TODOS os eventos do mesmo cookie_id (amarra anônimos passados ao cliente conhecido)
+- CORS dinâmico v2: echo do `Origin` do request + `Allow-Credentials: true` + `Vary: Origin` (sendBeacon manda cookies por padrão; wildcard + credentials = bloqueio CORS)
+
+**Script `dms-tracker.js`** (serve em `https://danamarketing.vercel.app/dms-tracker.js`):
+- Cookie first-party `dms_visitor_id` (12 meses)
+- Pageview no load + history API patch pra SPAs (pushState/replaceState/popstate)
+- Captura UTMs da URL atual + persiste primeiro toque na sessionStorage
+- `navigator.sendBeacon` quando possível (sobrevive a navegação), `fetch keepalive` como fallback
+- Detecta device (mobile/tablet/desktop), browser, os via UA leve
+- SHA256 hex do email pelo Web Crypto antes de mandar (LGPD: nunca envia email plaintext)
+- API pública: `DMSTracker.event(tipo, metadata)`, `DMSTracker.identify({contato_nome, email, empresa})`, `DMSTracker.pageview()`, `DMSTracker.visitorId`
+
+**Setup Magazord** (manual, uma única tag no `<head>`):
+```html
+<script async src="https://danamarketing.vercel.app/dms-tracker.js"></script>
+```
+
+Pra capturar conversões e amarrar identidade, o checkout do Magazord deve chamar:
+```js
+window.DMSTracker.identify({ contato_nome: 'Maria Silva', email: 'maria@x.com', empresa: 'matriz' });
+window.DMSTracker.event('purchase', { valor_pedido: 250.50, pedido_id_externo: '12345' });
+```
+
+**Aba "🔍 Comportamento" no Cliente 360 detalhe**:
+- Lazy load (só carrega quando user clica na aba)
+- Cache via `window._c360ComportamentoLoaded` (resetado quando troca de cliente)
+- KPIs (4 cards): Pageviews + páginas únicas, Dias visitando + primeiro toque relativo, Add carts + conversão pra compra, Compras + última visita relativa
+- Bloco Atribuição: chips coloridos com canais (UTM source), campanhas, devices
+- Top páginas vistas: barra horizontal com contagem
+- Mini timeline: últimos 30 eventos com ícone colorido por tipo + UTM tag
+- Estado vazio elegante quando contato não tem rastreio
+
+**Filtro "🔍 Site" na Timeline existente**: eventos do tracker aparecem agregados por dia+url_path pra não poluir.
+
+**Validação E2E** (07/05): testado via DevTools com 3 eventos (pageview + add_cart + purchase) usando `DMSTracker.identify({contato_nome: 'teste Pedido Teste'})`. Resolução retroativa funcionou — pageview anônimo virou amarrado retroativamente. Aba Comportamento renderizou: 4 eventos, 1 dia visitando, 2 pageviews, 1 add cart, 1 purchase, top página `/cliente360` 2×, device desktop. Banco zerado depois do teste pra Manu não ver poluição.
+
+Commits: `517d045` (feature) + `f797ee4` (CORS fix) DanaComercial, `b079b9e` + `8248b82` DanaJalecos.
+
+### 64.4 Bug fix bonus — race no initSupabase do C360
+
+Bug recorrente reportado pelo Juan ("primeira vez que loga, entra no C360, fica Carregando até dar F5") finalmente investigado e corrigido durante o teste do tracker.
+
+**Causa**: o iframe `cliente-360.html` chamava `getSession()` UMA vez no `initSupabase()`. Race condition: na primeira entrada após login, o iframe carregava antes do parent persistir o token Supabase no localStorage → `session = null` → boot abortava → tela ficava em "Carregando..." eterno até F5 (que dava tempo do token persistir).
+
+**Fix**: 6 retries de 250ms (1.5s de janela total) entre tentativas de `getSession()`. Cobre a propagação do `storage event` em qualquer navegador, incluindo WebKit/Safari que é mais lento.
+
+```js
+// cliente-360-boot.js / initSupabase()
+let session = null;
+for (let i = 0; i < 6; i++) {
+  const { data } = await state.sb.auth.getSession();
+  if (data?.session) { session = data.session; break; }
+  await new Promise(r => setTimeout(r, 250));
+}
+if (!session) {
+  // só agora redireciona pra login (comportamento original)
+  ...
+}
+```
+
+Commits: `0b16251` DanaComercial, `9e5961b` DanaJalecos.
+
+### 64.5 Estado final do ciclo
+
+| Componente | Estado |
+|---|---|
+| Feature #1 — Motivos de Perda | ✅ |
+| Feature #2 — UTM Parser | 🟡 PAUSADA (espera Magazord) |
+| Feature #3 — Lead Tracking | ✅ |
+| Bug fix race C360 | ✅ |
+| Schema aplicado | ✅ |
+| Edge function ACTIVE | ✅ v2 |
+| Tracker servido pelo Vercel | ✅ |
+
+**Custos:** zero adicional. Tracker é cookie first-party (sem custo), edge function inclusa no plano Supabase, banco usa índices parciais (acúmulo lento).
+
+---
+
+## 65. PRÓXIMOS PASSOS — IMPLEMENTAR APÓS /COMPACT
+
+### 65.1 ⏰ Ativar tracker no Magazord (Manu/Juan, ~5 min)
+
+Cole **uma única tag no `<head>`** do site Magazord (Configurações → Snippets / Scripts globais):
+
+```html
+<script async src="https://danamarketing.vercel.app/dms-tracker.js"></script>
+```
+
+A partir desse momento, todo visitante anônimo do site começa a deixar rastro em `analytics_lead_events`. Quando algum visitante virar cliente (entrar no checkout do Magazord), basta o checkout chamar:
+
+```js
+window.DMSTracker.identify({ contato_nome: '<NOME EXATO QUE VAI PRO BLING>', email: '<email>', empresa: 'matriz' });
+window.DMSTracker.event('purchase', { valor_pedido: <total>, pedido_id_externo: '<id Magazord>' });
+```
+
+A edge function automaticamente amarra os pageviews anônimos passados ao cliente conhecido (UPDATE retroativo).
+
+### 65.2 🔗 Feature #2 — UTM Parser (quando Magazord conectar)
+
+Quando o usuário conseguir API Magazord configurada e os pedidos passarem a vir com UTMs em `pedidos.observacoes`, retomar a Feature #2 conforme Section 62.2 do doc anterior:
+- `sql-scripts/sql-utm-pedidos.sql` (criar): 5 colunas + 2 índices + view `vendas_por_utm`
+- Modificar `sync-pedidos.ts` + `sync-pedidos-bc.ts` com regex `/utm_(source|medium|campaign|content|term)=([^&\s]+)/g`
+- Card "📊 Vendas por UTM" no Analytics
+- Linha "🔗 Origem: ..." no header do Cliente 360 detalhe
+- Filtro "Origem UTM" no topbar do Cliente 360 lista
+
+Tempo estimado: 2-3h.
+
+### 65.3 ⚙️ Melhorias futuras (nice-to-have, não urgentes)
+
+- **Card "Visitantes anônimos online agora"** no Analytics (lê eventos dos últimos 5min)
+- **Dashboard "Funil pré-conversão"**: visitas → add_cart → checkout_start → purchase, com taxas de conversão
+- **Alerta**: ping pra Manu quando um cliente VIP volta a visitar o site após 60+ dias sem comprar (sinal de reativação)
+- **Relatório "Páginas mais lucrativas"**: amarra pageviews → compras pra ver quais páginas geram mais R$
+- **Banner LGPD opcional**: hoje o cookie é first-party (dispensa consentimento legal pra analytics próprio segundo a ANPD), mas se Manu quiser adicionar banner "Aceito cookies" é fácil — modificar tracker.js pra bloquear ingest até aceitar
+
+---
+
+## 66. PROMPT PARA RETOMAR APÓS /COMPACT
+
+Use exatamente esse prompt no próximo chat:
+
+```
+Estou continuando o desenvolvimento do DMS (Dana Marketing System) da Dana Jalecos.
+
+Por favor leia antes de tudo:
+C:\Users\Juan - Dana Jalecos\Documents\Sistema Marketing\DOCUMENTACAO-COMPLETA-DMS.md
+
+ATENÇÃO Sections 64, 65 e 66 — Section 65 tem os PRÓXIMOS PASSOS:
+  1) Ativar tracker no Magazord (5 min, manual — cola tag <script>)
+  2) Feature #2 UTM Parser (2-3h, depende Magazord ter API)
+  3) Melhorias nice-to-have (Section 65.3)
+
+Estado atual (07/05/2026):
+- Feature #1 (Motivos de Perda) executada COMPLETA + schema aplicado
+- Feature #3 (Lead Tracking) executada COMPLETA — edge dms-tracker-ingest v2
+  ACTIVE, tracker servido em https://danamarketing.vercel.app/dms-tracker.js,
+  aba "Comportamento" no Cliente 360 funcionando, validado E2E
+- Bug fix race C360 (initSupabase com 6 retries) — primeira carga não trava mais
+- Banco limpo de testes (analytics_lead_events sequence resetada)
+- Magazord ainda NÃO tem o tracker instalado — Manu/Juan vão fazer
+
+Repos:
+- DanaComercial: github.com/DanaComercial/dana-marketing (espelho/GH Pages)
+- DanaJalecos: github.com/DanaJalecos/dana-marketing (Vercel oficial)
+- Worktree: .claude/worktrees/vibrant-davinci (edita aqui, push pra ambos)
+- Staging: _staging-dana-marketing (cópia espelho do DanaJalecos)
+
+Token Supabase Management API: tá no arquivo
+C:\Users\Juan - Dana Jalecos\Documents\Sistema Marketing\TOKENS ANALYTICS\Token novo supabase.txt
+
+Workflow de deploy a cada fase:
+1. Edita worktree
+2. Sync: cp index.html → _staging-dana-marketing/
+3. git commit + push origin HEAD:main (DanaComercial)
+4. cd staging + git commit + push origin main (DanaJalecos)
+
+Vamos começar pelo passo que o user indicar.
+```
+
+---
+
+**Fim da documentação · Atualizado em 07/05/2026 — Features #1 + #3 completas + fix race C360 · v8.0**
