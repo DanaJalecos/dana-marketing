@@ -78,14 +78,22 @@ function clamp(s: unknown, max: number): string | null {
   return t.slice(0, max)
 }
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-Tracker-Version',
-  'Access-Control-Max-Age': '86400',
+// CORS dinâmico: echo do Origin (não wildcard) + Allow-Credentials true.
+// sendBeacon manda cookies por padrão; wildcard + credentials = bloqueio CORS.
+function corsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('origin') || ''
+  return {
+    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Tracker-Version',
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin',
+  }
 }
 
 Deno.serve(async (req) => {
+  const CORS = corsHeaders(req)
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS })
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Use POST' }), {
