@@ -25074,13 +25074,23 @@ const aiChatInterval = setInterval(() => {
   // Cada persona tem keywords + sexo preferido pra escolher 1 jaleco/scrub real
   // do catálogo (produto_catalogo_site, 251 produtos curados do site Dana).
   // Reusa o mesmo pattern do Estúdio IA (ciclo 55).
+  //
+  // ATENCAO: usa_jaleco=false pulla a injecao de produto. Necessario porque
+  // empresas (Diretor Gabriel) e instituicoes (Coord. Eduardo) sao COMPRADORES
+  // CORPORATIVOS (executivo de terno + acadêmico business casual), nao usam
+  // jaleco no avatar — injetar produto causa conflito no prompt e Gemini 500.
   const PERSONA_PRODUTO_FILTRO = {
-    clinicas:     { keywords: ['jaleco','feminino','branco'],                sexoPrefer: 'feminino', desc: 'jaleco feminino branco clínico' },
-    empresas:     { keywords: ['jaleco','manga longa','branco','gabardine'], sexoPrefer: '',         desc: 'jaleco profissional corporativo' },
-    instituicoes: { keywords: ['jaleco','branco','manga longa'],             sexoPrefer: '',         desc: 'jaleco padrão hospital/clínica' },
-    profissional: { keywords: ['jaleco','feminino','gola padre'],            sexoPrefer: 'feminino', desc: 'jaleco feminino moderno' },
-    estudante:    { keywords: ['scrub','pijama cir','jaleco'],               sexoPrefer: '',         desc: 'scrub ou jaleco básico de estudante' },
+    clinicas:     { usa_jaleco: true,  keywords: ['jaleco','feminino','branco'],                sexoPrefer: 'feminino', desc: 'jaleco feminino branco clínico' },
+    empresas:     { usa_jaleco: false, motivo: 'executivo de terno (não usa roupa médica)' },
+    instituicoes: { usa_jaleco: false, motivo: 'coordenador acadêmico business casual (não usa roupa médica)' },
+    profissional: { usa_jaleco: true,  keywords: ['jaleco','feminino','gola padre'],            sexoPrefer: 'feminino', desc: 'jaleco feminino moderno' },
+    estudante:    { usa_jaleco: true,  keywords: ['scrub','pijama cir','jaleco'],               sexoPrefer: '',         desc: 'scrub ou jaleco básico de estudante' },
   };
+
+  // Palavras que descartam o produto do match (independente de score) —
+  // catálogo tem "Jaleco Feminino Marta Kids Branco" (infantil) que bate em
+  // "jaleco" + "branco" mas é absurdo pra persona adulta.
+  const PERSONA_PRODUTO_EXCLUDE = ['kids', 'infantil', 'crian', 'bebê', 'bebe', 'baby'];
 
   // Cache do catálogo (lazy: só busca na primeira vez que abre persona)
   let _catalogoPersonaCache = null;
@@ -25102,19 +25112,21 @@ const aiChatInterval = setInterval(() => {
   }
 
   // Sorteia 1 produto que combine com a persona — score baseado em keywords + sexo
-  // Retorna null se catálogo vazio ou nenhum match
+  // Retorna null se persona não usa jaleco, catálogo vazio ou nenhum match
   async function _sortearProdutoPersona(personaKey) {
     const filtro = PERSONA_PRODUTO_FILTRO[personaKey];
-    if (!filtro) return null;
+    if (!filtro || !filtro.usa_jaleco) return null;
     const cat = await _carregarCatalogoPersona();
     if (!cat.length) return null;
     const scored = cat.map(p => {
       const txt = ((p.nome || '') + ' ' + (p.categoria || '') + ' ' + (p.descricao || '')).toLowerCase();
+      // Descarta produtos kids/infantil ANTES de pontuar
+      if (PERSONA_PRODUTO_EXCLUDE.some(w => txt.includes(w))) return { ...p, _score: -1, _excluded: true };
       let score = 0;
       filtro.keywords.forEach(k => { if (txt.includes(k.toLowerCase())) score += 10; });
       if (filtro.sexoPrefer && (p.sexo || '').toLowerCase() === filtro.sexoPrefer) score += 5;
       return { ...p, _score: score };
-    }).filter(p => p._score >= 10);  // pelo menos 1 keyword bateu
+    }).filter(p => !p._excluded && p._score >= 10);
     if (!scored.length) return null;
     scored.sort((a, b) => b._score - a._score);
     // Random 1 dos top 6 pra dar variedade entre gerações
@@ -25158,24 +25170,40 @@ const aiChatInterval = setInterval(() => {
       btnGerar.onclick = async () => {
         const cfg = PERSONA_PROMPTS[p.key];
         if (!cfg) return;
-        // Sorteia produto que combina com a persona
-        btnGerar.disabled = true;
-        btnGerar.innerHTML = '⏳ Sorteando produto...';
-        const produto = await _sortearProdutoPersona(p.key);
-        btnGerar.disabled = false;
-        btnGerar.innerHTML = '🎨 Gerar Avatar IA';
+        const filtro = PERSONA_PRODUTO_FILTRO[p.key];
+        const usaJaleco = !!filtro?.usa_jaleco;
+        // Só sorteia produto se persona usa jaleco (Gabriel/Eduardo são executivos)
+        let produto = null;
+        if (usaJaleco) {
+          btnGerar.disabled = true;
+          btnGerar.innerHTML = '⏳ Sorteando produto...';
+          produto = await _sortearProdutoPersona(p.key);
+          btnGerar.disabled = false;
+          btnGerar.innerHTML = '🎨 Gerar Avatar IA';
+        }
         const promptFinal = _enriquecerPromptComProduto(cfg.prompt, produto);
-        const subtituloFinal = produto
-          ? `👕 Produto sorteado: ${produto.nome}`
-          : 'Retrato profissional pra usar em briefings e referências';
+        let subtituloFinal;
+        if (produto) {
+          subtituloFinal = `👕 Produto sorteado: ${produto.nome}`;
+        } else if (usaJaleco) {
+          // Esperava produto mas não achou match — comportamento antigo (prompt sem ref)
+          subtituloFinal = 'Retrato profissional · sem produto específico do catálogo';
+        } else {
+          // Persona não usa jaleco (executivo/coordenador)
+          subtituloFinal = `👔 ${filtro?.motivo || 'sem produto Dana — persona não usa roupa médica'}`;
+        }
         window.gerarImagemIA({
           titulo: `Avatar IA · ${cfg.titulo}`,
           subtitulo: subtituloFinal,
           prompt: promptFinal,
           contexto: 'persona',
           contextoRefId: p.key,
-          // Repassa URL pro aiaGerar → edge function anexa como inlineData
+          // Repassa URL pro aiaGerar → edge function anexa como inlineData (só se tem produto)
           image_produto_url: produto?.imagem_principal || undefined,
+          // CRITICO: incluir_logo=false pra Gabriel/Eduardo — eles não vestem roupa
+          // Dana, então não devem ter o logo embroidered no prompt (evita Gemini
+          // tentar adicionar jaleco no terno)
+          incluir_logo: usaJaleco ? undefined : false,
           _produtoSorteado: produto, // pra UI poder ler depois se quiser
         });
       };
