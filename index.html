@@ -3150,10 +3150,10 @@ select.input { cursor: pointer; }
       <div><div class="card-title">📊 Google Analytics 4</div><div class="card-sub">Tráfego, usuários, conversões do site</div></div>
     </div>
     <div id="an-ga4-kpis" class="kpi-grid mb20">
-      <div class="kpi-card dark"><div class="kpi-label">Sessões</div><div class="kpi-value" id="an-kpi-sessions">--</div><svg class="kpi-spark" id="an-spark-sessions" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-sessions-sub">vs período anterior</div></div>
-      <div class="kpi-card"><div class="kpi-label">Usuários</div><div class="kpi-value" id="an-kpi-users">--</div><svg class="kpi-spark" id="an-spark-users" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-users-sub">—</div></div>
-      <div class="kpi-card"><div class="kpi-label">Visualizações</div><div class="kpi-value" id="an-kpi-pv">--</div><svg class="kpi-spark" id="an-spark-pv" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-pv-sub">—</div></div>
-      <div class="kpi-card"><div class="kpi-label">Conversões</div><div class="kpi-value" id="an-kpi-conv">--</div><svg class="kpi-spark" id="an-spark-conv" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-conv-sub">—</div></div>
+      <div class="kpi-card dark" style="cursor:pointer" onclick="analyticsAbrirDrill({fonte:'ga4',metrica:'sessions'})" title="Drill-down em Sessões"><div class="kpi-label">Sessões</div><div class="kpi-value" id="an-kpi-sessions">--</div><svg class="kpi-spark" id="an-spark-sessions" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-sessions-sub">vs período anterior</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="analyticsAbrirDrill({fonte:'ga4',metrica:'users'})" title="Drill-down em Usuários"><div class="kpi-label">Usuários</div><div class="kpi-value" id="an-kpi-users">--</div><svg class="kpi-spark" id="an-spark-users" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-users-sub">—</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="analyticsAbrirDrill({fonte:'ga4',metrica:'page_views'})" title="Drill-down em Visualizações"><div class="kpi-label">Visualizações</div><div class="kpi-value" id="an-kpi-pv">--</div><svg class="kpi-spark" id="an-spark-pv" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-pv-sub">—</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="analyticsAbrirDrill({fonte:'ga4',metrica:'conversions'})" title="Drill-down em Conversões"><div class="kpi-label">Conversões</div><div class="kpi-value" id="an-kpi-conv">--</div><svg class="kpi-spark" id="an-spark-conv" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-conv-sub">—</div></div>
     </div>
 
     <!-- Reorder Fase 0: tabelas top-N PRIMEIRO (drill mental natural), gráfico vai pro fim -->
@@ -3186,10 +3186,10 @@ select.input { cursor: pointer; }
       <div><div class="card-title">💰 Google Ads</div><div class="card-sub">Investimento, cliques, ROAS por campanha</div></div>
     </div>
     <div id="an-ads-kpis" class="kpi-grid mb20">
-      <div class="kpi-card dark"><div class="kpi-label">Investido</div><div class="kpi-value" id="an-kpi-ads-cost">--</div><svg class="kpi-spark" id="an-spark-ads-cost" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ads-cost-sub">vs período anterior</div></div>
-      <div class="kpi-card"><div class="kpi-label">Cliques</div><div class="kpi-value" id="an-kpi-ads-clicks">--</div><svg class="kpi-spark" id="an-spark-ads-clicks" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ads-clicks-sub">—</div></div>
-      <div class="kpi-card"><div class="kpi-label">Conversões</div><div class="kpi-value" id="an-kpi-ads-conv">--</div><svg class="kpi-spark" id="an-spark-ads-conv" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ads-conv-sub">—</div></div>
-      <div class="kpi-card"><div class="kpi-label">CPA</div><div class="kpi-value" id="an-kpi-ads-cpa">--</div><svg class="kpi-spark" id="an-spark-ads-cpa" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ads-cpa-sub">custo por conversão</div></div>
+      <div class="kpi-card dark" style="cursor:pointer" onclick="analyticsAbrirDrill({fonte:'ads',metrica:'cost'})" title="Drill-down em Investimento"><div class="kpi-label">Investido</div><div class="kpi-value" id="an-kpi-ads-cost">--</div><svg class="kpi-spark" id="an-spark-ads-cost" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ads-cost-sub">vs período anterior</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="analyticsAbrirDrill({fonte:'ads',metrica:'clicks'})" title="Drill-down em Cliques"><div class="kpi-label">Cliques</div><div class="kpi-value" id="an-kpi-ads-clicks">--</div><svg class="kpi-spark" id="an-spark-ads-clicks" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ads-clicks-sub">—</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="analyticsAbrirDrill({fonte:'ads',metrica:'conversions'})" title="Drill-down em Conversões Ads"><div class="kpi-label">Conversões</div><div class="kpi-value" id="an-kpi-ads-conv">--</div><svg class="kpi-spark" id="an-spark-ads-conv" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ads-conv-sub">—</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="analyticsAbrirDrill({fonte:'ads',metrica:'cpa'})" title="Drill-down em CPA"><div class="kpi-label">CPA</div><div class="kpi-value" id="an-kpi-ads-cpa">--</div><svg class="kpi-spark" id="an-spark-ads-cpa" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ads-cpa-sub">custo por conversão</div></div>
     </div>
 
     <!-- Reorder Fase 0: top campanhas antes do gráfico -->
@@ -3211,10 +3211,10 @@ select.input { cursor: pointer; }
       <div><div class="card-title">🛒 Mercado Livre</div><div class="card-sub">Pedidos, lucro líquido (descontando ML), margem · seller DANA_JALECOS</div></div>
     </div>
     <div id="an-ml-kpis" class="kpi-grid mb20">
-      <div class="kpi-card dark"><div class="kpi-label">Bruto</div><div class="kpi-value" id="an-kpi-ml-bruto">--</div><svg class="kpi-spark" id="an-spark-ml-bruto" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ml-bruto-sub">vs período anterior</div></div>
-      <div class="kpi-card"><div class="kpi-label">Líquido</div><div class="kpi-value" id="an-kpi-ml-liquido">--</div><svg class="kpi-spark" id="an-spark-ml-liquido" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ml-liquido-sub">após comissão ML</div></div>
-      <div class="kpi-card"><div class="kpi-label">Margem</div><div class="kpi-value" id="an-kpi-ml-margem">--</div><svg class="kpi-spark" id="an-spark-ml-margem" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ml-margem-sub">líquido / bruto</div></div>
-      <div class="kpi-card"><div class="kpi-label">Pedidos</div><div class="kpi-value" id="an-kpi-ml-pedidos">--</div><svg class="kpi-spark" id="an-spark-ml-pedidos" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ml-unidades-sub">unidades vendidas</div></div>
+      <div class="kpi-card dark" style="cursor:pointer" onclick="analyticsAbrirDrill({fonte:'ml',metrica:'bruto'})" title="Drill-down em Faturamento ML"><div class="kpi-label">Bruto</div><div class="kpi-value" id="an-kpi-ml-bruto">--</div><svg class="kpi-spark" id="an-spark-ml-bruto" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ml-bruto-sub">vs período anterior</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="analyticsAbrirDrill({fonte:'ml',metrica:'liquido'})" title="Drill-down em Líquido ML"><div class="kpi-label">Líquido</div><div class="kpi-value" id="an-kpi-ml-liquido">--</div><svg class="kpi-spark" id="an-spark-ml-liquido" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ml-liquido-sub">após comissão ML</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="analyticsAbrirDrill({fonte:'ml',metrica:'margem'})" title="Drill-down em Margem ML"><div class="kpi-label">Margem</div><div class="kpi-value" id="an-kpi-ml-margem">--</div><svg class="kpi-spark" id="an-spark-ml-margem" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ml-margem-sub">líquido / bruto</div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="analyticsAbrirDrill({fonte:'ml',metrica:'pedidos'})" title="Drill-down em Pedidos ML"><div class="kpi-label">Pedidos</div><div class="kpi-value" id="an-kpi-ml-pedidos">--</div><svg class="kpi-spark" id="an-spark-ml-pedidos" viewBox="0 0 100 28" preserveAspectRatio="none"></svg><div class="kpi-change" id="an-kpi-ml-unidades-sub">unidades vendidas</div></div>
     </div>
 
     <!-- Reorder Fase 0: tops antes do gráfico -->
@@ -16174,6 +16174,429 @@ async function analyticsHistAbrir(insightId) {
   }
 }
 
+// ════════════════════════════════════════════════════════
+// FASE 3 — Drill-down causal "POR QUÊ?"
+// ════════════════════════════════════════════════════════
+// Click em KPI/canal/página/campanha/produto → drawer lateral com:
+//  - Métrica + delta vs período anterior
+//  - Mini-chart sobreposto (atual vs anterior na mesma escala)
+//  - Top contribuidores (re-aggregação em memória)
+//  - Sub-insight contextual via edge function (escopo='drill_*')
+// Cache local 1h evita explosão de custo/quota.
+
+// Cache: { specJson → { resultado, expiraEm } }
+window._anDrillCache = window._anDrillCache || new Map();
+const _AN_DRILL_TTL_MS = 60 * 60 * 1000; // 1h
+let _anDrillUltimoClick = 0; // debounce 500ms
+
+// Mapping de (fonte, metrica) → label, formatador, cor, escopo IA
+const _AN_DRILL_CONFIG = {
+  'ga4|sessions':    { label: 'Sessões',        fmt: 'int', cor: '#3b82f6', escopo: 'drill_canal' },
+  'ga4|users':       { label: 'Usuários',       fmt: 'int', cor: '#3b82f6', escopo: 'drill_canal' },
+  'ga4|page_views':  { label: 'Visualizações',  fmt: 'int', cor: '#7c3aed', escopo: 'drill_pagina' },
+  'ga4|conversions': { label: 'Conversões',     fmt: 'int', cor: '#16a34a', escopo: 'drill_canal' },
+  'ads|cost':        { label: 'Investimento',   fmt: 'brl', cor: '#f59e0b', escopo: 'drill_campanha' },
+  'ads|clicks':      { label: 'Cliques',        fmt: 'int', cor: '#f59e0b', escopo: 'drill_campanha' },
+  'ads|conversions': { label: 'Conversões Ads', fmt: 'int', cor: '#16a34a', escopo: 'drill_campanha' },
+  'ads|cpa':         { label: 'CPA',            fmt: 'brl', cor: '#dc2626', escopo: 'drill_campanha' },
+  'ml|bruto':        { label: 'Faturamento ML', fmt: 'brl', cor: '#9ca3af', escopo: 'drill_canal' },
+  'ml|liquido':      { label: 'Líquido ML',     fmt: 'brl', cor: '#16a34a', escopo: 'drill_canal' },
+  'ml|margem':       { label: 'Margem ML (%)',  fmt: 'pct', cor: '#16a34a', escopo: 'drill_canal' },
+  'ml|pedidos':      { label: 'Pedidos ML',     fmt: 'int', cor: '#9ca3af', escopo: 'drill_canal' },
+};
+
+function _anDrillFmt(tipo) {
+  if (tipo === 'brl') return _ANALYTICS_FMT_BRL;
+  if (tipo === 'pct') return (n) => (Number(n)||0).toFixed(1) + '%';
+  return _ANALYTICS_FMT_INT;
+}
+
+// Soma uma key num array de pontos
+function _anDrillSum(arr, key) {
+  return (arr || []).reduce((s,r) => s + (Number(r[key])||0), 0);
+}
+
+// Constrói a série diária pra uma métrica (pode ser cost/sessions/etc),
+// preenchendo dias faltantes com 0 pra alinhar atual e anterior na mesma escala temporal.
+function _anDrillSerieDiaria(rows, key, dataIni, dataFim) {
+  const map = {};
+  for (const r of (rows || [])) {
+    const d = (r.data || r.date_closed || '').slice(0, 10);
+    if (!d) continue;
+    map[d] = (map[d] || 0) + (Number(r[key]) || 0);
+  }
+  // Itera dia a dia entre dataIni e dataFim
+  const out = [];
+  const di = new Date(dataIni + 'T00:00:00');
+  const df = new Date(dataFim + 'T00:00:00');
+  for (let d = new Date(di); d <= df; d.setDate(d.getDate() + 1)) {
+    const iso = d.toISOString().slice(0, 10);
+    out.push({ data: iso, valor: map[iso] || 0 });
+  }
+  return out;
+}
+
+// Spec esperado: { fonte: 'ga4'|'ads'|'ml', metrica: 'sessions'|..., subTipo?: 'canal'|'pagina'|'campanha'|'produto', subKey?: string }
+// Retorna: { atual: number, anterior: number, delta_pct: number|null, serieAtual:[], serieAnt:[], topContribuidores:[] }
+function _anDrillCalcular(spec) {
+  const dados = window._anLastDados;
+  if (!dados) return null;
+  const { atualIni, atualFim, antIni, antFim } = dados.periodo;
+  const out = { atual: 0, anterior: 0, delta_pct: null, serieAtual: [], serieAnt: [], topContribuidores: [] };
+
+  if (spec.fonte === 'ga4') {
+    // Filtra rows por sub se aplicável (canal ou página)
+    let atual = dados.ga4.diaAtual, ant = dados.ga4.diaAnt;
+    if (spec.subTipo === 'canal' && spec.subKey) {
+      atual = (dados.ga4.canais || []).filter(r => r.canal === spec.subKey);
+      // Para anterior precisaríamos da query antiga por canal — fallback: usa total dia anterior * proporção
+      ant = []; // simplificação inicial; sub-insight foca no atual
+    } else if (spec.subTipo === 'pagina' && spec.subKey) {
+      atual = (dados.ga4.paginas || []).filter(r => r.page_path === spec.subKey);
+      ant = [];
+    }
+    out.atual = _anDrillSum(atual, spec.metrica);
+    out.anterior = _anDrillSum(ant, spec.metrica);
+    out.serieAtual = _anDrillSerieDiaria(atual, spec.metrica, atualIni, atualFim);
+    out.serieAnt = _anDrillSerieDiaria(ant, spec.metrica, antIni, antFim);
+    // Top contribuidores: por canal pra métricas GA4
+    const agg = {};
+    for (const r of (dados.ga4.canais || [])) {
+      agg[r.canal] = (agg[r.canal] || 0) + (Number(r[spec.metrica]) || 0);
+    }
+    out.topContribuidores = Object.entries(agg).sort((a,b) => b[1]-a[1]).slice(0, 6)
+      .map(([nome, val]) => ({ nome, valor: val, sub: 'canal' }));
+  } else if (spec.fonte === 'ads') {
+    let atual = dados.ads.diaAtual, ant = dados.ads.diaAnt;
+    if (spec.subTipo === 'campanha' && spec.subKey) {
+      atual = (dados.ads.campanhas || []).filter(r => r.campaign_name === spec.subKey);
+      ant = [];
+    }
+    if (spec.metrica === 'cpa') {
+      const cA = _anDrillSum(atual, 'cost'), vA = _anDrillSum(atual, 'conversions');
+      const cX = _anDrillSum(ant, 'cost'),   vX = _anDrillSum(ant, 'conversions');
+      out.atual = vA > 0 ? cA / vA : 0;
+      out.anterior = vX > 0 ? cX / vX : 0;
+      // Série diária CPA: precisa cost/conv por dia
+      out.serieAtual = (atual || []).map(r => ({
+        data: (r.data||'').slice(0,10),
+        valor: Number(r.conversions||0) > 0 ? Number(r.cost||0)/Number(r.conversions||0) : 0,
+      })).filter(p => p.data);
+      out.serieAnt = (ant || []).map(r => ({
+        data: (r.data||'').slice(0,10),
+        valor: Number(r.conversions||0) > 0 ? Number(r.cost||0)/Number(r.conversions||0) : 0,
+      })).filter(p => p.data);
+    } else {
+      out.atual = _anDrillSum(atual, spec.metrica);
+      out.anterior = _anDrillSum(ant, spec.metrica);
+      out.serieAtual = _anDrillSerieDiaria(atual, spec.metrica, atualIni, atualFim);
+      out.serieAnt = _anDrillSerieDiaria(ant, spec.metrica, antIni, antFim);
+    }
+    // Top contribuidores: campanhas
+    const agg = {};
+    for (const r of (dados.ads.campanhas || [])) {
+      const k = r.campaign_name;
+      const v = spec.metrica === 'cpa'
+        ? (Number(r.conversions||0) > 0 ? Number(r.cost||0)/Number(r.conversions||0) : 0)
+        : Number(r[spec.metrica] || 0);
+      agg[k] = (agg[k] || 0) + v;
+    }
+    out.topContribuidores = Object.entries(agg).sort((a,b) => b[1]-a[1]).slice(0, 6)
+      .map(([nome, val]) => ({ nome, valor: val, sub: 'campanha' }));
+  } else if (spec.fonte === 'ml') {
+    if (spec.subTipo === 'produto' && spec.subKey) {
+      const filtrado = (dados.ml.pedAtual || []).filter(r => r.mlb_id === spec.subKey);
+      const keyMap = { bruto: 'total_amount', liquido: 'lucro_liquido', pedidos: null, margem: null };
+      if (keyMap[spec.metrica]) out.atual = _anDrillSum(filtrado, keyMap[spec.metrica]);
+      else if (spec.metrica === 'pedidos') out.atual = filtrado.length;
+      else if (spec.metrica === 'margem') {
+        const b = _anDrillSum(filtrado, 'total_amount'); const l = _anDrillSum(filtrado, 'lucro_liquido');
+        out.atual = b > 0 ? (l / b) * 100 : 0;
+      }
+    } else {
+      const keyMap = { bruto: 'total_amount', liquido: 'lucro_liquido', pedidos: null, margem: null };
+      const k = keyMap[spec.metrica];
+      if (k) {
+        out.atual = _anDrillSum(dados.ml.pedAtual, k);
+        out.anterior = _anDrillSum(dados.ml.pedAnt, k);
+      } else if (spec.metrica === 'pedidos') {
+        out.atual = (dados.ml.pedAtual || []).length;
+        out.anterior = (dados.ml.pedAnt || []).length;
+      } else if (spec.metrica === 'margem') {
+        const bA = _anDrillSum(dados.ml.pedAtual, 'total_amount');
+        const lA = _anDrillSum(dados.ml.pedAtual, 'lucro_liquido');
+        const bX = _anDrillSum(dados.ml.pedAnt, 'total_amount');
+        const lX = _anDrillSum(dados.ml.pedAnt, 'lucro_liquido');
+        out.atual = bA > 0 ? (lA / bA) * 100 : 0;
+        out.anterior = bX > 0 ? (lX / bX) * 100 : 0;
+      }
+      // Série diária ML usa diaAgg (já agregado por dia)
+      const seriKey = { bruto: 'bruto', liquido: 'liquido', pedidos: 'pedidos', margem: 'margem' }[spec.metrica];
+      out.serieAtual = (dados.ml.diaAgg || []).map(d => ({ data: d.data, valor: Number(d[seriKey])||0 }));
+      // Anterior: agrega pedAnt por dia
+      const antDiaMap = {};
+      for (const r of (dados.ml.pedAnt || [])) {
+        const d = (r.date_closed||'').slice(0,10); if (!d) continue;
+        if (!antDiaMap[d]) antDiaMap[d] = { bruto:0, liquido:0, pedidos:0 };
+        antDiaMap[d].bruto += Number(r.total_amount||0);
+        antDiaMap[d].liquido += Number(r.lucro_liquido||0);
+        antDiaMap[d].pedidos++;
+      }
+      out.serieAnt = Object.entries(antDiaMap).map(([data, v]) => ({
+        data,
+        valor: spec.metrica === 'margem' ? (v.bruto > 0 ? (v.liquido/v.bruto)*100 : 0) : v[seriKey] || 0,
+      })).sort((a,b) => a.data.localeCompare(b.data));
+    }
+    // Top contribuidores ML: produtos
+    const top = (dados.ml.produtos || []).slice(0, 6).map(p => ({
+      nome: p.titulo, valor: p[spec.metrica === 'pedidos' ? 'unidades' : (spec.metrica === 'liquido' ? 'liquido' : 'bruto')] || 0,
+      sub: 'produto', subKey: p.mlb,
+    }));
+    out.topContribuidores = top;
+  }
+
+  out.delta_pct = out.anterior > 0 ? Math.round(((out.atual - out.anterior) / out.anterior) * 1000) / 10 : null;
+  return out;
+}
+
+// Render mini-chart sobreposto (atual + anterior na mesma escala) usando SVG
+function _anDrillRenderChart(serieA, serieX, cor) {
+  if (!serieA || !serieA.length) return '<div style="text-align:center;padding:30px;color:var(--text3);font-size:11.5px">Sem série temporal disponível</div>';
+  const valsA = serieA.map(p => Number(p.valor)||0);
+  const valsX = (serieX||[]).map(p => Number(p.valor)||0);
+  const max = Math.max(...valsA, ...valsX, 1);
+  const min = 0;
+  const W = 660, H = 140, pad = 24;
+  const stepA = (W - pad*2) / Math.max(serieA.length - 1, 1);
+  const coordsA = valsA.map((v, i) => [pad + i * stepA, H - pad - ((v - min) / (max - min || 1)) * (H - pad*2)]);
+  const stepX = (W - pad*2) / Math.max((serieX?.length || 1) - 1, 1);
+  const coordsX = (serieX||[]).map((p, i) => [pad + i * stepX, H - pad - ((Number(p.valor)||0 - min) / (max - min || 1)) * (H - pad*2)]);
+  const pathA = 'M' + coordsA.map(([x,y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' L');
+  const pathX = coordsX.length ? 'M' + coordsX.map(([x,y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' L') : '';
+  const fillA = pathA + ` L${(W-pad).toFixed(1)},${H-pad} L${pad},${H-pad} Z`;
+  // Datas first/last
+  const ini = serieA[0]?.data; const fim = serieA[serieA.length-1]?.data;
+  const fmtDt = (iso) => iso ? `${iso.slice(8,10)}/${iso.slice(5,7)}` : '';
+  return `
+    <svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="display:block">
+      <!-- Anterior em cinza tracejado -->
+      ${pathX ? `<path d="${pathX}" fill="none" stroke="var(--text3)" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.6"/>` : ''}
+      <!-- Atual em cor primária com fill -->
+      <path d="${fillA}" fill="${cor}" opacity="0.12"/>
+      <path d="${pathA}" fill="none" stroke="${cor}" stroke-width="2"/>
+      <!-- Eixos labels -->
+      <text x="${pad}" y="${H-6}" font-size="10" fill="var(--text3)">${fmtDt(ini)}</text>
+      <text x="${W-pad-32}" y="${H-6}" font-size="10" fill="var(--text3)">${fmtDt(fim)}</text>
+      <text x="${pad+4}" y="${pad-6}" font-size="10" fill="var(--text3)">${_ANALYTICS_FMT_INT(max)}</text>
+    </svg>
+    <div style="display:flex;gap:16px;justify-content:center;font-size:10.5px;color:var(--text3);margin-top:6px">
+      <span><span style="display:inline-block;width:18px;height:2px;background:${cor};vertical-align:middle"></span> período atual</span>
+      ${pathX ? `<span><span style="display:inline-block;width:18px;height:0;border-top:1.5px dashed var(--text3);vertical-align:middle"></span> período anterior</span>` : ''}
+    </div>
+  `;
+}
+
+// Render lista de top contribuidores (clicáveis pra drill-down secundário)
+function _anDrillRenderContribuidores(contribs, fmt, fonte, metrica) {
+  if (!contribs || !contribs.length) return '<div style="font-size:11.5px;color:var(--text3);padding:12px">Sem contribuidores no período.</div>';
+  const max = Math.max(...contribs.map(c => Number(c.valor)||0), 1);
+  return contribs.map(c => {
+    const pct = (Number(c.valor)||0) / max * 100;
+    const subType = c.sub || 'canal';
+    const subKey = c.subKey || c.nome;
+    const safeSubKey = String(subKey).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+    return `<div onclick="analyticsAbrirDrill({fonte:'${fonte}',metrica:'${metrica}',subTipo:'${subType}',subKey:'${safeSubKey}'})" style="padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid var(--border);margin-bottom:6px;transition:background 0.12s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px">
+        <span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%">${esc(String(c.nome).slice(0,60))}</span>
+        <span style="color:var(--text);font-weight:700">${fmt(c.valor)}</span>
+      </div>
+      <div style="height:4px;background:var(--surface2);border-radius:2px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:var(--text);border-radius:2px"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Gera sub-insight contextual chamando edge function (escopo='drill_*')
+async function _anDrillGenerateSubInsight(spec, calc, drawerId) {
+  const subEl = document.getElementById(drawerId + '-subinsight');
+  if (!subEl) return;
+  subEl.innerHTML = '<div class="skeleton-shimmer" style="height:60px;border-radius:8px"></div>';
+  try {
+    const cfg = _AN_DRILL_CONFIG[`${spec.fonte}|${spec.metrica}`] || {};
+    const dados = window._anLastDados;
+    const periodo = dados?.periodo || {};
+    const { data: { session } } = await sb.auth.getSession();
+    const contexto = {
+      data_ini: periodo.atualIni, data_fim: periodo.atualFim,
+      foco: { fonte: spec.fonte, metrica: spec.metrica, subTipo: spec.subTipo, subKey: spec.subKey },
+      valor_atual: calc.atual, valor_anterior: calc.anterior, delta_pct: calc.delta_pct,
+      top_contribuidores: (calc.topContribuidores || []).slice(0, 5).map(c => ({
+        nome: String(c.nome).slice(0,60), valor: Math.round((Number(c.valor)||0)*100)/100,
+      })),
+    };
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/analytics-insight`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${session?.access_token || SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        escopo: cfg.escopo || 'drill_canal',
+        periodo_dias: periodo.dias,
+        data_ini: periodo.atualIni,
+        data_fim: periodo.atualFim,
+        contexto,
+      }),
+    });
+    const j = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const msg = resp.status === 429 ? `Quota diária atingida (${j.quota?.usados}/${j.quota?.limite})` : (j.error || 'Erro ao gerar análise');
+      subEl.innerHTML = `<div style="padding:12px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;font-size:12px;color:var(--text2)">⚠ ${esc(msg)}</div>`;
+      return;
+    }
+    // Pega só o resumo executivo do output (drill é mais curto)
+    const secoes = parseAnalyticsInsightSecoes(j.insight);
+    const corpo = secoes.resumo || (j.insight || '').slice(0, 600);
+    subEl.innerHTML = `<div style="padding:14px 16px;background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.25);border-radius:10px">
+      <div style="font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#7c3aed;margin-bottom:6px">🧠 Análise IA · por que isso aconteceu</div>
+      <div style="font-size:13px;line-height:1.55;color:var(--text)">${_anMarkInsightHTML(corpo)}</div>
+    </div>`;
+    if (j.quota) analyticsLoadInsightQuota();
+    // Atualiza cache
+    const cacheKey = JSON.stringify(spec);
+    window._anDrillCache.set(cacheKey, { resultado: { calc, insight: j.insight, gerado_em: j.gerado_em }, expiraEm: Date.now() + _AN_DRILL_TTL_MS });
+  } catch (e) {
+    subEl.innerHTML = `<div style="padding:12px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;font-size:12px;color:var(--text2)">⚠ Erro: ${esc(e.message || e)}</div>`;
+  }
+}
+
+// Função PÚBLICA principal — chamada por todos os onclick (KPIs, top-N rows)
+async function analyticsAbrirDrill(spec) {
+  // Debounce 500ms
+  const agora = Date.now();
+  if (agora - _anDrillUltimoClick < 500) return;
+  _anDrillUltimoClick = agora;
+
+  const cfg = _AN_DRILL_CONFIG[`${spec.fonte}|${spec.metrica}`];
+  if (!cfg) { console.warn('[drill] config nao encontrada:', spec); return; }
+  if (!window._anLastDados) { showToast('Aguarde os dados carregarem'); return; }
+
+  // Calcula localmente (sem custo)
+  const calc = _anDrillCalcular(spec);
+  if (!calc) { showToast('Dados insuficientes pra esse drill'); return; }
+
+  // Constrói/abre drawer
+  let drawer = document.getElementById('an-drill-drawer');
+  if (drawer) drawer.remove();
+  drawer = document.createElement('div');
+  drawer.id = 'an-drill-drawer';
+  const fmt = _anDrillFmt(cfg.fmt);
+  const subTituloLabel = spec.subTipo
+    ? ` · ${spec.subTipo === 'canal' ? '🌐' : spec.subTipo === 'pagina' ? '📄' : spec.subTipo === 'campanha' ? '🥇' : '📦'} ${esc(String(spec.subKey).slice(0,40))}`
+    : '';
+  const deltaClass = calc.delta_pct == null ? 'neutral' : (calc.delta_pct >= 0 ? 'up' : 'dn');
+  const deltaCor = calc.delta_pct == null ? 'var(--text3)' : (calc.delta_pct >= 0 ? 'var(--green)' : 'var(--red)');
+  const deltaSeta = calc.delta_pct == null ? '' : (calc.delta_pct >= 0 ? '▲' : '▼');
+  const deltaTxt = calc.delta_pct == null ? '—' : `${deltaSeta} ${(calc.delta_pct >= 0 ? '+' : '') + calc.delta_pct.toFixed(1)}%`;
+
+  drawer.innerHTML = `
+    <div class="an-drill-overlay" onclick="analyticsFecharDrill()"></div>
+    <div class="an-drill-panel">
+      <div class="an-drill-header">
+        <div style="flex:1;min-width:0">
+          <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:17px">${cfg.label}${subTituloLabel}</div>
+          <div style="font-size:11.5px;color:var(--text3)">Drill-down · período atual vs anterior</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="analyticsFecharDrill()" style="font-size:14px">✕</button>
+      </div>
+      <div class="an-drill-body">
+        <!-- KPI grande -->
+        <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:18px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:11px;color:var(--text3);font-weight:600;margin-bottom:2px">Período atual</div>
+            <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:30px">${fmt(calc.atual)}</div>
+          </div>
+          <div style="color:${deltaCor};font-size:14px;font-weight:700;display:flex;align-items:center;gap:4px">${deltaTxt}</div>
+          <div style="margin-left:auto;text-align:right">
+            <div style="font-size:11px;color:var(--text3);font-weight:600;margin-bottom:2px">Período anterior</div>
+            <div style="font-size:16px;color:var(--text2);font-weight:600">${fmt(calc.anterior)}</div>
+          </div>
+        </div>
+
+        <!-- Mini chart sobreposto -->
+        <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:10px">
+          ${_anDrillRenderChart(calc.serieAtual, calc.serieAnt, cfg.cor)}
+        </div>
+
+        <!-- Top contribuidores (apenas se NÃO é drill secundário) -->
+        ${!spec.subTipo ? `
+          <div style="margin-bottom:20px">
+            <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">🔍 Top contribuidores</div>
+            <div style="font-size:10.5px;color:var(--text3);margin-bottom:10px">Click pra drill mais específico</div>
+            ${_anDrillRenderContribuidores(calc.topContribuidores, fmt, spec.fonte, spec.metrica)}
+          </div>
+        ` : ''}
+
+        <!-- Sub-insight IA -->
+        <div id="an-drill-${Date.now()}-subinsight" style="margin-top:6px"></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(drawer);
+  // CSS injetado uma única vez
+  if (!document.getElementById('an-drill-style')) {
+    const st = document.createElement('style');
+    st.id = 'an-drill-style';
+    st.textContent = `
+      #an-drill-drawer { position:fixed; inset:0; z-index:9998; }
+      .an-drill-overlay { position:absolute; inset:0; background:rgba(0,0,0,0.4); }
+      .an-drill-panel {
+        position:absolute; right:0; top:0; bottom:0; width:720px; max-width:100vw;
+        background:var(--white); border-left:1px solid var(--border);
+        display:flex; flex-direction:column;
+        box-shadow:-12px 0 32px rgba(0,0,0,0.2);
+        animation: an-drill-slide 0.22s ease-out;
+      }
+      @keyframes an-drill-slide { from { transform:translateX(100%); } to { transform:translateX(0); } }
+      .an-drill-header { padding:18px 22px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+      .an-drill-body { overflow-y:auto; flex:1; padding:18px 22px; }
+      @media (max-width: 768px) {
+        .an-drill-panel { width:100vw; }
+      }
+    `;
+    document.head.appendChild(st);
+  }
+  document.body.style.overflow = 'hidden';
+
+  // Pega o ID dinâmico do subinsight pra passar pra função IA
+  const subId = drawer.querySelector('[id^="an-drill-"][id$="-subinsight"]')?.id;
+  if (subId) {
+    // Cache local: se já tem na cache e não expirou, mostra direto sem chamar IA
+    const cacheKey = JSON.stringify(spec);
+    const cached = window._anDrillCache.get(cacheKey);
+    if (cached && cached.expiraEm > Date.now() && cached.resultado.insight) {
+      const subEl = document.getElementById(subId);
+      const secoes = parseAnalyticsInsightSecoes(cached.resultado.insight);
+      const corpo = secoes.resumo || cached.resultado.insight;
+      subEl.innerHTML = `<div style="padding:14px 16px;background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.25);border-radius:10px">
+        <div style="font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#7c3aed;margin-bottom:6px">🧠 Análise IA · do cache (1h)</div>
+        <div style="font-size:13px;line-height:1.55;color:var(--text)">${_anMarkInsightHTML(corpo)}</div>
+      </div>`;
+    } else {
+      // Gera via edge function
+      _anDrillGenerateSubInsight(spec, calc, subId);
+    }
+  }
+}
+
+function analyticsFecharDrill() {
+  const d = document.getElementById('an-drill-drawer');
+  if (d) d.remove();
+  document.body.style.overflow = '';
+}
+
 // Marca dirty quando user troca período (insight em cache fica obsoleto)
 document.addEventListener('change', (e) => {
   if (e.target?.id === 'an-periodo' && window._anLastInsight) {
@@ -16284,7 +16707,8 @@ window.loadAnalytics = async function() {
     const elCanais = document.getElementById('an-ga4-canais');
     if (elCanais) elCanais.innerHTML = canaisSort.map(([nome, m]) => {
       const pct = (m.sessions / canalMaxSes) * 100;
-      return `<div>
+      const safeNome = String(nome).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+      return `<div onclick="analyticsAbrirDrill({fonte:'ga4',metrica:'sessions',subTipo:'canal',subKey:'${safeNome}'})" style="cursor:pointer;padding:4px;border-radius:6px;transition:background 0.12s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''" title="Drill-down em ${esc(nome)}">
         <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px">
           <span style="font-weight:600">${esc(nome)}</span>
           <span style="color:var(--text3)">${_ANALYTICS_FMT_INT(m.sessions)} sess · ${_ANALYTICS_FMT_INT(m.conv)} conv</span>
@@ -16330,7 +16754,8 @@ window.loadAnalytics = async function() {
     const elPag = document.getElementById('an-ga4-paginas');
     if (elPag) elPag.innerHTML = pagSort.map(([path, m]) => {
       const pct = (m.views / pagMax) * 100;
-      return `<div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+      const safePath = String(path).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+      return `<div onclick="analyticsAbrirDrill({fonte:'ga4',metrica:'page_views',subTipo:'pagina',subKey:'${safePath}'})" style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:6px 8px;border-bottom:1px solid var(--border);cursor:pointer;border-radius:6px;transition:background 0.12s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''" title="Drill-down nesta página">
         <div style="min-width:0">
           <div style="font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((m.title||path).slice(0,80))}</div>
           <div style="font-size:10.5px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(path.slice(0,90))}</div>
@@ -16395,7 +16820,8 @@ window.loadAnalytics = async function() {
     if (elCamp) elCamp.innerHTML = campSort.map(([nome, m]) => {
       const pct = (m.cost / campMax) * 100;
       const cpa = m.conv > 0 ? m.cost / m.conv : 0;
-      return `<div style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface)">
+      const safeNome = String(nome).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+      return `<div onclick="analyticsAbrirDrill({fonte:'ads',metrica:'cost',subTipo:'campanha',subKey:'${safeNome}'})" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;transition:background 0.12s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='var(--surface)'" title="Drill-down nesta campanha">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:4px">
           <div style="font-weight:600;color:var(--text);font-size:11.5px;line-height:1.3;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nome)}</div>
           ${statusBadge(m.status)}
@@ -16493,7 +16919,8 @@ window.loadAnalytics = async function() {
       elProd.innerHTML = top10.map(p => {
         const pctBar = (p.bruto / maxBruto) * 100;
         const c = classeColor[p.classe];
-        return `<div style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface)">
+        const safeMlb = String(p.mlb).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+        return `<div onclick="analyticsAbrirDrill({fonte:'ml',metrica:'bruto',subTipo:'produto',subKey:'${safeMlb}'})" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;transition:background 0.12s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='var(--surface)'" title="Drill-down neste produto">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:3px">
             <div style="font-weight:600;font-size:11px;line-height:1.3;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.titulo)}</div>
             <span style="background:${c[0]};color:${c[1]};font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;flex-shrink:0">${p.classe}</span>
@@ -16596,6 +17023,30 @@ window.loadAnalytics = async function() {
       ml_por_tipo: _ml_por_tipo,
     };
     window._anLastPeriodo = dias;
+
+    // Fase 3: cache dos dados raw pra drill-down (séries diárias, top contribuidores etc)
+    window._anLastDados = {
+      ga4: {
+        diaAtual: ga4DiaAtual.data || [],
+        diaAnt:   ga4DiaAnt.data   || [],
+        canais:   ga4Canais.data   || [],
+        devices:  ga4Devices.data  || [],
+        paginas:  ga4Paginas.data  || [],
+      },
+      ads: {
+        diaAtual:  adsDiaAtual.data  || [],
+        diaAnt:    adsDiaAnt.data    || [],
+        campanhas: adsCampanhas.data || [],
+      },
+      ml: {
+        pedAtual: mlPedAtual.data || [],
+        pedAnt:   mlPedAnt.data   || [],
+        diaAgg:   mlPts,
+        produtos: prodComClasse,
+        porTipo:  tipoSort,
+      },
+      periodo: { dias, atualIni, atualFim, antIni, antFim },
+    };
 
     // Aplica visibilidade do bloco de insight + carrega último insight + atualiza quota
     if (typeof analyticsApplyInsightVisibility === 'function') analyticsApplyInsightVisibility();
