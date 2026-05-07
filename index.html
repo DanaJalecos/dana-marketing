@@ -16194,8 +16194,11 @@ function _anRenderChart(elId, points, valorKey, valorKey2, cor1, cor2) {
     const h1 = (v1 / max1) * 80;
     const h2 = valorKey2 ? (v2 / max2) * 40 : 0;
     const dataLbl = p.data ? new Date(p.data).toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'}) : '';
+    // bar-wrap usa altura definida pela class .bar-wrap (128px do CSS global) —
+    // NÃO usar height:100% inline aqui porque o pai .bar-group tem altura auto
+    // (definida pelo conteúdo), e height:100% resolveria pra 0 → barras invisíveis.
     return `<div class="bar-group" title="${dataLbl} · ${valorKey}: ${_ANALYTICS_FMT_INT(v1)}${valorKey2 ? ' · ' + valorKey2 + ': ' + _ANALYTICS_FMT_INT(v2) : ''}">
-      <div class="bar-wrap" style="position:relative;display:flex;align-items:flex-end;height:100%">
+      <div class="bar-wrap" style="position:relative">
         <div class="bar" style="height:${h1}%;background:${cor1};width:60%;opacity:0.85"></div>
         ${valorKey2 ? `<div class="bar" style="height:${h2}%;background:${cor2};width:40%;opacity:0.85;margin-left:1px"></div>` : ''}
       </div>
