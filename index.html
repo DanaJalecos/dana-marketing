@@ -3127,6 +3127,23 @@ select.input { cursor: pointer; }
     <span>vs período anterior <span id="an-context-datas" style="color:var(--text3)"></span></span>
   </div>
 
+  <!-- ──────── INSIGHT IA (Fase 2) ──────── -->
+  <div class="card mb20" id="an-insight-card" style="display:none">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div>
+        <div class="card-title">🧠 Insights de tráfego</div>
+        <div class="card-sub">Análise gerada por IA · GA4 + Google Ads + Mercado Livre</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span id="an-insight-quota" style="font-size:11px;color:var(--text3);font-weight:600"></span>
+        <button class="btn btn-ghost btn-sm" id="an-insight-history-btn" onclick="analyticsAbrirHistoricoInsight()" style="font-size:11.5px" title="Ver insights anteriores">📜 Histórico</button>
+        <button class="btn btn-primary btn-sm" id="an-insight-gen-btn" onclick="analyticsGenerateInsight()" style="font-size:11.5px">✨ Gerar agora</button>
+      </div>
+    </div>
+    <div id="an-insight-body" style="margin-top:14px"></div>
+    <div id="an-insight-meta" style="margin-top:10px;font-size:10.5px;color:var(--text3);display:none"></div>
+  </div>
+
   <!-- ──────── GA4 ──────── -->
   <div class="card mb20">
     <div class="card-header">
@@ -15745,6 +15762,284 @@ function _anUpdateContextPilula(dias, atualIni, atualFim, antIni, antFim) {
   }
 }
 
+// ────────────────────────────────────────────────────────
+// Fase 2 (Analytics IA) — Insight card no topo do painel
+// ────────────────────────────────────────────────────────
+
+// Cargos autorizados a ver/gerar insights de Analytics (espelha edge function)
+const ANALYTICS_INSIGHT_CARGOS = new Set([
+  'admin','gerente_marketing','gerente_comercial','trafego_pago','producao_conteudo'
+]);
+
+// Cache em memória do contexto coletado por loadAnalytics — usado no Gerar
+window._anLastContexto = null;
+window._anLastPeriodo = null;
+window._anLastInsight = null;
+window._anInsightDirty = false; // true quando trocou período após último insight
+
+// Parser das 4 seções fixas (RESUMO / AÇÕES / FUNCIONOU / PIOROU)
+// Tolerante: regex case-insensitive aceita variações de pontuação.
+function parseAnalyticsInsightSecoes(md) {
+  const labels = {
+    resumo:    /resumo\s*executivo\s*:?\s*/i,
+    acoes:     /pontos\s*d[eo]\s*a[çc][ãa]o\s*:?\s*/i,
+    funcionou: /o\s*que\s*funcionou\s*:?\s*/i,
+    piorou:    /o\s*que\s*piorou\s*:?\s*/i,
+  };
+  // Tenta dividir o texto pelos labels mantendo a ordem natural
+  const order = ['resumo','acoes','funcionou','piorou'];
+  const out = { resumo:'', acoes:'', funcionou:'', piorou:'' };
+  let restante = md || '';
+  // Encontra todos os matches e suas posições
+  const matches = [];
+  for (const k of order) {
+    const m = restante.match(labels[k]);
+    if (m && m.index !== undefined) matches.push({ key: k, idx: m.index, len: m[0].length });
+  }
+  matches.sort((a,b) => a.idx - b.idx);
+  if (!matches.length) {
+    // Fallback: joga tudo no resumo se parser não achou
+    out.resumo = (md || '').trim();
+    return out;
+  }
+  for (let i = 0; i < matches.length; i++) {
+    const cur = matches[i];
+    const next = matches[i+1];
+    const start = cur.idx + cur.len;
+    const end = next ? next.idx : restante.length;
+    out[cur.key] = restante.slice(start, end).trim();
+  }
+  return out;
+}
+
+// Convert **negrito** Markdown pra <strong>, preserva quebras de linha
+function _anMarkInsightHTML(s) {
+  if (!s) return '';
+  const escHTML = s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return escHTML
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+}
+
+// Render do card de insight (4 seções stacked)
+function _anRenderInsightCard(secoes, meta) {
+  const body = document.getElementById('an-insight-body');
+  const metaEl = document.getElementById('an-insight-meta');
+  if (!body) return;
+  const stale = window._anInsightDirty;
+  body.innerHTML = `
+    ${stale ? '<div style="background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:8px;font-size:11.5px;margin-bottom:12px">♻ Esse insight foi gerado em outro período. Clique <strong>✨ Gerar agora</strong> pra atualizar.</div>' : ''}
+    <div style="display:grid;gap:10px">
+      <div style="padding:14px 16px;background:linear-gradient(135deg,var(--surface2),var(--surface3));border:1px solid var(--border);border-radius:10px">
+        <div style="font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:6px">📊 Resumo executivo</div>
+        <div style="font-size:13px;line-height:1.55;color:var(--text)">${_anMarkInsightHTML(secoes.resumo) || '<em style="color:var(--text3)">—</em>'}</div>
+      </div>
+      <div style="padding:14px 16px;background:rgba(59,130,246,0.05);border:1px solid rgba(59,130,246,0.25);border-radius:10px">
+        <div style="font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#1d4ed8;margin-bottom:6px">🎯 Pontos de ação</div>
+        <div style="font-size:13px;line-height:1.7;color:var(--text)">${_anMarkInsightHTML(secoes.acoes) || '<em style="color:var(--text3)">—</em>'}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="padding:14px 16px;background:rgba(34,197,94,0.05);border:1px solid rgba(34,197,94,0.25);border-radius:10px">
+          <div style="font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--green);margin-bottom:6px">✅ O que funcionou</div>
+          <div style="font-size:12.5px;line-height:1.5;color:var(--text)">${_anMarkInsightHTML(secoes.funcionou) || '<em style="color:var(--text3)">—</em>'}</div>
+        </div>
+        <div style="padding:14px 16px;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.25);border-radius:10px">
+          <div style="font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--red);margin-bottom:6px">⚠️ O que piorou</div>
+          <div style="font-size:12.5px;line-height:1.5;color:var(--text)">${_anMarkInsightHTML(secoes.piorou) || '<em style="color:var(--text3)">—</em>'}</div>
+        </div>
+      </div>
+    </div>
+  `;
+  if (metaEl && meta) {
+    const dt = meta.gerado_em ? new Date(meta.gerado_em) : null;
+    const dataStr = dt ? dt.toLocaleString('pt-BR', {dateStyle:'short', timeStyle:'short'}) : '—';
+    const provider = meta.provider === 'groq' ? 'Llama 3.3 (Groq)' : meta.provider === 'gemini' ? 'Gemini 2.5 Flash' : meta.modelo;
+    const custo = meta.custo_estimado === 0 ? 'gratuito' : `R$ ${Number(meta.custo_estimado).toFixed(3)}`;
+    metaEl.style.display = '';
+    metaEl.textContent = `Gerado em ${dataStr} · ${provider} · ${custo}`;
+  }
+}
+
+// Render skeleton durante geração
+function _anRenderInsightSkeleton() {
+  const body = document.getElementById('an-insight-body');
+  if (!body) return;
+  body.innerHTML = `
+    <div style="display:grid;gap:10px">
+      <div class="skeleton-shimmer" style="height:80px"></div>
+      <div class="skeleton-shimmer" style="height:120px"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="skeleton-shimmer" style="height:80px"></div>
+        <div class="skeleton-shimmer" style="height:80px"></div>
+      </div>
+    </div>
+  `;
+}
+
+// Carrega quota atual (RPC) e atualiza badge
+async function analyticsLoadInsightQuota() {
+  const elQ = document.getElementById('an-insight-quota');
+  const elB = document.getElementById('an-insight-gen-btn');
+  if (!elQ || !currentUser?.id) return;
+  try {
+    if (currentProfile?.cargo === 'admin') {
+      elQ.innerHTML = '<span style="background:rgba(124,58,237,0.15);color:#7c3aed;padding:3px 8px;border-radius:999px">∞ ADMIN</span>';
+      if (elB) elB.disabled = false;
+      return;
+    }
+    const { data: cfg } = await sb.from('analytics_insights_config').select('*').eq('id', 1).single();
+    const cargoLimits = {
+      'gerente_marketing':  cfg?.limite_diario_gerente   || 10,
+      'gerente_comercial':  cfg?.limite_diario_gerente   || 10,
+      'trafego_pago':       cfg?.limite_diario_trafego   || 10,
+      'producao_conteudo':  cfg?.limite_diario_producao  || 5,
+    };
+    const limite = cargoLimits[currentProfile?.cargo] || 0;
+    const { data: usados } = await sb.rpc('analytics_insights_count_hoje', { uid: currentUser.id });
+    const u = Number(usados || 0);
+    const cor = u >= limite ? 'background:rgba(239,68,68,0.15);color:var(--red)' : u >= Math.ceil(limite*0.7) ? 'background:rgba(245,158,11,0.15);color:#b45309' : 'background:rgba(34,197,94,0.15);color:var(--green)';
+    elQ.innerHTML = `<span style="${cor};padding:3px 8px;border-radius:999px">${u}/${limite} hoje</span>`;
+    if (elB) {
+      const esgotou = u >= limite;
+      elB.disabled = esgotou || cfg?.pausado_por_limite || cfg?.pausado_manual || !cfg?.ativo;
+      if (esgotou) elB.title = 'Quota diária atingida. Tente amanhã.';
+      else if (cfg?.pausado_por_limite) elB.title = 'Geração pausada — limite mensal atingido.';
+      else if (cfg?.pausado_manual) elB.title = 'Pausado manualmente pelo admin.';
+      else elB.title = '';
+    }
+  } catch (e) {
+    console.warn('[analyticsLoadInsightQuota]', e);
+  }
+}
+
+// Mostra/esconde card baseado em permissão
+function analyticsApplyInsightVisibility() {
+  const card = document.getElementById('an-insight-card');
+  if (!card) return;
+  const cargo = currentProfile?.cargo;
+  const podeVer = cargo && ANALYTICS_INSIGHT_CARGOS.has(cargo);
+  card.style.display = podeVer ? '' : 'none';
+}
+
+// Carrega último insight do banco (escopo painel_geral) ao entrar na view
+async function analyticsLoadLastInsight() {
+  const card = document.getElementById('an-insight-card');
+  if (!card || card.style.display === 'none') return;
+  try {
+    const { data } = await sb.from('analytics_insights')
+      .select('insight, modelo, modelo_provider, custo_estimado, periodo_dias, created_at')
+      .eq('escopo', 'painel_geral')
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (!data || !data.length) {
+      const body = document.getElementById('an-insight-body');
+      if (body) body.innerHTML = '<div style="text-align:center;padding:18px;color:var(--text3);font-size:12.5px">Nenhum insight gerado ainda. Clique <strong>✨ Gerar agora</strong> pra criar o primeiro.</div>';
+      return;
+    }
+    const ins = data[0];
+    window._anLastInsight = ins;
+    const periodoAtual = parseInt(document.getElementById('an-periodo')?.value || '30');
+    window._anInsightDirty = (ins.periodo_dias !== periodoAtual);
+    const secoes = parseAnalyticsInsightSecoes(ins.insight);
+    _anRenderInsightCard(secoes, {
+      modelo: ins.modelo,
+      provider: ins.modelo_provider,
+      custo_estimado: ins.custo_estimado,
+      gerado_em: ins.created_at,
+    });
+  } catch (e) {
+    console.warn('[analyticsLoadLastInsight]', e);
+  }
+}
+
+// Coleta o contexto agregado do painel atual (montado durante loadAnalytics)
+// Retorna o JSON enxuto pra enviar pro edge function (limite 8KB)
+function _anColetarContexto() {
+  return window._anLastContexto || null;
+}
+
+// Gera novo insight chamando a edge function
+async function analyticsGenerateInsight() {
+  const btn = document.getElementById('an-insight-gen-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
+  _anRenderInsightSkeleton();
+  try {
+    const contexto = _anColetarContexto();
+    if (!contexto) throw new Error('Aguarde o carregamento dos dados antes de gerar insight.');
+    const dias = parseInt(document.getElementById('an-periodo')?.value || '30');
+    const { data: { session } } = await sb.auth.getSession();
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/analytics-insight`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${session?.access_token || SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        escopo: 'painel_geral',
+        periodo_dias: dias,
+        data_ini: contexto.data_ini,
+        data_fim: contexto.data_fim,
+        contexto,
+      }),
+    });
+    const j = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      if (resp.status === 429 && j.quota) {
+        showToast(`Quota diária atingida (${j.quota.usados}/${j.quota.limite}).`);
+      } else {
+        showToast('Erro: ' + (j.error || resp.status));
+      }
+      // Restaura último insight se havia
+      if (window._anLastInsight) {
+        const ins = window._anLastInsight;
+        const secoes = parseAnalyticsInsightSecoes(ins.insight);
+        _anRenderInsightCard(secoes, { modelo: ins.modelo, provider: ins.modelo_provider, custo_estimado: ins.custo_estimado, gerado_em: ins.created_at });
+      } else {
+        const body = document.getElementById('an-insight-body');
+        if (body) body.innerHTML = '<div style="text-align:center;padding:18px;color:var(--red);font-size:12.5px">Erro ao gerar insight.</div>';
+      }
+      return;
+    }
+    // Sucesso
+    window._anLastInsight = {
+      insight: j.insight,
+      modelo: j.modelo,
+      modelo_provider: j.provider,
+      custo_estimado: j.custo_estimado,
+      periodo_dias: j.periodo_dias,
+      created_at: j.gerado_em,
+    };
+    window._anInsightDirty = false;
+    const secoes = parseAnalyticsInsightSecoes(j.insight);
+    _anRenderInsightCard(secoes, { modelo: j.modelo, provider: j.provider, custo_estimado: j.custo_estimado, gerado_em: j.gerado_em });
+    if (j.quota) {
+      showToast(`✅ Insight gerado (${j.quota.usados}/${j.quota.limite} hoje)`);
+    } else {
+      showToast('✅ Insight gerado');
+    }
+    analyticsLoadInsightQuota();
+  } catch (e) {
+    showToast('Erro: ' + (e.message || e));
+    console.error('[analyticsGenerateInsight]', e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✨ Gerar agora'; }
+  }
+}
+
+// Stub do botão Histórico (Fase 4 vai implementar drawer completo)
+window.analyticsAbrirHistoricoInsight = window.analyticsAbrirHistoricoInsight || function() {
+  showToast('📜 Drawer de histórico vem na Fase 4 do ciclo Analytics IA.');
+};
+
+// Marca dirty quando user troca período (insight em cache fica obsoleto)
+document.addEventListener('change', (e) => {
+  if (e.target?.id === 'an-periodo' && window._anLastInsight) {
+    const novo = parseInt(e.target.value || '30');
+    window._anInsightDirty = (window._anLastInsight.periodo_dias !== novo);
+  }
+});
+
 function _anRenderChart(elId, points, valorKey, valorKey2, cor1, cor2) {
   const el = document.getElementById(elId);
   if (!el) return;
@@ -16097,6 +16392,62 @@ window.loadAnalytics = async function() {
         </div>
       </div>`;
     }).join('');
+
+    // ────────────────────────────────────────────────────────
+    // Fase 2: monta o contexto JSON pra enviar pra edge function de insight.
+    // Snapshot enxuto (cabe em 8KB): KPIs + tendências + top-N curto.
+    // ────────────────────────────────────────────────────────
+    const _topCanais = canaisSort.slice(0, 5).map(([nome, m]) => ({ canal: nome, sessions: m.sessions, conversoes: Math.round(m.conv) }));
+    const _topPaginas = pagSort.slice(0, 5).map(([path, m]) => ({ path: path.slice(0,60), title: (m.title||'').slice(0,60), views: m.views }));
+    const _topCampanhas = campSort.slice(0, 5).map(([nome, m]) => ({
+      campanha: nome.slice(0,60), status: m.status, custo: Math.round(m.cost*100)/100,
+      cliques: m.clicks, conversoes: Math.round(m.conv*10)/10,
+      cpa: m.conv > 0 ? Math.round((m.cost/m.conv)*100)/100 : null,
+    }));
+    const _topProdutosML = prodComClasse.slice(0, 5).map(p => ({
+      titulo: (p.titulo||'').slice(0,60), bruto: Math.round(p.bruto*100)/100,
+      liquido: Math.round(p.liquido*100)/100, unidades: p.unidades, classe_abc: p.classe,
+    }));
+    const _devices = devSort.slice(0, 4).map(([nome, m]) => ({ device: nome, sessions: m.sessions }));
+    const _ml_por_tipo = tipoSort.slice(0, 4).map(([tipo, m]) => ({
+      listing_type: tipo, pedidos: m.qtd, bruto: Math.round(m.bruto*100)/100,
+      margem_pct: m.bruto > 0 ? Math.round((m.liquido/m.bruto)*100*10)/10 : 0,
+    }));
+
+    window._anLastContexto = {
+      data_ini: atualIni, data_fim: atualFim, periodo_dias: dias,
+      data_ini_anterior: antIni, data_fim_anterior: antFim,
+      ga4: {
+        sessoes: { atual: atualSessions, anterior: antSessions, delta_pct: antSessions > 0 ? Math.round(((atualSessions-antSessions)/antSessions)*1000)/10 : null },
+        usuarios: { atual: atualUsers, anterior: antUsers, delta_pct: antUsers > 0 ? Math.round(((atualUsers-antUsers)/antUsers)*1000)/10 : null },
+        pageviews: { atual: atualPv, anterior: antPv, delta_pct: antPv > 0 ? Math.round(((atualPv-antPv)/antPv)*1000)/10 : null },
+        conversoes: { atual: Math.round(atualConv), anterior: Math.round(antConv), delta_pct: antConv > 0 ? Math.round(((atualConv-antConv)/antConv)*1000)/10 : null },
+      },
+      ads: {
+        custo_brl: { atual: Math.round(aCost*100)/100, anterior: Math.round(xCost*100)/100, delta_pct: xCost > 0 ? Math.round(((aCost-xCost)/xCost)*1000)/10 : null },
+        cliques: { atual: aClicks, anterior: xClicks, delta_pct: xClicks > 0 ? Math.round(((aClicks-xClicks)/xClicks)*1000)/10 : null },
+        conversoes: { atual: Math.round(aConv*10)/10, anterior: Math.round(xConv*10)/10, delta_pct: xConv > 0 ? Math.round(((aConv-xConv)/xConv)*1000)/10 : null },
+        cpa_brl: { atual: Math.round(aCpa*100)/100, anterior: Math.round(xCpa*100)/100, delta_pct: xCpa > 0 ? Math.round(((aCpa-xCpa)/xCpa)*1000)/10 : null },
+      },
+      ml: {
+        bruto_brl: { atual: Math.round(mlBruto*100)/100, anterior: Math.round(xBruto*100)/100, delta_pct: xBruto > 0 ? Math.round(((mlBruto-xBruto)/xBruto)*1000)/10 : null },
+        liquido_brl: { atual: Math.round(mlLiquido*100)/100, anterior: Math.round(xLiquido*100)/100 },
+        margem_pct: Math.round(mlMargem*10)/10,
+        pedidos: { atual: mlPedidos, anterior: xPedidos, delta_pct: xPedidos > 0 ? Math.round(((mlPedidos-xPedidos)/xPedidos)*1000)/10 : null },
+      },
+      top_canais: _topCanais,
+      top_paginas: _topPaginas,
+      top_campanhas: _topCampanhas,
+      top_produtos_ml: _topProdutosML,
+      devices: _devices,
+      ml_por_tipo: _ml_por_tipo,
+    };
+    window._anLastPeriodo = dias;
+
+    // Aplica visibilidade do bloco de insight + carrega último insight + atualiza quota
+    if (typeof analyticsApplyInsightVisibility === 'function') analyticsApplyInsightVisibility();
+    if (typeof analyticsLoadLastInsight === 'function') analyticsLoadLastInsight();
+    if (typeof analyticsLoadInsightQuota === 'function') analyticsLoadInsightQuota();
 
     // Última sync
     const { data: meta } = await sb.from('analytics_sync_meta').select('provider, last_sync_at, last_sync_status');
