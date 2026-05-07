@@ -24847,6 +24847,11 @@ const aiChatInterval = setInterval(() => {
           // 'Dana' wordmark embroidered no peito do jaleco automaticamente.
           // Estudio IA passa false (vai adicionar logo em post-producao).
           incluir_logo: (window._aiaCurrentOpts && window._aiaCurrentOpts.incluir_logo === false) ? false : undefined,
+          // NOVO: imagem de produto como referencia visual primaria.
+          // Personas (Públicos Ideais) passam URL de jaleco do catálogo do site
+          // pra IA gerar avatar usando produto REAL da Dana. Edge anexa como
+          // inlineData parts[0] e Gemini espelha cor/corte/tecido.
+          image_produto_url: (window._aiaCurrentOpts && window._aiaCurrentOpts.image_produto_url) || undefined,
         })
       });
       const j = await r.json();
@@ -25065,6 +25070,70 @@ const aiChatInterval = setInterval(() => {
     },
   };
 
+  // ── Catálogo de produtos da Dana → match com persona ──
+  // Cada persona tem keywords + sexo preferido pra escolher 1 jaleco/scrub real
+  // do catálogo (produto_catalogo_site, 251 produtos curados do site Dana).
+  // Reusa o mesmo pattern do Estúdio IA (ciclo 55).
+  const PERSONA_PRODUTO_FILTRO = {
+    clinicas:     { keywords: ['jaleco','feminino','branco'],                sexoPrefer: 'feminino', desc: 'jaleco feminino branco clínico' },
+    empresas:     { keywords: ['jaleco','manga longa','branco','gabardine'], sexoPrefer: '',         desc: 'jaleco profissional corporativo' },
+    instituicoes: { keywords: ['jaleco','branco','manga longa'],             sexoPrefer: '',         desc: 'jaleco padrão hospital/clínica' },
+    profissional: { keywords: ['jaleco','feminino','gola padre'],            sexoPrefer: 'feminino', desc: 'jaleco feminino moderno' },
+    estudante:    { keywords: ['scrub','pijama cir','jaleco'],               sexoPrefer: '',         desc: 'scrub ou jaleco básico de estudante' },
+  };
+
+  // Cache do catálogo (lazy: só busca na primeira vez que abre persona)
+  let _catalogoPersonaCache = null;
+  async function _carregarCatalogoPersona() {
+    if (_catalogoPersonaCache) return _catalogoPersonaCache;
+    try {
+      const { data, error } = await sb.from('produto_catalogo_site')
+        .select('sku_ref, nome, imagem_principal, sexo, categoria, cor_hex, tecido, descricao, url_pagina')
+        .not('imagem_principal', 'is', null)
+        .limit(300);
+      if (error) throw error;
+      _catalogoPersonaCache = data || [];
+      console.log('[persona-avatar] catálogo carregado:', _catalogoPersonaCache.length, 'produtos');
+    } catch (e) {
+      console.warn('[persona-avatar] catálogo erro:', e?.message || e);
+      _catalogoPersonaCache = [];
+    }
+    return _catalogoPersonaCache;
+  }
+
+  // Sorteia 1 produto que combine com a persona — score baseado em keywords + sexo
+  // Retorna null se catálogo vazio ou nenhum match
+  async function _sortearProdutoPersona(personaKey) {
+    const filtro = PERSONA_PRODUTO_FILTRO[personaKey];
+    if (!filtro) return null;
+    const cat = await _carregarCatalogoPersona();
+    if (!cat.length) return null;
+    const scored = cat.map(p => {
+      const txt = ((p.nome || '') + ' ' + (p.categoria || '') + ' ' + (p.descricao || '')).toLowerCase();
+      let score = 0;
+      filtro.keywords.forEach(k => { if (txt.includes(k.toLowerCase())) score += 10; });
+      if (filtro.sexoPrefer && (p.sexo || '').toLowerCase() === filtro.sexoPrefer) score += 5;
+      return { ...p, _score: score };
+    }).filter(p => p._score >= 10);  // pelo menos 1 keyword bateu
+    if (!scored.length) return null;
+    scored.sort((a, b) => b._score - a._score);
+    // Random 1 dos top 6 pra dar variedade entre gerações
+    const top = scored.slice(0, 6);
+    return top[Math.floor(Math.random() * top.length)];
+  }
+
+  // Enriquece o prompt com info do produto sorteado
+  // Substitui menção genérica "white medical lab coat" pelo produto real
+  function _enriquecerPromptComProduto(promptBase, produto) {
+    if (!produto) return promptBase;
+    const detalhes = [];
+    if (produto.cor_hex) detalhes.push(`color hex #${produto.cor_hex}`);
+    if (produto.tecido) detalhes.push(`fabric: ${produto.tecido}`);
+    const detalhesStr = detalhes.length ? ` (${detalhes.join(', ')})` : '';
+    const refTrecho = `\n\nThe lab coat / medical garment in the image must be SPECIFICALLY this product from Dana Jalecos catalog: "${produto.nome}"${detalhesStr}. The garment shown in the attached product reference image is the EXACT one to render — match cut, color, sleeve length, collar style, fabric texture, and visible details accurately.`;
+    return promptBase + refTrecho;
+  }
+
   // Injeta botao de "Gerar Avatar IA" em cada persona-hero
   window.setupPersonaAvatarButtons = function() {
     if (!aiaPodeGerar()) return;
@@ -25085,16 +25154,29 @@ const aiChatInterval = setInterval(() => {
       btnGerar.className = 'btn btn-ghost btn-sm persona-aia-btn';
       btnGerar.style.cssText = 'font-size:11.5px;padding:4px 10px';
       btnGerar.innerHTML = '🎨 Gerar Avatar IA';
-      btnGerar.title = 'Gera avatar profissional via IA (~R$ 0,20)';
-      btnGerar.onclick = () => {
+      btnGerar.title = 'Gera avatar profissional via IA com produto real do catálogo Dana (~R$ 0,20)';
+      btnGerar.onclick = async () => {
         const cfg = PERSONA_PROMPTS[p.key];
         if (!cfg) return;
+        // Sorteia produto que combina com a persona
+        btnGerar.disabled = true;
+        btnGerar.innerHTML = '⏳ Sorteando produto...';
+        const produto = await _sortearProdutoPersona(p.key);
+        btnGerar.disabled = false;
+        btnGerar.innerHTML = '🎨 Gerar Avatar IA';
+        const promptFinal = _enriquecerPromptComProduto(cfg.prompt, produto);
+        const subtituloFinal = produto
+          ? `👕 Produto sorteado: ${produto.nome}`
+          : 'Retrato profissional pra usar em briefings e referências';
         window.gerarImagemIA({
           titulo: `Avatar IA · ${cfg.titulo}`,
-          subtitulo: 'Retrato profissional pra usar em briefings e referências',
-          prompt: cfg.prompt,
+          subtitulo: subtituloFinal,
+          prompt: promptFinal,
           contexto: 'persona',
           contextoRefId: p.key,
+          // Repassa URL pro aiaGerar → edge function anexa como inlineData
+          image_produto_url: produto?.imagem_principal || undefined,
+          _produtoSorteado: produto, // pra UI poder ler depois se quiser
         });
       };
       const btnHist = document.createElement('button');
