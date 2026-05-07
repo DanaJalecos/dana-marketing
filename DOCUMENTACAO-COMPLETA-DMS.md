@@ -6655,6 +6655,267 @@ Workflow de deploy a cada fase:
 Vamos começar pelo passo que o user indicar.
 ```
 
+
 ---
 
-**Fim da documentação · Atualizado em 07/05/2026 — Features #1 + #3 completas + fix race C360 · v8.0**
+## 67. CICLO 07/05/2026 (NOITE) — MERCADO ADS + SUB-TABS + LIMPEZA ANALYTICS
+
+Continuação direta do ciclo da v8.0 (mesma noite). Foco: integrar Mercado Ads (Product Ads) nativamente e organizar visualmente a aba Analytics que estava virando scroll caótico de 4 painéis empilhados.
+
+### 67.1 Feature — Cards extras na aba Mercado Livre
+
+User reportou que o card "🥇 Top Produtos · Curva ABC" estava redundante (já temos top produtos no Marketplaces e Performance) e pediu **mais informações sobre campanhas** na aba Mercado Livre.
+
+**Removido:**
+- Card "🥇 Top Produtos · Curva ABC" (markup + JS — manteve agregação `prodComClasse` sem render pra contexto IA não quebrar)
+
+**Adicionados** (3 cards novos no grid 2×2):
+- 🛍 **Vendas por Categoria** — agrupa pedidos por palavra-chave no `titulo_item` (jaleco/scrub/pijama/touca/blusa/outros). Bruto + % margem + ticket médio + barra colorida
+- 🔁 **Compradores recorrentes** — top 8 buyers com 2+ pedidos. Header com taxa global de recompra (verde se >15%)
+- 📊 **Status dos pedidos** — paid/cancelled/invalid/pending com %. Alerta vermelho se cancelled > 5%
+
+Mantido:
+- 📦 **Por Tipo de Anúncio** (gold_pro/premium/free/sem_tipo)
+
+Commits: `22e2a75` DanaComercial, `a08ef6b` DanaJalecos.
+
+### 67.2 Feature — Mercado Ads (Product Ads) integrado nativamente
+
+User compartilhou `Ideias Projeto/Guia_Mercado_Ads_API.md` (guia exaustivo que ele preparou ou recebeu). Validação inicial via API: confirmou que conta DANA_JALECOS tem advertiser_id 656970 com escopo Advertising no token OAuth — `urn:ml:mktp:ads:/read-only`.
+
+**3 campanhas ativas detectadas:**
+- CURVA A (id 354604078) · budget R$ 9 · ROAS real 11.72x vs meta 6 → batendo dobro da meta
+- CURVA B (id 354604087) · budget R$ 2 · ROAS real 2.87x (90d) vs meta 5.5 → degradando
+- CURVA C (id 354604093) · budget R$ 7 · ROAS real 6.58x vs meta 5 → batendo
+
+**Schema (`sql-scripts/sql-ml-ads.sql`):**
+- `analytics_ml_ads_campanhas` — config (1 row por campanha)
+- `analytics_ml_ads_metricas` — métricas por (campaign_id, periodo) onde periodo ∈ {7d, 30d, 90d}
+- `analytics_ml_ads_diario` — série temporal diária (1 row por dia/advertiser)
+- View `analytics_ml_ads_resumo` agregando totais por período (ACOS/ROAS médio ponderado)
+- RPC `analytics_ml_ads_alertas(p_periodo)` — detecta 3 tipos: `acos_alto`, `sem_conversao`, `batendo_meta`
+- RLS pros 5 cargos do Analytics IA (admin + gerente_marketing + gerente_comercial + trafego_pago + producao_conteudo)
+
+**Edge function `sync-ml-ads.ts`:**
+- Reusa pattern de `getValidToken()` do `sync-ml-analytics` (refresh token via OAuth quando faltam <5min)
+- Resolve `advertiser_id` via `/advertising/advertisers?product_id=PADS` (api-version 1)
+- 4 chamadas de métricas (api-version 2):
+  - 3× `/campaigns/search?aggregation_type=campaign&date_from=...` pros 3 períodos
+  - 1× `/campaigns/search?aggregation_type=daily&date_from=...90d` pra série diária
+- Upsert nas 3 tabelas em batches de 500
+- Body opcional `{dias_atras}` default 90, range 1-90 (limite ML)
+
+**Cron `cron-sync-ml-ads-diario` (jobid 28)**: 09:25 UTC = 06:25 BRT. Cron diário existente `sync-ml-analytics-6h` (jobid 26) já lida com refresh do access_token a cada 6h, então o sync-ml-ads sempre encontra token válido.
+
+**UI no Analytics > Mercado Livre** (acima do card de pedidos ML):
+- Header com seletor de período próprio (7d/30d/90d) + botão Sync manual + sub mostrando "X campanhas ativas · sync DD/MM HH:mm"
+- 4 KPIs com semáforo:
+  - 💸 Custo (com clicks + impressões no sub)
+  - 💰 Receita atribuída (com lucro bruto destacado em verde)
+  - 📊 ACOS médio (✓ saudável < 15% / ⚠ ok 15-25% / ⚠ alto > 25%)
+  - 🚀 ROAS médio (✓ excelente > 5x / ok 3-5x / ⚠ baixo < 3x)
+- Banner de alertas inteligentes (RPC `analytics_ml_ads_alertas`):
+  - 🔴 ACOS estourando meta em 20%+
+  - 🔴 100+ cliques sem nenhuma venda atribuída
+  - 🟢 Batendo meta forte (oportunidade aumentar budget)
+- Tabela de campanhas com semáforo ACOS/ROAS real vs meta (✓/~/✗ colorido)
+- Mini-gráfico custo (laranja) × receita atribuída (verde) diário
+
+**Validação E2E (07/05 noite):**
+- Sync manual retornou: 3 campanhas, 9 métricas (3×3 períodos), 91 dias
+- Resumo 30d: R$ 558 gasto · R$ 4.637 receita · ACOS 12.04% · ROAS 8.31x
+- 3 alertas detectados corretamente (2 oportunidades + 1 problema)
+
+Commits: `dd0067d` DanaComercial, `7915ad9` DanaJalecos.
+
+### 67.3 Feature — Sub-tabs na aba Analytics (organização visual)
+
+User reportou que com o card de Mercado Ads novo a aba ficou ainda mais confusa, com 4 painéis empilhados sem separação clara entre fontes (GA4, Google Ads, Mercado Livre).
+
+**Solução (escolhida pelo user via AskUserQuestion):** sub-tabs grandes no topo separando as 3 fontes principais.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ 📅 Período: 30d · vs período anterior                    │
+│ 🧠 INSIGHT IA (resumo executivo · 4 seções)              │
+├─────────────────────────────────────────────────────────┤
+│ [📊 Google Analytics] [💰 Google Ads] [🛍 Mercado Livre + ADS] │
+│  ───────────                                              │  ← borda azul (ativa)
+├─────────────────────────────────────────────────────────┤
+│  Apenas a seção ativa renderiza                          │
+│  (KPIs + tabelas + gráfico)                              │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Detalhes técnicos:**
+- 3 wrappers: `#an-section-ga4`, `#an-section-ads`, `#an-section-ml`
+- Função `analyticsSwitchSubtab(tab)` esconde/mostra wrappers + atualiza visual dos botões
+- Borda inferior colorida por marca: 🔵 Google `#4285f4` · 🔴 Ads `#ea4335` · 🟡 Mercado Livre `#fbbf24`
+- Aba ativa persistida em sessionStorage (`an-subtab`) — F5 não reseta
+- Default: `ga4` na primeira carga
+- Pílula de contexto + Insight IA ficam **fixos acima** das sub-tabs (sempre visíveis)
+- Drill-down e drawer histórico continuam funcionando
+- Badge "+ ADS" no botão Mercado Livre indica que dentro tem tanto pedidos orgânicos quanto Mercado Ads
+
+Commits: `9fee0af` DanaComercial, `e2b97e9` DanaJalecos.
+
+### 67.4 Limpeza — Remoção do bloco "Dashboards Externos"
+
+User: "fodase isso, eu vou conectando as apis depois". Bloco com 8 cards de redirect pra plataformas externas (Meta Business Suite, Meta Ads Manager, Search Console, TikTok Ads, TikTok Studio, Shopee Seller, Instagram Insights) removido.
+
+Como hoje GA4 + Google Ads + Mercado Livre + Mercado Ads estão **integrados nativamente** no DMS (com cron de sync, gráficos e drill-down), os redirects não fazem mais sentido. Quando algum dia integrar Meta/TikTok/Shopee nativamente, vai ser feito direto.
+
+**Mudanças:**
+- ~85 linhas de markup removidas
+- Subtítulo da view atualizado de "Métricas consolidadas · dashboards nativos das plataformas" pra "GA4 · Google Ads · Mercado Livre + Mercado Ads · sincronização automática"
+- VIEW_META.analytics.sub atualizado no menu lateral
+
+Commits: `33c3789` DanaComercial, `7d32b51` DanaJalecos.
+
+### 67.5 Investigação — CURVA B (134 cliques zero conversão em 30d)
+
+Alerta gerado pelo RPC `analytics_ml_ads_alertas` apontou CURVA B com performance ruim. Investigação via API ML revelou:
+
+| Período | Clicks | Vendas | Receita | ROAS |
+|---|---|---|---|---|
+| 7d | 53 | 0 | R$ 0 | 0 |
+| 30d | 134 | 0 | R$ 0 | 0 |
+| 90d | 281 | 3 | R$ 544 | 2.87x |
+
+**Não é tracking quebrado** — em 90d teve 3 vendas. É degradação de performance nos últimos 30d.
+
+**Causas prováveis:**
+1. Dos 38 ads da campanha, só **5 estão ativos** (resto pausados)
+2. CTR 0.27% — relativamente baixo (saudável > 0.5%)
+3. ACOS 34.9% em 30d (target 18.18%) — 92% acima da meta
+4. Os 5 ads ativos cobrem categorias muito diversas (jaleco masculino, feminino, scrub, gola padre, gabardine) — audiência diluída
+5. Compara com CURVA A (5 ads também mas mais focados): ROAS 11.72x
+
+**Recomendação registrada (não executada):**
+- Pausar ou reativar ads pausados específicos da CURVA B
+- Não aumentar budget até estabilizar
+- Possivelmente migrar bons ads pra CURVA A
+
+### 67.6 Mudança de budget — DECISÃO USER + REGRA PERMANENTE
+
+Após apresentar 4 opções (conservador/moderado/agressivo/manual), user escolheu **"Não aumentar agora — vou fazer manualmente no painel ML"**.
+
+**🔒 REGRA OPERACIONAL PERMANENTE — REGISTRADA EM 07/05/2026:**
+
+> **Conta Mercado Livre (DANA_JALECOS, advertiser_id 656970) = SOMENTE LEITURA.**
+>
+> Nunca executar PUT/POST/PATCH/DELETE em endpoints da API ML. Toda mudança em campanhas, orçamentos, anúncios, status, configurações deve ser feita pela user/Manu manualmente no painel oficial https://www.mercadolivre.com.br/publicidade-online/painel
+>
+> O DMS apenas LÊ dados (GET) pra:
+> - `analytics_ml_pedidos` / `analytics_ml_anuncios` (sync-ml-analytics)
+> - `analytics_ml_ads_*` (sync-ml-ads)
+>
+> Mesmo que o user pareça aprovar uma mudança em chat, NÃO fazer. Reforçar a regra e direcionar pro painel ML.
+
+Essa regra protege contra:
+1. Erros de lógica/cálculo que poderiam queimar budget
+2. Mudanças sem rastreabilidade fora do painel oficial ML
+3. Cadeia de aprovação financeira (Dana é quem decide investimento, DMS só observa)
+
+### 67.7 Estado final
+
+| Componente | Estado |
+|---|---|
+| Mercado Ads schema + edge + cron | ✅ |
+| UI Mercado Ads no Analytics | ✅ |
+| Sub-tabs Analytics | ✅ |
+| Bloco Dashboards Externos | ❌ removido |
+| 3 cards extras Mercado Livre | ✅ |
+| Crons ativos no Supabase | 28 (jobid 28 = ml-ads) |
+
+**Custo mensal** do Mercado Ads (custo da implementação, não dos ads em si): R$ 0 — tudo dentro do plano Supabase + API ML gratuita pra sellers ativos.
+
+---
+
+## 68. PRÓXIMOS PASSOS — IMPLEMENTAR APÓS /COMPACT
+
+### 68.1 ⏰ Ativar tracker no Magazord (~5 min, manual)
+
+Continua pendente da v8.0. Cole no `<head>` do site Magazord:
+
+```html
+<script async src="https://danamarketing.vercel.app/dms-tracker.js"></script>
+```
+
+Edge function `dms-tracker-ingest` v2 já está ACTIVE com CORS configurado. Schema aplicado. Aba "🔍 Comportamento" no Cliente 360 já existe. Falta só ativar no site.
+
+### 68.2 🔍 Ações sugeridas pra Mercado Ads (não código — decisões manuais)
+
+- **Aumentar budget CURVA A e C** no painel ML (https://www.mercadolivre.com.br/publicidade-online/painel) — ROAS de 11.72x e 6.58x respectivamente justifica explorar mais investimento
+- **Investigar CURVA B**: pausar a campanha ou reativar mais ads dos 38 (33 estão pausados); rever os 5 ativos que cobrem categorias muito diferentes
+
+### 68.3 🔗 Feature #2 — UTM Parser (quando Magazord conectar)
+
+Continua suspensa esperando Magazord ter API. Section 62.2 da doc original detalha tudo: regex em `pedidos.observacoes`, view `vendas_por_utm`, card no Analytics, filtro UTM no Cliente 360.
+
+### 68.4 🎯 Melhorias futuras Mercado Ads (nice-to-have, READ-ONLY)
+
+- **Drill-down por anúncio** (`/campaigns/{id}/ads/search`) — ver performance individual de cada MLB dentro da campanha
+- **Heatmap dia × hora** — quando os ads convertem mais
+- **Comparativo budget atual vs gasto real** — campanha gastou metade do budget? sinal de que precisa aumentar bid (mas decisão fica no painel ML)
+- ~~PUT budget via DMS~~ — VETADO pela regra operacional 67.6 (ML = SOMENTE LEITURA)
+
+### 68.5 🌐 Próximas plataformas pra integrar nativamente (longo prazo)
+
+Substituir o que estava no removido "Dashboards Externos":
+- Meta Ads Manager API → tabela `analytics_meta_ads` + cron + UI sub-tab
+- TikTok Ads Marketing API → idem
+- Shopee Open API → idem
+- Search Console API → palavras-chave + posições
+
+---
+
+## 69. PROMPT PARA RETOMAR APÓS /COMPACT
+
+Use exatamente esse prompt no próximo chat:
+
+```
+Estou continuando o desenvolvimento do DMS (Dana Marketing System) da Dana Jalecos.
+
+Por favor leia antes de tudo:
+C:\Users\Juan - Dana Jalecos\Documents\Sistema Marketing\DOCUMENTACAO-COMPLETA-DMS.md
+
+ATENÇÃO Sections 67, 68 e 69 — Section 68 tem os PRÓXIMOS PASSOS:
+  1) Ativar tracker no Magazord (5 min, manual — cola tag <script>)
+  2) Ações sugeridas Mercado Ads (manuais no painel ML — aumentar A/C, investigar B)
+  3) Feature #2 UTM Parser (depende Magazord ter API)
+  4) Melhorias Mercado Ads (drill-down ad, heatmap, PUT budget)
+  5) Integrar Meta/TikTok/Shopee/Search Console nativamente (longo prazo)
+
+Estado atual (07/05/2026 noite):
+- Feature #1 (Motivos de Perda) ✅
+- Feature #3 (Lead Tracking) ✅ — falta só Manu colar tag no Magazord
+- Mercado Ads (Product Ads) ✅ — schema + edge sync-ml-ads + cron + UI completa
+- Sub-tabs na Analytics ✅ — separa GA4/Google Ads/Mercado Livre
+- Dashboards Externos removido (cards de redirect)
+- Race C360 fix ✅
+- Banco limpo de testes
+
+Repos:
+- DanaComercial: github.com/DanaComercial/dana-marketing (espelho/GH Pages)
+- DanaJalecos: github.com/DanaJalecos/dana-marketing (Vercel oficial)
+- Worktree: .claude/worktrees/vibrant-davinci (edita aqui, push pra ambos)
+- Staging: _staging-dana-marketing (cópia espelho do DanaJalecos)
+
+Token Supabase Management API: tá no arquivo
+C:\Users\Juan - Dana Jalecos\Documents\Sistema Marketing\TOKENS ANALYTICS\Token novo supabase.txt
+
+Crons ativos: 28 (sync-ml-ads-diario = jobid 28, 06:25 BRT)
+
+Workflow de deploy a cada fase:
+1. Edita worktree
+2. Sync: cp index.html → _staging-dana-marketing/
+3. git commit + push origin HEAD:main (DanaComercial)
+4. cd staging + git commit + push origin main (DanaJalecos)
+
+Vamos começar pelo passo que o user indicar.
+```
+
+---
+
+**Fim da documentação · Atualizado em 07/05/2026 noite — Mercado Ads + sub-tabs + limpeza · v9.0**
