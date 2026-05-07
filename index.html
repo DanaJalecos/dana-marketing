@@ -16245,15 +16245,15 @@ function _anDrillCalcular(spec) {
   const out = { atual: 0, anterior: 0, delta_pct: null, serieAtual: [], serieAnt: [], topContribuidores: [] };
 
   if (spec.fonte === 'ga4') {
-    // Filtra rows por sub se aplicável (canal ou página)
+    // Filtra rows por sub se aplicável (canal ou página) — Fase 3 fix:
+    // canaisAnt e paginasAnt agora vêm carregados pra comparação justa
     let atual = dados.ga4.diaAtual, ant = dados.ga4.diaAnt;
     if (spec.subTipo === 'canal' && spec.subKey) {
-      atual = (dados.ga4.canais || []).filter(r => r.canal === spec.subKey);
-      // Para anterior precisaríamos da query antiga por canal — fallback: usa total dia anterior * proporção
-      ant = []; // simplificação inicial; sub-insight foca no atual
+      atual = (dados.ga4.canais    || []).filter(r => r.canal === spec.subKey);
+      ant   = (dados.ga4.canaisAnt || []).filter(r => r.canal === spec.subKey);
     } else if (spec.subTipo === 'pagina' && spec.subKey) {
-      atual = (dados.ga4.paginas || []).filter(r => r.page_path === spec.subKey);
-      ant = [];
+      atual = (dados.ga4.paginas    || []).filter(r => r.page_path === spec.subKey);
+      ant   = (dados.ga4.paginasAnt || []).filter(r => r.page_path === spec.subKey);
     }
     out.atual = _anDrillSum(atual, spec.metrica);
     out.anterior = _anDrillSum(ant, spec.metrica);
@@ -16269,8 +16269,8 @@ function _anDrillCalcular(spec) {
   } else if (spec.fonte === 'ads') {
     let atual = dados.ads.diaAtual, ant = dados.ads.diaAnt;
     if (spec.subTipo === 'campanha' && spec.subKey) {
-      atual = (dados.ads.campanhas || []).filter(r => r.campaign_name === spec.subKey);
-      ant = [];
+      atual = (dados.ads.campanhas    || []).filter(r => r.campaign_name === spec.subKey);
+      ant   = (dados.ads.campanhasAnt || []).filter(r => r.campaign_name === spec.subKey);
     }
     if (spec.metrica === 'cpa') {
       const cA = _anDrillSum(atual, 'cost'), vA = _anDrillSum(atual, 'conversions');
@@ -16305,14 +16305,45 @@ function _anDrillCalcular(spec) {
       .map(([nome, val]) => ({ nome, valor: val, sub: 'campanha' }));
   } else if (spec.fonte === 'ml') {
     if (spec.subTipo === 'produto' && spec.subKey) {
-      const filtrado = (dados.ml.pedAtual || []).filter(r => r.mlb_id === spec.subKey);
+      // Fase 3 fix: produto-específico precisa filtrar atual E anterior por mlb_id
+      // + montar série diária pra comparação visual.
+      const filtAtual = (dados.ml.pedAtual || []).filter(r => r.mlb_id === spec.subKey);
+      const filtAnt   = (dados.ml.pedAnt   || []).filter(r => r.mlb_id === spec.subKey);
       const keyMap = { bruto: 'total_amount', liquido: 'lucro_liquido', pedidos: null, margem: null };
-      if (keyMap[spec.metrica]) out.atual = _anDrillSum(filtrado, keyMap[spec.metrica]);
-      else if (spec.metrica === 'pedidos') out.atual = filtrado.length;
-      else if (spec.metrica === 'margem') {
-        const b = _anDrillSum(filtrado, 'total_amount'); const l = _anDrillSum(filtrado, 'lucro_liquido');
-        out.atual = b > 0 ? (l / b) * 100 : 0;
+      if (keyMap[spec.metrica]) {
+        out.atual    = _anDrillSum(filtAtual, keyMap[spec.metrica]);
+        out.anterior = _anDrillSum(filtAnt,   keyMap[spec.metrica]);
+      } else if (spec.metrica === 'pedidos') {
+        out.atual    = filtAtual.length;
+        out.anterior = filtAnt.length;
+      } else if (spec.metrica === 'margem') {
+        const bA = _anDrillSum(filtAtual, 'total_amount'); const lA = _anDrillSum(filtAtual, 'lucro_liquido');
+        const bX = _anDrillSum(filtAnt,   'total_amount'); const lX = _anDrillSum(filtAnt,   'lucro_liquido');
+        out.atual    = bA > 0 ? (lA / bA) * 100 : 0;
+        out.anterior = bX > 0 ? (lX / bX) * 100 : 0;
       }
+      // Série diária do produto: agrega pedAtual filtrado por dia
+      const aggDiaA = {}, aggDiaX = {};
+      for (const r of filtAtual) {
+        const d = (r.date_closed||'').slice(0,10); if (!d) continue;
+        if (!aggDiaA[d]) aggDiaA[d] = { bruto:0, liquido:0, pedidos:0 };
+        aggDiaA[d].bruto    += Number(r.total_amount  || 0);
+        aggDiaA[d].liquido  += Number(r.lucro_liquido || 0);
+        aggDiaA[d].pedidos++;
+      }
+      for (const r of filtAnt) {
+        const d = (r.date_closed||'').slice(0,10); if (!d) continue;
+        if (!aggDiaX[d]) aggDiaX[d] = { bruto:0, liquido:0, pedidos:0 };
+        aggDiaX[d].bruto    += Number(r.total_amount  || 0);
+        aggDiaX[d].liquido  += Number(r.lucro_liquido || 0);
+        aggDiaX[d].pedidos++;
+      }
+      const _serieMap = (m) => Object.entries(m).map(([data, v]) => ({
+        data,
+        valor: spec.metrica === 'margem' ? (v.bruto > 0 ? (v.liquido/v.bruto)*100 : 0) : (v[spec.metrica] || 0),
+      })).sort((a,b) => a.data.localeCompare(b.data));
+      out.serieAtual = _serieMap(aggDiaA);
+      out.serieAnt   = _serieMap(aggDiaX);
     } else {
       const keyMap = { bruto: 'total_amount', liquido: 'lucro_liquido', pedidos: null, margem: null };
       const k = keyMap[spec.metrica];
@@ -16660,12 +16691,17 @@ window.loadAnalytics = async function() {
 
   try {
     // ─── GA4 ───
-    const [ga4DiaAtual, ga4DiaAnt, ga4Canais, ga4Devices, ga4Paginas] = await Promise.all([
+    // Fase 3 fix: incluir 'data' nos selects de canais/paginas pra permitir
+    // construir série diária no drill-down secundário. Também buscar período
+    // anterior pra esses (canaisAnt/paginasAnt) pra comparação justa no drill.
+    const [ga4DiaAtual, ga4DiaAnt, ga4Canais, ga4CanaisAnt, ga4Devices, ga4Paginas, ga4PaginasAnt] = await Promise.all([
       sb.from('analytics_ga4_dia').select('*').gte('data', atualIni).lte('data', atualFim).order('data', {ascending: true}),
       sb.from('analytics_ga4_dia').select('sessions, users, page_views, conversions').gte('data', antIni).lte('data', antFim),
-      sb.from('analytics_ga4_canais').select('canal, sessions, users, conversions').gte('data', atualIni).lte('data', atualFim),
+      sb.from('analytics_ga4_canais').select('data, canal, sessions, users, conversions').gte('data', atualIni).lte('data', atualFim),
+      sb.from('analytics_ga4_canais').select('data, canal, sessions, users, conversions').gte('data', antIni).lte('data', antFim),
       sb.from('analytics_ga4_dispositivos').select('device_category, sessions, users, conversions').gte('data', atualIni).lte('data', atualFim),
-      sb.from('analytics_ga4_paginas').select('page_path, page_title, page_views').gte('data', atualIni).lte('data', atualFim),
+      sb.from('analytics_ga4_paginas').select('data, page_path, page_title, page_views').gte('data', atualIni).lte('data', atualFim),
+      sb.from('analytics_ga4_paginas').select('data, page_path, page_views').gte('data', antIni).lte('data', antFim),
     ]);
 
     // KPIs GA4 (soma do período)
@@ -16768,10 +16804,12 @@ window.loadAnalytics = async function() {
     }).join('');
 
     // ─── Google Ads ───
-    const [adsDiaAtual, adsDiaAnt, adsCampanhas] = await Promise.all([
+    // Fase 3 fix: incluir 'data' no select de campanhas + buscar campanhasAnt
+    const [adsDiaAtual, adsDiaAnt, adsCampanhas, adsCampanhasAnt] = await Promise.all([
       sb.from('analytics_ads_dia').select('*').gte('data', atualIni).lte('data', atualFim).order('data', {ascending: true}),
       sb.from('analytics_ads_dia').select('cost, clicks, conversions').gte('data', antIni).lte('data', antFim),
-      sb.from('analytics_ads_campanhas').select('campaign_name, status, channel_type, cost, clicks, impressions, conversions').gte('data', atualIni).lte('data', atualFim),
+      sb.from('analytics_ads_campanhas').select('data, campaign_name, status, channel_type, cost, clicks, impressions, conversions').gte('data', atualIni).lte('data', atualFim),
+      sb.from('analytics_ads_campanhas').select('data, campaign_name, cost, clicks, conversions').gte('data', antIni).lte('data', antFim),
     ]);
 
     const sumF = (rows, k) => (rows||[]).reduce((s,r) => s + parseFloat(r[k]||0), 0);
@@ -17027,16 +17065,19 @@ window.loadAnalytics = async function() {
     // Fase 3: cache dos dados raw pra drill-down (séries diárias, top contribuidores etc)
     window._anLastDados = {
       ga4: {
-        diaAtual: ga4DiaAtual.data || [],
-        diaAnt:   ga4DiaAnt.data   || [],
-        canais:   ga4Canais.data   || [],
-        devices:  ga4Devices.data  || [],
-        paginas:  ga4Paginas.data  || [],
+        diaAtual:    ga4DiaAtual.data    || [],
+        diaAnt:      ga4DiaAnt.data      || [],
+        canais:      ga4Canais.data      || [],
+        canaisAnt:   ga4CanaisAnt.data   || [],   // Fase 3 fix
+        devices:     ga4Devices.data     || [],
+        paginas:     ga4Paginas.data     || [],
+        paginasAnt:  ga4PaginasAnt.data  || [],   // Fase 3 fix
       },
       ads: {
-        diaAtual:  adsDiaAtual.data  || [],
-        diaAnt:    adsDiaAnt.data    || [],
-        campanhas: adsCampanhas.data || [],
+        diaAtual:      adsDiaAtual.data      || [],
+        diaAnt:        adsDiaAnt.data        || [],
+        campanhas:     adsCampanhas.data     || [],
+        campanhasAnt:  adsCampanhasAnt.data  || [],  // Fase 3 fix
       },
       ml: {
         pedAtual: mlPedAtual.data || [],
