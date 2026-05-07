@@ -570,6 +570,7 @@
     const nome = decodeURIComponent(clienteId);
     state.currentContatoNome = nome;
     window._c360TimelineLoaded = false; // reseta cache da Timeline (Onda #2)
+    window._c360ComportamentoLoaded = false; // reseta cache da aba Comportamento (Lead Tracking)
     const page = document.getElementById('page-cliente-1');
     if (!page) { console.error('[c360] page-cliente-1 nao encontrada'); return; }
 
@@ -878,12 +879,16 @@
         🛒 Pedidos <span style="background:rgba(255,255,255,0.1);color:oklch(88% 0.018 80);padding:2px 8px;border-radius:20px;font-size:11px">${fmtNum(pedidos.length)}</span>
       </button>
       <button id="c360-tab-timeline" onclick="c360SwitchTab('timeline')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">📜 Timeline</button>
+      <button id="c360-tab-comportamento" onclick="c360SwitchTab('comportamento')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">🔍 Comportamento</button>
       <button id="c360-tab-insights" onclick="c360SwitchTab('insights')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">◆ Insights IA</button>
       <button id="c360-tab-notas" onclick="c360SwitchTab('notas')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">💬 Notas</button>
     </div>
     <div id="c360-tabpanel-pedidos" style="padding:16px">${pedidosHtml}</div>
     <div id="c360-tabpanel-timeline" style="padding:20px;display:none">
       <div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando timeline...</div>
+    </div>
+    <div id="c360-tabpanel-comportamento" style="padding:20px;display:none">
+      <div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando jornada...</div>
     </div>
     <div id="c360-tabpanel-insights" style="padding:20px;display:none;color:#64748b">
       <div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando insights...</div>
@@ -906,7 +911,7 @@
 
   // Tabs internos
   window.c360SwitchTab = function(tab) {
-    const tabs = ['pedidos','timeline','insights','notas'];
+    const tabs = ['pedidos','timeline','comportamento','insights','notas'];
     for (const t of tabs) {
       const btn = document.getElementById('c360-tab-'+t);
       const panel = document.getElementById('c360-tabpanel-'+t);
@@ -921,6 +926,9 @@
     // Lazy load por aba
     if (tab === 'timeline' && typeof loadTimeline === 'function' && !window._c360TimelineLoaded) {
       loadTimeline();
+    }
+    if (tab === 'comportamento' && typeof loadComportamento === 'function' && !window._c360ComportamentoLoaded) {
+      loadComportamento();
     }
   };
 
@@ -959,11 +967,12 @@
   // cliente_notas + cliente_insights). Lazy-load: só busca quando user abre a aba.
   // Cache via window._c360TimelineLoaded — invalida quando troca de cliente.
   const _TIMELINE_TIPOS = {
-    pedido:    { icon: '🛒', cor: '#3b82f6', label: 'Pedido' },
-    pagamento: { icon: '💰', cor: '#22c55e', label: 'Pagamento' },
-    cobranca:  { icon: '⏰', cor: '#f59e0b', label: 'Cobrança' },
-    nota:      { icon: '💬', cor: '#a855f7', label: 'Nota' },
-    insight:   { icon: '🤖', cor: '#ec4899', label: 'Insight IA' },
+    pedido:     { icon: '🛒', cor: '#3b82f6', label: 'Pedido' },
+    pagamento:  { icon: '💰', cor: '#22c55e', label: 'Pagamento' },
+    cobranca:   { icon: '⏰', cor: '#f59e0b', label: 'Cobrança' },
+    nota:       { icon: '💬', cor: '#a855f7', label: 'Nota' },
+    insight:    { icon: '🤖', cor: '#ec4899', label: 'Insight IA' },
+    lead_event: { icon: '🔍', cor: '#0ea5e9', label: 'Site' },
   };
 
   function _timelineFmtData(ts) {
@@ -979,7 +988,7 @@
   }
 
   function _timelineFiltrosHtml() {
-    const tipos = ['todos', 'pedido', 'pagamento', 'cobranca', 'nota', 'insight'];
+    const tipos = ['todos', 'pedido', 'pagamento', 'cobranca', 'nota', 'insight', 'lead_event'];
     const atual = window._c360TimelineFiltro || 'todos';
     return tipos.map(t => {
       const cfg = _TIMELINE_TIPOS[t] || { icon: '📍', cor: '#94a3b8', label: 'Tudo' };
@@ -1130,6 +1139,177 @@
     } catch (e) {
       console.error('[c360 timeline] erro:', e);
       panel.innerHTML = `<div style="color:#ef4444;padding:20px;font-size:12px">Erro ao carregar: ${escapeHtml(String(e.message||e))}</div>`;
+    }
+  };
+
+  // ─── Aba "🔍 Comportamento" — Feature #3 (Lead Tracking) ───
+  // Lê analytics_jornada_cliente (agregado) + RPCs analytics_top_paginas_contato e analytics_eventos_contato
+  // Lazy: só carrega quando user clica na aba. Cache via window._c360ComportamentoLoaded.
+  function _formatRelativeDays(iso) {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      const hoje = new Date();
+      const diff = Math.floor((hoje - d) / (1000 * 60 * 60 * 24));
+      if (diff === 0) return 'hoje';
+      if (diff === 1) return 'ontem';
+      if (diff < 30) return diff + ' dias atrás';
+      if (diff < 365) return Math.floor(diff / 30) + ' mês(es) atrás';
+      return Math.floor(diff / 365) + ' ano(s) atrás';
+    } catch (e) { return '—'; }
+  }
+  const _LEAD_EVT_LBL = {
+    pageview:        { icon: '👁',  cor: '#60a5fa', txt: 'visitou' },
+    click:           { icon: '🖱',  cor: '#a78bfa', txt: 'clicou em' },
+    form_view:       { icon: '👀', cor: '#94a3b8', txt: 'viu formulário' },
+    form_submit:     { icon: '📩', cor: '#fbbf24', txt: 'enviou formulário' },
+    add_cart:        { icon: '🛒', cor: '#f97316', txt: 'adicionou ao carrinho' },
+    checkout_start:  { icon: '💳', cor: '#0ea5e9', txt: 'iniciou checkout' },
+    purchase:        { icon: '✅', cor: '#22c55e', txt: 'comprou' },
+  };
+
+  window.loadComportamento = async function(force) {
+    const panel = document.getElementById('c360-tabpanel-comportamento');
+    if (!panel) return;
+    const nome = state.currentContatoNome;
+    if (!nome) {
+      panel.innerHTML = '<div style="text-align:center;padding:30px;color:rgba(255,255,255,0.4);font-size:13px">Sem cliente selecionado</div>';
+      return;
+    }
+    if (window._c360ComportamentoLoaded && !force) return;
+    panel.innerHTML = '<div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando jornada do site...</div>';
+    try {
+      const empresa = state.empresa;
+      const [jornadaR, topPagsR, eventosR] = await Promise.all([
+        state.sb.from('analytics_jornada_cliente')
+          .select('*').eq('contato_nome', nome).eq('empresa', empresa).maybeSingle(),
+        state.sb.rpc('analytics_top_paginas_contato', { p_contato_nome: nome, p_empresa: empresa, p_limite: 12 }),
+        state.sb.rpc('analytics_eventos_contato',     { p_contato_nome: nome, p_empresa: empresa, p_limite: 30 }),
+      ]);
+
+      const j = jornadaR?.data;
+      const topPags = topPagsR?.data || [];
+      const eventos = eventosR?.data || [];
+
+      // Estado vazio
+      if (!j || j.total_eventos === 0) {
+        panel.innerHTML = `
+          <div style="text-align:center;padding:40px 20px;color:rgba(255,255,255,0.5)">
+            <div style="font-size:32px;margin-bottom:8px">🔍</div>
+            <div style="font-size:14px;font-weight:600;color:#cbd5e1;margin-bottom:6px">Sem rastreio ainda</div>
+            <div style="font-size:12.5px;color:#64748b;line-height:1.55;max-width:480px;margin:0 auto">
+              Esse contato ainda não foi vinculado a nenhuma sessão do site. Quando o tracker captura
+              eventos com o mesmo email/contato, eles aparecem aqui retroativamente.
+            </div>
+          </div>`;
+        window._c360ComportamentoLoaded = true;
+        return;
+      }
+
+      // KPIs
+      const dias = j.dias_visitando || 0;
+      const pageviews = j.pageviews || 0;
+      const paginas = j.paginas_unicas || 0;
+      const compras = j.compras || 0;
+      const carts = j.add_carts || 0;
+      const canais = (j.canais || []).filter(Boolean);
+      const campanhas = (j.campanhas || []).filter(Boolean);
+      const devices = (j.devices || []).filter(Boolean);
+
+      const kpiHtml = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px">
+          ${kpiCard('Pageviews',     pageviews.toLocaleString('pt-BR'), `${paginas} páginas únicas`)}
+          ${kpiCard('Dias visitando', String(dias),                     `Primeiro toque: ${_formatRelativeDays(j.primeiro_toque)}`)}
+          ${kpiCard('Add carts',      String(carts),                    carts > compras ? `${compras} compraram (${Math.round(compras/Math.max(carts,1)*100)}%)` : '')}
+          ${kpiCard('Compras',        String(compras),                  `Última: ${_formatRelativeDays(j.ultimo_toque)}`)}
+        </div>`;
+
+      // Atribuição (canais + campanhas + device)
+      const chip = (txt, cor) => `<span style="display:inline-block;padding:4px 10px;border-radius:999px;font-size:11.5px;background:${cor}22;color:${cor};border:1px solid ${cor}55;margin:0 4px 4px 0">${escapeHtml(txt)}</span>`;
+      const atribHtml = `
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px 16px;margin-bottom:18px">
+          <div style="font-size:11px;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.4px">Atribuição</div>
+          <div style="margin-bottom:6px">
+            <span style="font-size:11.5px;color:#94a3b8;margin-right:6px">Canais:</span>
+            ${canais.length ? canais.map(c => chip(c, '#60a5fa')).join('') : '<span style="font-size:11.5px;color:#64748b">direto / sem UTM</span>'}
+          </div>
+          <div style="margin-bottom:6px">
+            <span style="font-size:11.5px;color:#94a3b8;margin-right:6px">Campanhas:</span>
+            ${campanhas.length ? campanhas.map(c => chip(c, '#a78bfa')).join('') : '<span style="font-size:11.5px;color:#64748b">—</span>'}
+          </div>
+          <div>
+            <span style="font-size:11.5px;color:#94a3b8;margin-right:6px">Devices:</span>
+            ${devices.length ? devices.map(d => chip(d, '#fbbf24')).join('') : '<span style="font-size:11.5px;color:#64748b">—</span>'}
+          </div>
+        </div>`;
+
+      // Top páginas (barra horizontal)
+      const maxPag = Math.max(1, ...topPags.map(p => Number(p.vezes) || 0));
+      const topPagsHtml = topPags.length ? `
+        <div style="margin-bottom:18px">
+          <div style="font-size:13px;font-weight:600;color:#f1f5f9;margin-bottom:10px;display:flex;align-items:center;gap:6px">📄 Top páginas vistas</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            ${topPags.map(p => {
+              const v = Number(p.vezes) || 0;
+              const w = Math.max(2, Math.round((v / maxPag) * 100));
+              return `
+                <div>
+                  <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;gap:10px">
+                    <span style="color:#cbd5e1;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(p.url_path)}">${escapeHtml(p.url_path)}</span>
+                    <span style="color:#64748b;flex-shrink:0">${v}×</span>
+                  </div>
+                  <div style="height:6px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden">
+                    <div style="height:100%;width:${w}%;background:linear-gradient(90deg,#60a5fa,#3b82f6)"></div>
+                  </div>
+                </div>`;
+            }).join('')}
+          </div>
+        </div>` : '';
+
+      // Mini timeline dos últimos eventos
+      const eventosHtml = eventos.length ? `
+        <div>
+          <div style="font-size:13px;font-weight:600;color:#f1f5f9;margin-bottom:10px;display:flex;align-items:center;gap:6px">⏱ Últimos ${eventos.length} eventos</div>
+          <div style="display:flex;flex-direction:column;gap:6px;max-height:380px;overflow-y:auto">
+            ${eventos.map(e => {
+              const lbl = _LEAD_EVT_LBL[e.evento_tipo] || { icon: '·', cor: '#94a3b8', txt: e.evento_tipo };
+              const data = new Date(e.created_at);
+              const dataStr = data.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+              const path = e.url_path || '/';
+              const utmTag = e.utm_source ? ` · <span style="color:${lbl.cor}">${escapeHtml(e.utm_source)}${e.utm_campaign ? '/' + escapeHtml(e.utm_campaign) : ''}</span>` : '';
+              return `
+                <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:rgba(255,255,255,0.02);border-left:2px solid ${lbl.cor};border-radius:4px;font-size:12px">
+                  <span style="font-size:14px;flex-shrink:0">${lbl.icon}</span>
+                  <span style="color:#94a3b8;flex-shrink:0;width:90px;font-size:11px">${dataStr}</span>
+                  <span style="color:#cbd5e1;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                    ${escapeHtml(lbl.txt)} <strong style="color:#f1f5f9">${escapeHtml(path)}</strong>${utmTag}
+                  </span>
+                </div>`;
+            }).join('')}
+          </div>
+        </div>` : '';
+
+      panel.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div>
+            <div style="font-size:14px;font-weight:600;color:#f1f5f9">🔍 Jornada do site</div>
+            <div style="font-size:11.5px;color:#64748b;margin-top:2px">${j.total_eventos} eventos · ${dias} dias visitando · ${pageviews} pageviews</div>
+          </div>
+          <button onclick="loadComportamento(true)" style="background:transparent;border:1px solid rgba(255,255,255,0.15);color:#94a3b8;padding:5px 10px;border-radius:6px;font-size:11px;cursor:pointer">🔄 Atualizar</button>
+        </div>
+        ${kpiHtml}
+        ${atribHtml}
+        ${topPagsHtml}
+        ${eventosHtml}
+      `;
+      window._c360ComportamentoLoaded = true;
+    } catch (e) {
+      console.error('[c360 comportamento] erro:', e);
+      const msg = String(e.message || e);
+      const isMissing = msg.includes('does not exist') || msg.includes('analytics_lead');
+      panel.innerHTML = `<div style="color:${isMissing?'#94a3b8':'#ef4444'};padding:20px;font-size:12.5px;text-align:center">
+        ${isMissing ? '⚙️ Schema de Lead Tracking ainda não aplicado no banco.' : 'Erro ao carregar: ' + escapeHtml(msg)}
+      </div>`;
     }
   };
 
