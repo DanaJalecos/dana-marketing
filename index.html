@@ -3218,14 +3218,26 @@ select.input { cursor: pointer; }
     </div>
 
     <!-- Reorder Fase 0: tops antes do gráfico -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px">
-      <div>
-        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">🥇 Top Produtos · Curva ABC</div>
-        <div id="an-ml-top-produtos" style="display:flex;flex-direction:column;gap:6px;font-size:11.5px"></div>
-      </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
       <div>
         <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">📦 Por Tipo de Anúncio</div>
         <div id="an-ml-por-tipo" style="display:flex;flex-direction:column;gap:8px;font-size:11.5px"></div>
+      </div>
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">🛍 Vendas por Categoria</div>
+        <div id="an-ml-por-categoria" style="display:flex;flex-direction:column;gap:8px;font-size:11.5px"></div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px">
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">🔁 Compradores recorrentes</div>
+        <div style="font-size:10.5px;color:var(--text3);margin-bottom:6px">2+ pedidos no período · sinal de fidelização</div>
+        <div id="an-ml-recorrentes" style="display:flex;flex-direction:column;gap:6px;font-size:11.5px"></div>
+      </div>
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">📊 Status dos pedidos</div>
+        <div style="font-size:10.5px;color:var(--text3);margin-bottom:6px">Saúde da operação · % cancelado é alerta</div>
+        <div id="an-ml-status" style="display:flex;flex-direction:column;gap:8px;font-size:11.5px"></div>
       </div>
     </div>
 
@@ -16994,48 +17006,129 @@ window.loadAnalytics = async function() {
     const mesArr = Object.values(mesAgg).sort((a, b) => a.data.localeCompare(b.data));
     _anRenderChart('an-ml-chart', mesArr, 'bruto', 'liquido', '#9ca3af', '#16a34a');
 
-    // Top produtos (Curva ABC)
-    const prodAgg = {};
+    // Vendas por Categoria — agrupa por palavra-chave no titulo_item
+    // (category_id do ML é opaco; titulo_item dá categoria amigável)
+    const detectCategoriaML = (titulo) => {
+      const t = (titulo || '').toLowerCase();
+      if (/jaleco/.test(t))            return { k: 'jaleco',     l: '🥼 Jaleco',     cor: '#3b82f6' };
+      if (/scrub|conjunto/.test(t))    return { k: 'scrub',      l: '👔 Scrub/Conjunto', cor: '#8b5cf6' };
+      if (/pijama|cir.rgico/.test(t))  return { k: 'pijama',     l: '🩺 Pijama Cirúrgico', cor: '#ec4899' };
+      if (/touca|gorro/.test(t))       return { k: 'touca',      l: '🎩 Touca/Gorro', cor: '#f59e0b' };
+      if (/blusa|camisa/.test(t))      return { k: 'blusa',      l: '👕 Blusa/Camisa', cor: '#10b981' };
+      return { k: 'outros', l: '· Outros', cor: '#94a3b8' };
+    };
+    const catAgg = {};
     for (const r of (mlPedAtual.data || [])) {
-      const k = r.mlb_id;
-      if (!prodAgg[k]) prodAgg[k] = { mlb: k, titulo: r.titulo_item || k, unidades: 0, bruto: 0, liquido: 0 };
-      prodAgg[k].unidades += parseInt(r.quantity || 0);
-      prodAgg[k].bruto += parseFloat(r.total_amount || 0);
-      prodAgg[k].liquido += parseFloat(r.lucro_liquido || 0);
+      const c = detectCategoriaML(r.titulo_item);
+      if (!catAgg[c.k]) catAgg[c.k] = { ...c, qtd: 0, unidades: 0, bruto: 0, liquido: 0 };
+      catAgg[c.k].qtd++;
+      catAgg[c.k].unidades += parseInt(r.quantity || 0);
+      catAgg[c.k].bruto += parseFloat(r.total_amount || 0);
+      catAgg[c.k].liquido += parseFloat(r.lucro_liquido || 0);
     }
-    const prodSort = Object.values(prodAgg).sort((a, b) => b.bruto - a.bruto);
-    // Curva ABC: pct acumulado
-    let acumulado = 0;
-    const prodComClasse = prodSort.map(p => {
-      const pct = mlBruto > 0 ? (p.bruto / mlBruto * 100) : 0;
-      acumulado += pct;
-      const classe = acumulado <= 80 ? 'A' : acumulado <= 95 ? 'B' : 'C';
-      return { ...p, pct, pct_acum: acumulado, classe };
-    });
-    const elProd = document.getElementById('an-ml-top-produtos');
-    if (elProd) {
-      const top10 = prodComClasse.slice(0, 10);
-      const maxBruto = top10[0]?.bruto || 1;
-      const classeColor = { A: ['#dcfce7', '#166534'], B: ['#fef3c7', '#92400e'], C: ['#fee2e2', '#991b1b'] };
-      elProd.innerHTML = top10.map(p => {
-        const pctBar = (p.bruto / maxBruto) * 100;
-        const c = classeColor[p.classe];
-        const safeMlb = String(p.mlb).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
-        return `<div onclick="analyticsAbrirDrill({fonte:'ml',metrica:'bruto',subTipo:'produto',subKey:'${safeMlb}'})" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;transition:background 0.12s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='var(--surface)'" title="Drill-down neste produto">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:3px">
-            <div style="font-weight:600;font-size:11px;line-height:1.3;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.titulo)}</div>
-            <span style="background:${c[0]};color:${c[1]};font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;flex-shrink:0">${p.classe}</span>
+    const catSort = Object.values(catAgg).sort((a, b) => b.bruto - a.bruto);
+    const catMax = catSort[0]?.bruto || 1;
+    const elCat = document.getElementById('an-ml-por-categoria');
+    if (elCat) {
+      elCat.innerHTML = catSort.length ? catSort.map(c => {
+        const pctBar = (c.bruto / catMax) * 100;
+        const margemCat = c.bruto > 0 ? (c.liquido / c.bruto * 100) : 0;
+        const ticketCat = c.qtd > 0 ? (c.bruto / c.qtd) : 0;
+        return `<div>
+          <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:3px">
+            <span style="font-weight:600">${c.l}</span>
+            <span style="color:var(--text3);font-size:10.5px">${c.qtd} pedidos · ${margemCat.toFixed(0)}% margem</span>
           </div>
-          <div style="display:flex;gap:10px;font-size:10px;color:var(--text3);margin-bottom:4px">
-            <span><strong style="color:var(--text)">${_ANALYTICS_FMT_BRL(p.bruto)}</strong></span>
-            <span>${p.unidades}u</span>
-            <span>${p.pct.toFixed(1)}%</span>
+          <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--text3);margin-bottom:4px">
+            <span>Bruto: <strong style="color:var(--text)">${_ANALYTICS_FMT_BRL(c.bruto)}</strong></span>
+            <span>Ticket: ${_ANALYTICS_FMT_BRL(ticketCat)}</span>
           </div>
-          <div style="height:3px;background:var(--surface2);border-radius:2px;overflow:hidden">
-            <div style="height:100%;width:${pctBar}%;background:linear-gradient(90deg,#f59e0b,#dc2626)"></div>
+          <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${pctBar}%;background:${c.cor};border-radius:3px"></div>
           </div>
         </div>`;
-      }).join('');
+      }).join('') : '<div style="font-size:11px;color:var(--text3);padding:14px;text-align:center">Sem pedidos no período</div>';
+    }
+
+    // Compradores recorrentes (>= 2 pedidos no período)
+    const buyerAgg = {};
+    for (const r of (mlPedAtual.data || [])) {
+      const b = r.buyer_nickname;
+      if (!b) continue;
+      if (!buyerAgg[b]) buyerAgg[b] = { nick: b, qtd: 0, gasto: 0 };
+      buyerAgg[b].qtd++;
+      buyerAgg[b].gasto += parseFloat(r.total_amount || 0);
+    }
+    const recorrentes = Object.values(buyerAgg).filter(b => b.qtd >= 2).sort((a, b) => b.qtd - a.qtd || b.gasto - a.gasto).slice(0, 8);
+    const totalUnicos = Object.keys(buyerAgg).length;
+    const totalRec = Object.values(buyerAgg).filter(b => b.qtd >= 2).length;
+    const pctRec = totalUnicos > 0 ? (totalRec / totalUnicos * 100) : 0;
+    const elRec = document.getElementById('an-ml-recorrentes');
+    if (elRec) {
+      const headerRec = `<div style="font-size:10.5px;color:var(--text3);padding:6px 8px;background:var(--surface);border-radius:6px;margin-bottom:6px">
+        ${totalRec} de ${totalUnicos} compradores únicos · <strong style="color:${pctRec>15?'#16a34a':'var(--text2)'}">${pctRec.toFixed(1)}%</strong> recompra
+      </div>`;
+      if (!recorrentes.length) {
+        elRec.innerHTML = headerRec + '<div style="font-size:11px;color:var(--text3);padding:14px;text-align:center">Nenhum comprador recorrente no período</div>';
+      } else {
+        const maxQtd = recorrentes[0].qtd;
+        elRec.innerHTML = headerRec + recorrentes.map(b => {
+          const pctBar = (b.qtd / maxQtd) * 100;
+          const ticketRec = b.qtd > 0 ? (b.gasto / b.qtd) : 0;
+          const safeNick = esc(b.nick);
+          return `<div style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface)">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:3px">
+              <div style="font-weight:600;font-size:11px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safeNick}</div>
+              <span style="background:#fef3c7;color:#92400e;font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:4px;flex-shrink:0">${b.qtd}× pedidos</span>
+            </div>
+            <div style="display:flex;gap:10px;font-size:10px;color:var(--text3);margin-bottom:3px">
+              <span><strong style="color:var(--text)">${_ANALYTICS_FMT_BRL(b.gasto)}</strong> total</span>
+              <span>Ticket: ${_ANALYTICS_FMT_BRL(ticketRec)}</span>
+            </div>
+            <div style="height:3px;background:var(--surface2);border-radius:2px;overflow:hidden">
+              <div style="height:100%;width:${pctBar}%;background:linear-gradient(90deg,#fbbf24,#f59e0b)"></div>
+            </div>
+          </div>`;
+        }).join('');
+      }
+    }
+
+    // Status dos pedidos (paid/cancelled/etc)
+    const statusAgg = {};
+    for (const r of (mlPedAtual.data || [])) {
+      const s = r.status || 'desconhecido';
+      if (!statusAgg[s]) statusAgg[s] = { qtd: 0, bruto: 0 };
+      statusAgg[s].qtd++;
+      statusAgg[s].bruto += parseFloat(r.total_amount || 0);
+    }
+    const statusLabel = {
+      paid:        { l: '✅ Pago',        cor: '#16a34a' },
+      cancelled:   { l: '❌ Cancelado',   cor: '#dc2626' },
+      invalid:     { l: '⚠️ Inválido',    cor: '#f59e0b' },
+      pending:     { l: '⏳ Pendente',    cor: '#0ea5e9' },
+      desconhecido:{ l: '❓ Desconhecido', cor: '#94a3b8' },
+    };
+    const statusSort = Object.entries(statusAgg).sort((a, b) => b[1].qtd - a[1].qtd);
+    const statusTotalQtd = statusSort.reduce((s, [, m]) => s + m.qtd, 0) || 1;
+    const elStatus = document.getElementById('an-ml-status');
+    if (elStatus) {
+      elStatus.innerHTML = statusSort.length ? statusSort.map(([s, m]) => {
+        const cfg = statusLabel[s] || { l: s, cor: '#94a3b8' };
+        const pct = (m.qtd / statusTotalQtd) * 100;
+        const isAlerta = s === 'cancelled' && pct > 5;
+        return `<div>
+          <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:3px">
+            <span style="font-weight:600">${cfg.l}${isAlerta ? ' <span style="font-size:10px;color:#dc2626">⚠ alto</span>' : ''}</span>
+            <span style="color:var(--text3);font-size:10.5px">${m.qtd} · <strong style="color:${cfg.cor}">${pct.toFixed(1)}%</strong></span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-bottom:4px">
+            <span>Bruto: ${_ANALYTICS_FMT_BRL(m.bruto)}</span>
+          </div>
+          <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${pct}%;background:${cfg.cor};border-radius:3px"></div>
+          </div>
+        </div>`;
+      }).join('') : '<div style="font-size:11px;color:var(--text3);padding:14px;text-align:center">Sem pedidos no período</div>';
     }
 
     // Por tipo de anúncio (gold_pro vs gold_special vs free)
