@@ -668,21 +668,48 @@
       const statusEl = document.getElementById('c360-meta-status');
       const telEl = document.getElementById('c360-meta-tel');
       const obsEl = document.getElementById('c360-meta-obs');
+      const novoStatus = statusEl?.value || 'novo';
+      // Feature #1 — Motivos de perda: pede motivo quando status_relacionamento muda pra perdido/sem_interesse
+      const { data: metaPrev } = await state.sb.from('cliente_metadata')
+        .select('status_relacionamento, motivo_perda')
+        .eq('contato_id', contatoId).eq('empresa', empresa).maybeSingle();
+      const statusAnt = metaPrev?.status_relacionamento || 'novo';
+      const ehPerda = (novoStatus === 'perdido' || novoStatus === 'sem_interesse');
+      const mudou = statusAnt !== novoStatus;
+      let motivoExtra = null;
+      if (ehPerda && mudou && !metaPrev?.motivo_perda && typeof window.askMotivoPerda === 'function') {
+        motivoExtra = await window.askMotivoPerda({
+          titulo: novoStatus === 'perdido' ? 'Por que esse cliente foi perdido?' : 'Por que está sem interesse?',
+          subtitulo: 'Pra entender melhor onde a gente perde negócio, escolhe um motivo:',
+          ctaLabel: novoStatus === 'perdido' ? 'Marcar como perdido' : 'Marcar sem interesse',
+        });
+        if (!motivoExtra) {
+          // user cancelou — restaurar select e sair
+          if (statusEl) statusEl.value = statusAnt;
+          if (btn) { btn.disabled = false; btn.textContent = '💾 Salvar'; }
+          return;
+        }
+      }
       const { data: { user } } = await state.sb.auth.getUser();
       const { data: profile } = await state.sb.from('profiles').select('nome').eq('id', user.id).maybeSingle();
       const payload = {
         contato_id: contatoId,
         empresa,
-        status_relacionamento: statusEl?.value || 'novo',
+        status_relacionamento: novoStatus,
         telefone_alternativo: (telEl?.value || '').trim() || null,
         observacao_rapida: (obsEl?.value || '').trim() || null,
         atualizado_por: user.id,
         atualizado_por_nome: profile?.nome,
         atualizado_em: new Date().toISOString(),
       };
+      if (motivoExtra) {
+        payload.motivo_perda = motivoExtra.motivo;
+        payload.motivo_perda_detalhe = motivoExtra.detalhe;
+        payload.motivo_perda_em = new Date().toISOString();
+      }
       const { error } = await state.sb.from('cliente_metadata').upsert(payload, { onConflict: 'contato_id,empresa' });
       if (error) throw error;
-      if (typeof showToast === 'function') showToast('✓ Acompanhamento salvo');
+      if (typeof showToast === 'function') showToast(motivoExtra ? '✓ Motivo de perda registrado' : '✓ Acompanhamento salvo');
       if (btn) { btn.disabled = false; btn.textContent = '✓ Salvo'; setTimeout(() => { if (btn) btn.textContent = '💾 Salvar'; }, 1500); }
     } catch (e) {
       console.error('[c360] salvar metadata', e);
@@ -4807,6 +4834,26 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       if (!nome) { if (typeof showToast === 'function') showToast('Nome é obrigatório', 'error'); if (btn) { btn.disabled = false; btn.textContent = id ? 'Salvar' : 'Criar cliente'; } return; }
       const perms = await mcLoadPerms();
       const vendedor = document.getElementById('mc-novo-vendedor')?.value || perms.profileId;
+      const novoStatus = document.getElementById('mc-novo-status')?.value || 'novo';
+      // Feature #1 — Motivos de perda: pede motivo quando status muda pra perdido/sem_interesse (só em edição)
+      let motivoExtra = null;
+      if (id && (novoStatus === 'perdido' || novoStatus === 'sem_interesse')
+          && typeof window.askMotivoPerda === 'function') {
+        const { data: prev } = await state.sb.from('clientes_manuais')
+          .select('status_relacionamento, motivo_perda')
+          .eq('id', id).maybeSingle();
+        if (prev && prev.status_relacionamento !== novoStatus && !prev.motivo_perda) {
+          motivoExtra = await window.askMotivoPerda({
+            titulo: novoStatus === 'perdido' ? `Por que "${nome}" foi perdido?` : `Por que "${nome}" está sem interesse?`,
+            subtitulo: 'Pra entender melhor onde a gente perde negócio, escolhe um motivo:',
+            ctaLabel: novoStatus === 'perdido' ? 'Marcar como perdido' : 'Marcar sem interesse',
+          });
+          if (!motivoExtra) {
+            if (btn) { btn.disabled = false; btn.textContent = 'Salvar'; }
+            return;
+          }
+        }
+      }
       const payload = {
         nome,
         telefone: (document.getElementById('mc-novo-fone')?.value || '').trim() || null,
@@ -4815,10 +4862,15 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
         cidade: (document.getElementById('mc-novo-cidade')?.value || '').trim() || null,
         uf: (document.getElementById('mc-novo-uf')?.value || '').trim().toUpperCase().slice(0,2) || null,
         empresa: document.getElementById('mc-novo-empresa')?.value || state.empresa,
-        status_relacionamento: document.getElementById('mc-novo-status')?.value || 'novo',
+        status_relacionamento: novoStatus,
         observacao: (document.getElementById('mc-novo-obs')?.value || '').trim() || null,
         profile_id_vendedor: vendedor,
       };
+      if (motivoExtra) {
+        payload.motivo_perda = motivoExtra.motivo;
+        payload.motivo_perda_detalhe = motivoExtra.detalhe;
+        payload.motivo_perda_em = new Date().toISOString();
+      }
       let res;
       if (id) {
         res = await state.sb.from('clientes_manuais').update(payload).eq('id', id);
@@ -4828,7 +4880,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
         res = await state.sb.from('clientes_manuais').insert(payload);
       }
       if (res.error) throw res.error;
-      if (typeof showToast === 'function') showToast(id ? 'Cliente atualizado' : 'Cliente criado', 'success');
+      if (typeof showToast === 'function') showToast(motivoExtra ? '✓ Motivo de perda registrado' : (id ? 'Cliente atualizado' : 'Cliente criado'), 'success');
       document.getElementById('mc-cliente-modal')?.remove();
       await renderMeusClientesPage();
     } catch (e) {

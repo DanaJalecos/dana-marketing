@@ -7207,6 +7207,18 @@ updateDynamicField('foto');
       <div id="perf-por-status"><div style="color:var(--text3);font-size:12px">Carregando...</div></div>
     </div>
   </div>
+
+  <!-- 🎯 Top motivos de perda do mês (Feature #1) -->
+  <div class="card mb20" style="margin-top:20px">
+    <div class="card-header">
+      <div>
+        <div class="card-title">🎯 Top motivos de perda — mês atual</div>
+        <div class="card-sub">Por que leads e clientes não fecharam · prospecção + Cliente 360</div>
+      </div>
+      <button onclick="loadMotivosPerda()" style="font-size:11px;padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;color:var(--text2)">↻ Atualizar</button>
+    </div>
+    <div id="perf-motivos-perda" style="padding:8px 4px"><div style="color:var(--text3);font-size:12px">Carregando...</div></div>
+  </div>
 </div></div>
 <div class="view" id="view-marketplaces"><div style="padding:24px 28px">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -15679,9 +15691,60 @@ async function loadCanalAnalytics() {
   } catch(e) { console.warn('Canal analytics error:', e.message); }
 }
 
-// ── PERFORMANCE DATA (combina funil + canais + top produtos) ──
+// ── PERFORMANCE DATA (combina funil + canais + top produtos + motivos de perda) ──
 async function loadPerformanceData() {
-  await Promise.all([loadFunilVendas(), loadCanalAnalytics(), loadPerfTopProdutos()]);
+  await Promise.all([loadFunilVendas(), loadCanalAnalytics(), loadPerfTopProdutos(), loadMotivosPerda()]);
+}
+
+// ── 🎯 Top motivos de perda do mês (Feature #1) ──
+async function loadMotivosPerda() {
+  const cont = document.getElementById('perf-motivos-perda');
+  if (!cont) return;
+  try {
+    const { data, error } = await sb.rpc('motivos_perda_top_mes');
+    if (error) {
+      // Schema ainda não aplicado? Mostra hint discreto sem quebrar a tela
+      cont.innerHTML = `<div style="padding:14px;text-align:center;color:var(--text3);font-size:12px">
+        ${error.message?.includes('does not exist') || error.code === '42883'
+          ? '⚙️ Aguardando aplicação do SQL <code>sql-motivos-perda.sql</code>'
+          : 'Erro: ' + (error.message || 'desconhecido')}
+      </div>`;
+      return;
+    }
+    const rows = data || [];
+    if (!rows.length) {
+      cont.innerHTML = `<div style="padding:24px 14px;text-align:center;color:var(--text3);font-size:12.5px">
+        🎉 Nenhum descarte ou perda registrada nesse mês.<br>
+        <span style="font-size:11.5px;opacity:0.75">Quando vendedoras descartarem leads ou marcarem clientes como perdidos, vai aparecer aqui.</span>
+      </div>`;
+      return;
+    }
+    const labelMap = window.MOTIVO_PERDA_LABEL || {};
+    const max = Math.max(...rows.map(r => Number(r.total) || 0));
+    const total = rows.reduce((s, r) => s + (Number(r.total) || 0), 0);
+    cont.innerHTML = `
+      <div style="margin-bottom:12px;font-size:11px;color:var(--text3)">${total} registro(s) no mês</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${rows.map(r => {
+          const lbl = labelMap[r.motivo_perda] || r.motivo_perda;
+          const tot = Number(r.total) || 0;
+          const pct = Number(r.pct) || 0;
+          const w = max > 0 ? Math.max(2, Math.round((tot / max) * 100)) : 0;
+          return `
+            <div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;font-size:12.5px">
+                <span style="color:var(--text)">${lbl}</span>
+                <span style="color:var(--text3);font-size:11px"><strong style="color:var(--text2)">${tot}</strong> · ${pct}%</span>
+              </div>
+              <div style="height:9px;background:var(--surface);border:1px solid var(--border);border-radius:5px;overflow:hidden">
+                <div style="height:100%;width:${w}%;background:linear-gradient(90deg,#dc2626,#f87171);transition:width .3s"></div>
+              </div>
+            </div>`;
+        }).join('')}
+      </div>`;
+  } catch (e) {
+    cont.innerHTML = `<div style="padding:14px;color:var(--text3);font-size:12px">Erro: ${(e.message || e).slice(0,120)}</div>`;
+  }
 }
 
 // ════════════════════════════════════════════════
@@ -20470,15 +20533,39 @@ async function prospMudarStatus(id, novoStatus) {
   if (!prospPodeEditar()) { showToast('Sem permissão'); return; }
   const p = _prspCache.find(x => x.id === id);
   const statusAnterior = p?.status || null;
+  // Feature #1 — Motivos de perda: pede motivo quando vai pra "descartado"
+  let motivoExtra = null;
+  if (novoStatus === 'descartado' && statusAnterior !== 'descartado') {
+    motivoExtra = await window.askMotivoPerda({
+      titulo: `Por que descartar "${(p?.nome || 'esse lead').slice(0,40)}"?`,
+      subtitulo: 'Pra entender melhor onde a gente perde negócio, escolhe um motivo:',
+      ctaLabel: 'Confirmar descarte',
+    });
+    if (!motivoExtra) {
+      // user cancelou — restaurar select se for o caso
+      const sel = document.querySelector(`select[onchange*="prospMudarStatus('${id}'"]`);
+      if (sel && statusAnterior) sel.value = statusAnterior;
+      return;
+    }
+  }
   const update = {
     status: novoStatus,
     updated_at: new Date().toISOString(),
   };
   if (novoStatus === 'contatado') update.contatado_em = new Date().toISOString();
+  if (motivoExtra) {
+    update.motivo_perda = motivoExtra.motivo;
+    update.motivo_perda_detalhe = motivoExtra.detalhe;
+    update.motivo_perda_em = new Date().toISOString();
+  }
   const { error } = await sb.from('prospects').update(update).eq('id', id);
   if (error) { showToast('Erro: ' + error.message); return; }
-  await prospLogHistorico(id, 'mudou_status', { status_anterior: statusAnterior, status_novo: novoStatus });
-  showToast('Status atualizado');
+  await prospLogHistorico(id, 'mudou_status', {
+    status_anterior: statusAnterior,
+    status_novo: novoStatus,
+    detalhes: motivoExtra ? { motivo_perda: motivoExtra.motivo, detalhe: motivoExtra.detalhe } : undefined,
+  });
+  showToast(motivoExtra ? 'Lead descartado · motivo registrado' : 'Status atualizado');
   await prospLoad();
 }
 
@@ -20608,6 +20695,110 @@ function prospConfirmContato(tipo) {
     window._prspAvisoWrap = wrap;
   });
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// Modal "Motivo de perda" — Feature #1 do roadmap pós-Analytics IA
+// ════════════════════════════════════════════════════════════════════════
+// Usado por:
+//   - Prospecção: lead vai pra status='descartado'
+//   - Cliente 360: status_relacionamento='perdido' ou 'sem_interesse'
+//   - Clientes manuais: idem
+// Retorna Promise<{motivo: string, detalhe: string|null} | null>
+// null = usuário cancelou, deve abortar a mudança de status.
+window.MOTIVO_PERDA_OPCOES = [
+  { v: 'sem_orcamento',       l: '💸 Sem orçamento' },
+  { v: 'comprou_concorrente', l: '🏃 Comprou de concorrente' },
+  { v: 'nao_responde',        l: '🔇 Não responde' },
+  { v: 'nao_era_icp',         l: '🎯 Não era ICP (perfil errado)' },
+  { v: 'preco_alto',          l: '💰 Preço alto' },
+  { v: 'prazo_longo',         l: '⏳ Prazo de entrega muito longo' },
+  { v: 'sem_interesse',       l: '😐 Sem interesse no momento' },
+  { v: 'outro',               l: '✏️ Outro (descrever)' },
+];
+window.MOTIVO_PERDA_LABEL = {};
+window.MOTIVO_PERDA_OPCOES.forEach(o => { window.MOTIVO_PERDA_LABEL[o.v] = o.l; });
+
+window._motivoPerdaResolve = null;
+window._motivoPerdaWrap = null;
+
+window.motivoPerdaResponder = function(ok) {
+  if (ok) {
+    const sel = document.getElementById('mp-select');
+    const txt = document.getElementById('mp-detalhe');
+    const motivo = sel?.value || '';
+    let detalhe = (txt?.value || '').trim();
+    if (!motivo) { showToast('Escolha um motivo'); return; }
+    if (motivo === 'outro' && !detalhe) {
+      showToast('Detalhe obrigatório quando motivo é "Outro"');
+      txt?.focus();
+      return;
+    }
+    if (window._motivoPerdaWrap) { window._motivoPerdaWrap.remove(); window._motivoPerdaWrap = null; }
+    if (window._motivoPerdaResolve) {
+      const r = window._motivoPerdaResolve; window._motivoPerdaResolve = null;
+      r({ motivo, detalhe: detalhe || null });
+    }
+  } else {
+    if (window._motivoPerdaWrap) { window._motivoPerdaWrap.remove(); window._motivoPerdaWrap = null; }
+    if (window._motivoPerdaResolve) {
+      const r = window._motivoPerdaResolve; window._motivoPerdaResolve = null;
+      r(null);
+    }
+  }
+};
+
+// Mostra/esconde campo "detalhe" obrigatório quando "outro" selecionado
+window.motivoPerdaOnChange = function() {
+  const sel = document.getElementById('mp-select');
+  const det = document.getElementById('mp-detalhe-wrap');
+  const lbl = document.getElementById('mp-detalhe-lbl');
+  if (!sel || !det) return;
+  const isOutro = sel.value === 'outro';
+  det.style.display = sel.value ? '' : 'none';
+  if (lbl) lbl.textContent = isOutro ? 'Descreva o motivo *' : 'Observação (opcional)';
+};
+
+window.askMotivoPerda = function(opts) {
+  // opts: { titulo?, subtitulo?, ctaLabel? }
+  const titulo  = opts?.titulo  || 'Antes de marcar como perdido…';
+  const sub     = opts?.subtitulo || 'Pra entender melhor onde a gente perde negócio, escolhe um motivo:';
+  const cta     = opts?.ctaLabel || 'Confirmar perda';
+  return new Promise((resolve) => {
+    if (window._motivoPerdaWrap) { window._motivoPerdaWrap.remove(); window._motivoPerdaWrap = null; }
+    window._motivoPerdaResolve = resolve;
+    const wrap = document.createElement('div');
+    const optsHtml = window.MOTIVO_PERDA_OPCOES
+      .map(o => `<option value="${o.v}">${o.l}</option>`).join('');
+    wrap.innerHTML = `
+      <div class="modal-overlay open" id="motivo-perda-modal" style="z-index:10100" onclick="if(event.target===this){motivoPerdaResponder(false)}">
+        <div class="modal" style="max-width:480px">
+          <div style="text-align:center;margin-bottom:14px">
+            <div style="font-size:38px;margin-bottom:6px">📉</div>
+            <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:16px;color:var(--ink);margin-bottom:4px">${titulo}</div>
+            <div style="font-size:12.5px;color:var(--text2);line-height:1.5">${sub}</div>
+          </div>
+          <div style="margin-bottom:12px">
+            <label style="display:block;font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px">Motivo *</label>
+            <select id="mp-select" onchange="motivoPerdaOnChange()" class="input" style="width:100%;font-size:13px;padding:9px 11px">
+              <option value="">— Selecione —</option>
+              ${optsHtml}
+            </select>
+          </div>
+          <div id="mp-detalhe-wrap" style="display:none;margin-bottom:14px">
+            <label id="mp-detalhe-lbl" style="display:block;font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px">Observação (opcional)</label>
+            <textarea id="mp-detalhe" class="input" rows="3" placeholder="Ex: cliente disse que ia comprar mês que vem mas sumiu" style="width:100%;font-size:12.5px;padding:9px 11px;resize:vertical;font-family:inherit"></textarea>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="btn btn-ghost"   onclick="motivoPerdaResponder(false)" style="flex:1">Cancelar</button>
+            <button type="button" class="btn btn-primary" onclick="motivoPerdaResponder(true)"  style="flex:1.4;background:#dc2626;color:white;border-color:#dc2626">${cta}</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+    window._motivoPerdaWrap = wrap;
+    setTimeout(() => document.getElementById('mp-select')?.focus(), 50);
+  });
+};
 
 // Modal cronológico de histórico do lead
 async function prospAbrirHistorico(id) {
@@ -20843,31 +21034,56 @@ window.prospKanbanDrop = async function(event, novoStatus) {
   const p = _prspCache.find(x => x.id === id);
   if (!p || p.status === novoStatus) return;
   if (!prospPodeEditar()) { showToast('Sem permissão'); return; }
+  // Feature #1 — Motivos de perda: pede motivo quando solta na coluna "descartado"
+  const statusAnterior = p.status;
+  let motivoExtra = null;
+  if (novoStatus === 'descartado' && statusAnterior !== 'descartado') {
+    motivoExtra = await window.askMotivoPerda({
+      titulo: `Por que descartar "${(p.nome || 'esse lead').slice(0,40)}"?`,
+      subtitulo: 'Pra entender melhor onde a gente perde negócio, escolhe um motivo:',
+      ctaLabel: 'Confirmar descarte',
+    });
+    if (!motivoExtra) return; // cancelou — não move
+  }
   // Silencia realtime durante o drop pra evitar flicker
   window._prspDragSilence = true;
   // Optimistic UI: muda local, re-renderiza, sincroniza no fundo
-  const statusAnterior = p.status;
   p.status = novoStatus;
   if (novoStatus === 'contatado' && !p.contatado_em) p.contatado_em = new Date().toISOString();
   p.updated_at = new Date().toISOString();
+  if (motivoExtra) {
+    p.motivo_perda = motivoExtra.motivo;
+    p.motivo_perda_detalhe = motivoExtra.detalhe;
+    p.motivo_perda_em = p.updated_at;
+  }
   prospRender(); // re-renderiza AMBAS as abas (Lista + Kanban) com cache atualizado
   const update = {
     status: novoStatus,
     updated_at: p.updated_at,
   };
   if (novoStatus === 'contatado') update.contatado_em = p.contatado_em;
+  if (motivoExtra) {
+    update.motivo_perda = motivoExtra.motivo;
+    update.motivo_perda_detalhe = motivoExtra.detalhe;
+    update.motivo_perda_em = p.motivo_perda_em;
+  }
   const { error } = await sb.from('prospects').update(update).eq('id', id);
   // Libera realtime depois de 2s (mais que o debounce de 1500ms)
   setTimeout(() => { window._prspDragSilence = false; }, 2000);
   if (error) {
     // Rollback
     p.status = statusAnterior;
+    if (motivoExtra) { p.motivo_perda = null; p.motivo_perda_detalhe = null; p.motivo_perda_em = null; }
     prospRender();
     showToast('Erro: ' + error.message);
     return;
   }
-  await prospLogHistorico(id, 'mudou_status', { status_anterior: statusAnterior, status_novo: novoStatus });
-  showToast(`→ ${novoStatus.replace('_',' ')}`);
+  await prospLogHistorico(id, 'mudou_status', {
+    status_anterior: statusAnterior,
+    status_novo: novoStatus,
+    detalhes: motivoExtra ? { motivo_perda: motivoExtra.motivo, detalhe: motivoExtra.detalhe } : undefined,
+  });
+  showToast(motivoExtra ? '→ descartado · motivo registrado' : `→ ${novoStatus.replace('_',' ')}`);
   if (typeof logActivity === 'function') logActivity('moveu_lead_kanban', `${p.nome}: ${statusAnterior} → ${novoStatus}`, 'prospeccao');
 };
 
