@@ -3205,6 +3205,46 @@ select.input { cursor: pointer; }
     <div id="an-ads-chart" class="chart-area" style="height:140px"></div>
   </div>
 
+  <!-- ──────── 🎯 Mercado Ads (Product Ads) — Publicidade paga ──────── -->
+  <div class="card mb20">
+    <div class="card-header">
+      <div>
+        <div class="card-title">🎯 Mercado Ads · Product Ads</div>
+        <div class="card-sub" id="an-mlads-sub">Publicidade paga · cache do banco · sincronizado 06:25 BRT</div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <div id="an-mlads-periodo" style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <button data-p="7d"  onclick="mladsTrocarPeriodo('7d')"  style="padding:6px 12px;border:none;background:transparent;color:var(--text2);cursor:pointer;font-size:11px">7d</button>
+          <button data-p="30d" onclick="mladsTrocarPeriodo('30d')" style="padding:6px 12px;border:none;background:var(--surface2);color:var(--text);cursor:pointer;font-size:11px;font-weight:700">30d</button>
+          <button data-p="90d" onclick="mladsTrocarPeriodo('90d')" style="padding:6px 12px;border:none;background:transparent;color:var(--text2);cursor:pointer;font-size:11px">90d</button>
+        </div>
+        <button onclick="mladsSyncManual()" id="an-mlads-sync-btn" title="Forçar sincronização agora (chama API ML)" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-size:11px;color:var(--text2)">↻ Sync</button>
+      </div>
+    </div>
+    <div id="an-mlads-kpis" class="kpi-grid mb20">
+      <div class="kpi-card dark"><div class="kpi-label">💸 Custo</div><div class="kpi-value" id="an-kpi-mlads-cost">--</div><div class="kpi-change" id="an-kpi-mlads-cost-sub">total no período</div></div>
+      <div class="kpi-card"><div class="kpi-label">💰 Receita atribuída</div><div class="kpi-value" id="an-kpi-mlads-receita">--</div><div class="kpi-change" id="an-kpi-mlads-receita-sub">vs custo</div></div>
+      <div class="kpi-card"><div class="kpi-label">📊 ACOS médio</div><div class="kpi-value" id="an-kpi-mlads-acos">--</div><div class="kpi-change" id="an-kpi-mlads-acos-sub">% do faturamento gasto em ad</div></div>
+      <div class="kpi-card"><div class="kpi-label">🚀 ROAS médio</div><div class="kpi-value" id="an-kpi-mlads-roas">--</div><div class="kpi-change" id="an-kpi-mlads-roas-sub">retorno por R$ 1 gasto</div></div>
+    </div>
+
+    <!-- Alertas inteligentes (pode estar vazio) -->
+    <div id="an-mlads-alertas" style="margin-bottom:14px"></div>
+
+    <!-- Tabela de campanhas -->
+    <div style="margin-bottom:18px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">📈 Campanhas ativas</div>
+      <div id="an-mlads-campanhas" style="font-size:11.5px"></div>
+    </div>
+
+    <!-- Gráfico diário custo vs receita -->
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px">Investimento × receita atribuída · diário</div>
+      <div style="font-size:11px;color:var(--text3)">custo (laranja) · receita (verde)</div>
+    </div>
+    <div id="an-mlads-chart" class="chart-area" style="height:140px"></div>
+  </div>
+
   <!-- ──────── Mercado Livre (ciclo 58) ──────── -->
   <div class="card mb20">
     <div class="card-header">
@@ -17006,6 +17046,24 @@ window.loadAnalytics = async function() {
     const mesArr = Object.values(mesAgg).sort((a, b) => a.data.localeCompare(b.data));
     _anRenderChart('an-ml-chart', mesArr, 'bruto', 'liquido', '#9ca3af', '#16a34a');
 
+    // Top produtos (Curva ABC) — agregação só pra contexto IA (não renderiza)
+    const prodAgg = {};
+    for (const r of (mlPedAtual.data || [])) {
+      const k = r.mlb_id;
+      if (!prodAgg[k]) prodAgg[k] = { mlb: k, titulo: r.titulo_item || k, unidades: 0, bruto: 0, liquido: 0 };
+      prodAgg[k].unidades += parseInt(r.quantity || 0);
+      prodAgg[k].bruto += parseFloat(r.total_amount || 0);
+      prodAgg[k].liquido += parseFloat(r.lucro_liquido || 0);
+    }
+    const prodSort = Object.values(prodAgg).sort((a, b) => b.bruto - a.bruto);
+    let _abc_acum = 0;
+    const prodComClasse = prodSort.map(p => {
+      const pct = mlBruto > 0 ? (p.bruto / mlBruto * 100) : 0;
+      _abc_acum += pct;
+      const classe = _abc_acum <= 80 ? 'A' : _abc_acum <= 95 ? 'B' : 'C';
+      return { ...p, pct, pct_acum: _abc_acum, classe };
+    });
+
     // Vendas por Categoria — agrupa por palavra-chave no titulo_item
     // (category_id do ML é opaco; titulo_item dá categoria amigável)
     const detectCategoriaML = (titulo) => {
@@ -17268,7 +17326,223 @@ window.loadAnalytics = async function() {
     // Fase 0: garante remoção do skeleton mesmo se algum bloco falhou no meio do try
     _anSetSkeleton(_ANALYTICS_KPI_VALUE_IDS, false);
   }
+
+  // Mercado Ads (Product Ads) — carrega em paralelo, sem bloquear o resto
+  loadMercadoAds(window._mladsPeriodo || '30d').catch(e => console.warn('[mlads]', e));
 };
+
+// ════════════════════════════════════════════════════════════════════
+// 🎯 MERCADO ADS (Product Ads) — lê do cache via cron
+// ════════════════════════════════════════════════════════════════════
+window._mladsPeriodo = '30d';
+
+window.mladsTrocarPeriodo = function(p) {
+  if (!['7d','30d','90d'].includes(p)) return;
+  window._mladsPeriodo = p;
+  // Atualiza visual dos botões
+  document.querySelectorAll('#an-mlads-periodo button').forEach(btn => {
+    const ativo = btn.getAttribute('data-p') === p;
+    btn.style.background = ativo ? 'var(--surface2)' : 'transparent';
+    btn.style.color = ativo ? 'var(--text)' : 'var(--text2)';
+    btn.style.fontWeight = ativo ? '700' : '400';
+  });
+  loadMercadoAds(p);
+};
+
+window.mladsSyncManual = async function() {
+  const btn = document.getElementById('an-mlads-sync-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Sincronizando...'; }
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/sync-ml-ads`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + (session?.access_token || SUPABASE_ANON_KEY),
+      },
+      body: JSON.stringify({ dias_atras: 90 }),
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'Erro desconhecido');
+    showToast(`✓ Sync ML Ads: ${j.campanhas} campanhas, ${j.metricas} métricas, ${j.dias} dias`);
+    await loadMercadoAds(window._mladsPeriodo || '30d');
+  } catch (e) {
+    showToast('Erro: ' + (e.message || e).slice(0, 200));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Sync'; }
+  }
+};
+
+async function loadMercadoAds(periodo) {
+  periodo = periodo || '30d';
+  try {
+    // 1) Resumo (KPIs)
+    const { data: resumoRows } = await sb.from('analytics_ml_ads_resumo')
+      .select('*').eq('periodo', periodo).maybeSingle();
+
+    // 2) Tabela de campanhas com métricas do período
+    const { data: campanhas } = await sb.from('analytics_ml_ads_metricas')
+      .select('*, campanha:analytics_ml_ads_campanhas!inner(name,status,budget,acos_target,roas_target,strategy)')
+      .eq('periodo', periodo);
+
+    // 3) Alertas (RPC)
+    const { data: alertas } = await sb.rpc('analytics_ml_ads_alertas', { p_periodo: periodo });
+
+    // 4) Série diária pra gráfico (últimos N dias = match periodo)
+    const ndias = periodo === '7d' ? 7 : periodo === '30d' ? 30 : 90;
+    const inicioStr = new Date(Date.now() - ndias*86400000).toISOString().slice(0,10);
+    const { data: diario } = await sb.from('analytics_ml_ads_diario')
+      .select('data, cost, total_amount, clicks')
+      .gte('data', inicioStr)
+      .order('data', { ascending: true });
+
+    _renderMladsKPIs(resumoRows, periodo);
+    _renderMladsAlertas(alertas || []);
+    _renderMladsCampanhas(campanhas || []);
+    _renderMladsChart(diario || []);
+
+    // Sub do header com timestamp da última sync
+    const sub = document.getElementById('an-mlads-sub');
+    if (sub && resumoRows?.ultima_sync) {
+      const dt = new Date(resumoRows.ultima_sync).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+      sub.textContent = `Publicidade paga · ${resumoRows.campanhas_ativas || 0} campanhas ativas · sync ${dt}`;
+    }
+  } catch (e) {
+    console.error('[mlads load]', e);
+    const c = document.getElementById('an-mlads-campanhas');
+    if (c) c.innerHTML = `<div style="padding:14px;color:var(--text3);font-size:12px;text-align:center">${(e.message||'').includes('does not exist') ? '⚙️ Aguardando schema do Mercado Ads ser aplicado' : 'Erro: ' + esc(String(e.message||e))}</div>`;
+  }
+}
+
+function _renderMladsKPIs(r, periodo) {
+  const fmt = _ANALYTICS_FMT_BRL;
+  const set = (id, v, sub) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = v;
+    if (sub) {
+      const e2 = document.getElementById(id + '-sub');
+      if (e2) e2.innerHTML = sub;
+    }
+  };
+  if (!r) {
+    set('an-kpi-mlads-cost', '—', 'Sem dados');
+    set('an-kpi-mlads-receita', '—', '');
+    set('an-kpi-mlads-acos', '—', '');
+    set('an-kpi-mlads-roas', '—', '');
+    return;
+  }
+  const cost = Number(r.cost_total) || 0;
+  const receita = Number(r.total_amount_total) || 0;
+  const acos = Number(r.acos_medio) || 0;
+  const roas = Number(r.roas_medio) || 0;
+  const lucroLiq = receita - cost;
+  set('an-kpi-mlads-cost', fmt(cost), `${r.clicks_total || 0} cliques · ${(r.prints_total || 0).toLocaleString('pt-BR')} impressões`);
+  set('an-kpi-mlads-receita', fmt(receita), `Lucro bruto: <strong style="color:#16a34a">${fmt(lucroLiq)}</strong>`);
+  set('an-kpi-mlads-acos', acos.toFixed(2) + '%', acos < 15 ? '<span style="color:#16a34a">✓ saudável</span>' : acos < 25 ? '<span style="color:#f59e0b">⚠ ok</span>' : '<span style="color:#dc2626">⚠ alto</span>');
+  set('an-kpi-mlads-roas', roas.toFixed(2) + 'x', roas > 5 ? '<span style="color:#16a34a">✓ excelente</span>' : roas > 3 ? '<span style="color:#f59e0b">ok</span>' : '<span style="color:#dc2626">⚠ baixo</span>');
+}
+
+function _renderMladsAlertas(alertas) {
+  const c = document.getElementById('an-mlads-alertas');
+  if (!c) return;
+  if (!alertas.length) {
+    c.innerHTML = '';
+    return;
+  }
+  const cor = (sev) => sev === 'alta' ? '#dc2626' : sev === 'oportunidade' ? '#16a34a' : '#f59e0b';
+  const icone = (tipo) => ({
+    acos_alto: '🔴', sem_conversao: '🔴', batendo_meta: '🟢', budget_baixo: '🟡',
+  }[tipo] || '⚠️');
+  c.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${alertas.map(a => `
+        <div style="display:flex;gap:10px;align-items:center;padding:8px 12px;border-radius:8px;background:${cor(a.severidade)}11;border-left:3px solid ${cor(a.severidade)};font-size:12px">
+          <span style="font-size:14px;flex-shrink:0">${icone(a.tipo)}</span>
+          <div style="flex:1;min-width:0">
+            <strong style="color:var(--text)">${esc(a.campaign_name)}</strong>
+            <span style="color:var(--text3);margin:0 6px">·</span>
+            <span style="color:${cor(a.severidade)}">${esc(a.mensagem)}</span>
+          </div>
+        </div>`).join('')}
+    </div>`;
+}
+
+function _renderMladsCampanhas(rows) {
+  const c = document.getElementById('an-mlads-campanhas');
+  if (!c) return;
+  if (!rows.length) {
+    c.innerHTML = '<div style="padding:14px;color:var(--text3);font-size:12px;text-align:center">Sem campanhas no período (cron ainda não rodou ou sem campanhas ativas)</div>';
+    return;
+  }
+  rows.sort((a, b) => Number(b.total_amount) - Number(a.total_amount));
+  const fmt = _ANALYTICS_FMT_BRL;
+  const statusCor = { active: '#16a34a', paused: '#94a3b8', finalized: '#64748b' };
+  const checkAcos = (real, meta) => {
+    if (!meta) return { icon: '·', cor: '#94a3b8' };
+    if (real <= meta) return { icon: '✓', cor: '#16a34a' };
+    if (real <= meta * 1.2) return { icon: '~', cor: '#f59e0b' };
+    return { icon: '✗', cor: '#dc2626' };
+  };
+  const checkRoas = (real, meta) => {
+    if (!meta) return { icon: '·', cor: '#94a3b8' };
+    if (real >= meta) return { icon: '✓', cor: '#16a34a' };
+    if (real >= meta * 0.8) return { icon: '~', cor: '#f59e0b' };
+    return { icon: '✗', cor: '#dc2626' };
+  };
+
+  const html = `
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:11.5px;min-width:780px">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);text-align:left;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px">
+            <th style="padding:8px 6px">Campanha</th>
+            <th style="padding:8px 6px">Status</th>
+            <th style="padding:8px 6px;text-align:right">Budget</th>
+            <th style="padding:8px 6px;text-align:right">ACOS / meta</th>
+            <th style="padding:8px 6px;text-align:right">ROAS / meta</th>
+            <th style="padding:8px 6px;text-align:right">Cliques</th>
+            <th style="padding:8px 6px;text-align:right">Custo</th>
+            <th style="padding:8px 6px;text-align:right">Receita</th>
+            <th style="padding:8px 6px;text-align:right">CVR</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => {
+            const camp = r.campanha || {};
+            const acosCheck = checkAcos(Number(r.acos), Number(camp.acos_target));
+            const roasCheck = checkRoas(Number(r.roas), Number(camp.roas_target));
+            const stCor = statusCor[camp.status] || '#94a3b8';
+            return `<tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:8px 6px;font-weight:600;color:var(--text)">${esc(camp.name || '—')}</td>
+              <td style="padding:8px 6px"><span style="background:${stCor}22;color:${stCor};padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;text-transform:uppercase">${esc(camp.status || '?')}</span></td>
+              <td style="padding:8px 6px;text-align:right;color:var(--text2)">${fmt(Number(camp.budget) || 0)}</td>
+              <td style="padding:8px 6px;text-align:right">
+                <span style="color:${acosCheck.cor};font-weight:600">${acosCheck.icon} ${Number(r.acos).toFixed(2)}%</span>
+                <span style="color:var(--text3);font-size:10px"> / ${Number(camp.acos_target || 0).toFixed(1)}%</span>
+              </td>
+              <td style="padding:8px 6px;text-align:right">
+                <span style="color:${roasCheck.cor};font-weight:600">${roasCheck.icon} ${Number(r.roas).toFixed(2)}x</span>
+                <span style="color:var(--text3);font-size:10px"> / ${Number(camp.roas_target || 0).toFixed(1)}x</span>
+              </td>
+              <td style="padding:8px 6px;text-align:right;color:var(--text2)">${(Number(r.clicks) || 0).toLocaleString('pt-BR')}</td>
+              <td style="padding:8px 6px;text-align:right;color:var(--text2)">${fmt(Number(r.cost) || 0)}</td>
+              <td style="padding:8px 6px;text-align:right;color:var(--text);font-weight:600">${fmt(Number(r.total_amount) || 0)}</td>
+              <td style="padding:8px 6px;text-align:right;color:var(--text3)">${Number(r.cvr).toFixed(2)}%</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  c.innerHTML = html;
+}
+
+function _renderMladsChart(rows) {
+  // Custo (laranja) vs Receita (verde) — usa o helper _anRenderChart já existente
+  if (typeof _anRenderChart === 'function') {
+    _anRenderChart('an-mlads-chart', rows, 'cost', 'total_amount', '#f59e0b', '#16a34a');
+  }
+}
 
 window.syncAnalyticsAgora = async function() {
   const btn = document.getElementById('an-btn-sync');
