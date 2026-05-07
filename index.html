@@ -3144,6 +3144,26 @@ select.input { cursor: pointer; }
     <div id="an-insight-meta" style="margin-top:10px;font-size:10.5px;color:var(--text3);display:none"></div>
   </div>
 
+  <!-- ──────── SUB-TABS: Google Analytics · Google Ads · Mercado Livre ──────── -->
+  <div id="an-subtabs" style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:18px;overflow-x:auto">
+    <button data-subtab="ga4" onclick="analyticsSwitchSubtab('ga4')"
+      style="padding:14px 20px;background:transparent;border:none;border-bottom:3px solid #4285f4;color:var(--text);cursor:pointer;font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px;white-space:nowrap;margin-bottom:-2px">
+      <span style="font-size:18px">📊</span> Google Analytics
+    </button>
+    <button data-subtab="ads" onclick="analyticsSwitchSubtab('ads')"
+      style="padding:14px 20px;background:transparent;border:none;border-bottom:3px solid transparent;color:var(--text2);cursor:pointer;font-size:14px;font-weight:500;display:flex;align-items:center;gap:8px;white-space:nowrap;margin-bottom:-2px">
+      <span style="font-size:18px">💰</span> Google Ads
+    </button>
+    <button data-subtab="ml" onclick="analyticsSwitchSubtab('ml')"
+      style="padding:14px 20px;background:transparent;border:none;border-bottom:3px solid transparent;color:var(--text2);cursor:pointer;font-size:14px;font-weight:500;display:flex;align-items:center;gap:8px;white-space:nowrap;margin-bottom:-2px">
+      <span style="font-size:18px">🛍</span> Mercado Livre
+      <span style="font-size:10px;background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#451a03;padding:2px 6px;border-radius:8px;font-weight:700">+ ADS</span>
+    </button>
+  </div>
+
+  <!-- ════════ Wrapper GA4 ════════ -->
+  <div id="an-section-ga4" class="an-subtab-section">
+
   <!-- ──────── GA4 ──────── -->
   <div class="card mb20">
     <div class="card-header">
@@ -3180,6 +3200,11 @@ select.input { cursor: pointer; }
     <div id="an-ga4-chart" class="chart-area" style="height:160px"></div>
   </div>
 
+  </div><!-- ════════ /Wrapper GA4 ════════ -->
+
+  <!-- ════════ Wrapper Google Ads ════════ -->
+  <div id="an-section-ads" class="an-subtab-section" style="display:none">
+
   <!-- ──────── Google Ads ──────── -->
   <div class="card mb20">
     <div class="card-header">
@@ -3204,6 +3229,11 @@ select.input { cursor: pointer; }
     </div>
     <div id="an-ads-chart" class="chart-area" style="height:140px"></div>
   </div>
+
+  </div><!-- ════════ /Wrapper Google Ads ════════ -->
+
+  <!-- ════════ Wrapper Mercado Livre (Ads + Pedidos) ════════ -->
+  <div id="an-section-ml" class="an-subtab-section" style="display:none">
 
   <!-- ──────── 🎯 Mercado Ads (Product Ads) — Publicidade paga ──────── -->
   <div class="card mb20">
@@ -3287,6 +3317,8 @@ select.input { cursor: pointer; }
     </div>
     <div id="an-ml-chart" class="chart-area" style="height:140px"></div>
   </div>
+
+  </div><!-- ════════ /Wrapper Mercado Livre ════════ -->
 
 </div>
 </div>
@@ -16783,6 +16815,44 @@ function _anRenderChart(elId, points, valorKey, valorKey2, cor1, cor2) {
     </div>`;
   }).join('');
 }
+
+// ════════════════════════════════════════════════════════════════════
+// SUB-TABS da Analytics: Google Analytics · Google Ads · Mercado Livre
+// ════════════════════════════════════════════════════════════════════
+// Persiste a aba ativa em sessionStorage pra sobreviver F5 sem perder contexto.
+window.analyticsSwitchSubtab = function(tab) {
+  if (!['ga4','ads','ml'].includes(tab)) tab = 'ga4';
+  // Esconde todas, mostra a ativa
+  document.querySelectorAll('.an-subtab-section').forEach(s => {
+    s.style.display = 'none';
+  });
+  const ativa = document.getElementById('an-section-' + tab);
+  if (ativa) ativa.style.display = '';
+  // Atualiza visual dos botões (cor + borda inferior)
+  const corPorTab = { ga4: '#4285f4', ads: '#ea4335', ml: '#fbbf24' };
+  document.querySelectorAll('#an-subtabs button').forEach(btn => {
+    const t = btn.getAttribute('data-subtab');
+    const isAtiva = t === tab;
+    btn.style.borderBottomColor = isAtiva ? corPorTab[t] : 'transparent';
+    btn.style.color = isAtiva ? 'var(--text)' : 'var(--text2)';
+    btn.style.fontWeight = isAtiva ? '700' : '500';
+  });
+  // Persiste
+  try { sessionStorage.setItem('an-subtab', tab); } catch(e) {}
+};
+
+// Restaura aba na carga inicial (default ga4)
+(function _initAnalyticsSubtab() {
+  function apply() {
+    const saved = (() => { try { return sessionStorage.getItem('an-subtab'); } catch(e) { return null; } })();
+    window.analyticsSwitchSubtab(saved || 'ga4');
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', apply);
+  } else {
+    setTimeout(apply, 0);
+  }
+})();
 
 window.loadAnalytics = async function() {
   const dias = parseInt(document.getElementById('an-periodo')?.value || '30');
