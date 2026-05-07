@@ -16197,10 +16197,18 @@ function _anRenderChart(elId, points, valorKey, valorKey2, cor1, cor2) {
     // bar-wrap usa altura definida pela class .bar-wrap (128px do CSS global) —
     // NÃO usar height:100% inline aqui porque o pai .bar-group tem altura auto
     // (definida pelo conteúdo), e height:100% resolveria pra 0 → barras invisíveis.
-    return `<div class="bar-group" title="${dataLbl} · ${valorKey}: ${_ANALYTICS_FMT_INT(v1)}${valorKey2 ? ' · ' + valorKey2 + ': ' + _ANALYTICS_FMT_INT(v2) : ''}">
+    // data-val: tooltip preto via .bar:hover::after (CSS global linha 1063).
+    // Sem data-val o tooltip aparecia vazio (barrinha preta sem texto).
+    const tipFmt = (n) => valorKey === 'cost' || valorKey === 'bruto' || valorKey === 'liquido'
+      ? _ANALYTICS_FMT_BRL(n)
+      : _ANALYTICS_FMT_INT(n);
+    const tipFmt2 = (n) => valorKey2 === 'cost' || valorKey2 === 'bruto' || valorKey2 === 'liquido'
+      ? _ANALYTICS_FMT_BRL(n)
+      : _ANALYTICS_FMT_INT(n);
+    return `<div class="bar-group" title="${dataLbl} · ${valorKey}: ${tipFmt(v1)}${valorKey2 ? ' · ' + valorKey2 + ': ' + tipFmt2(v2) : ''}">
       <div class="bar-wrap" style="position:relative">
-        <div class="bar" style="height:${h1}%;background:${cor1};width:60%;opacity:0.85"></div>
-        ${valorKey2 ? `<div class="bar" style="height:${h2}%;background:${cor2};width:40%;opacity:0.85;margin-left:1px"></div>` : ''}
+        <div class="bar" style="height:${h1}%;background:${cor1};width:60%;opacity:0.85" data-val="${dataLbl} · ${tipFmt(v1)}"></div>
+        ${valorKey2 ? `<div class="bar" style="height:${h2}%;background:${cor2};width:40%;opacity:0.85;margin-left:1px" data-val="${dataLbl} · ${tipFmt2(v2)}"></div>` : ''}
       </div>
       <div class="bar-label">${dataLbl}</div>
     </div>`;
