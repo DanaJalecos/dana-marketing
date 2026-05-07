@@ -16027,10 +16027,152 @@ async function analyticsGenerateInsight() {
   }
 }
 
-// Stub do botão Histórico (Fase 4 vai implementar drawer completo)
-window.analyticsAbrirHistoricoInsight = window.analyticsAbrirHistoricoInsight || function() {
-  showToast('📜 Drawer de histórico vem na Fase 4 do ciclo Analytics IA.');
-};
+// Fase 4 — Drawer histórico de insights (últimos 30, agrupados por dia)
+async function analyticsAbrirHistoricoInsight() {
+  let drawer = document.getElementById('an-insight-history-drawer');
+  if (!drawer) {
+    drawer = document.createElement('div');
+    drawer.id = 'an-insight-history-drawer';
+    drawer.innerHTML = `
+      <div class="an-hist-overlay" onclick="analyticsFecharHistoricoInsight()"></div>
+      <div class="an-hist-panel">
+        <div class="an-hist-header">
+          <div>
+            <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:17px">📜 Histórico de Insights</div>
+            <div style="font-size:11.5px;color:var(--text3)">Últimos 30 insights de Analytics</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="analyticsFecharHistoricoInsight()" style="font-size:14px">✕</button>
+        </div>
+        <div class="an-hist-tabs">
+          <button class="an-hist-tab active" data-escopo="todos" onclick="analyticsHistFiltrar(this,'todos')">Todos</button>
+          <button class="an-hist-tab" data-escopo="painel_geral" onclick="analyticsHistFiltrar(this,'painel_geral')">Painel</button>
+          <button class="an-hist-tab" data-escopo="sistema" onclick="analyticsHistFiltrar(this,'sistema')">🤖 Cron diário</button>
+          <button class="an-hist-tab" data-escopo="drill" onclick="analyticsHistFiltrar(this,'drill')">Drill-downs</button>
+        </div>
+        <div id="an-hist-list" style="overflow-y:auto;flex:1;padding:14px 18px"></div>
+      </div>
+    `;
+    document.body.appendChild(drawer);
+    // CSS injetado uma única vez
+    if (!document.getElementById('an-hist-style')) {
+      const st = document.createElement('style');
+      st.id = 'an-hist-style';
+      st.textContent = `
+        #an-insight-history-drawer { position:fixed; inset:0; z-index:9998; }
+        .an-hist-overlay { position:absolute; inset:0; background:rgba(0,0,0,0.4); }
+        .an-hist-panel {
+          position:absolute; right:0; top:0; bottom:0; width:540px; max-width:100vw;
+          background:var(--white); border-left:1px solid var(--border);
+          display:flex; flex-direction:column;
+          box-shadow:-12px 0 32px rgba(0,0,0,0.2);
+          animation: an-hist-slide 0.22s ease-out;
+        }
+        @keyframes an-hist-slide { from { transform:translateX(100%); } to { transform:translateX(0); } }
+        .an-hist-header { padding:18px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+        .an-hist-tabs { display:flex; gap:4px; padding:10px 14px; border-bottom:1px solid var(--border); overflow-x:auto; flex-wrap:nowrap; }
+        .an-hist-tab { background:transparent; border:0; padding:6px 12px; font-size:11.5px; font-weight:600; color:var(--text3); cursor:pointer; border-radius:6px; white-space:nowrap; }
+        .an-hist-tab:hover { background:var(--surface2); color:var(--text); }
+        .an-hist-tab.active { background:var(--text); color:var(--white); }
+        html[data-theme="dark"] .an-hist-tab.active { background:var(--white); color:var(--black); }
+        .an-hist-day { margin-bottom:18px; }
+        .an-hist-day-label { font-size:10px; font-weight:800; letter-spacing:1px; text-transform:uppercase; color:var(--text3); margin-bottom:8px; padding-bottom:4px; border-bottom:1px solid var(--border); }
+        .an-hist-item { padding:10px 12px; border-radius:8px; margin-bottom:6px; cursor:pointer; transition:background 0.12s; border:1px solid var(--border); }
+        .an-hist-item:hover { background:var(--surface2); }
+        .an-hist-item-head { display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:4px; }
+        .an-hist-item-tag { font-size:9.5px; font-weight:700; padding:2px 7px; border-radius:999px; background:var(--surface2); color:var(--text2); }
+        .an-hist-item-tag.sistema { background:rgba(124,58,237,0.15); color:#7c3aed; }
+        .an-hist-item-tag.painel  { background:rgba(59,130,246,0.15); color:#1d4ed8; }
+        .an-hist-item-tag.drill   { background:rgba(245,158,11,0.15); color:#b45309; }
+        .an-hist-item-preview { font-size:11.5px; color:var(--text3); line-height:1.45; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+      `;
+      document.head.appendChild(st);
+    }
+  }
+  document.body.style.overflow = 'hidden';
+  await analyticsHistCarregar('todos');
+}
+
+function analyticsFecharHistoricoInsight() {
+  const d = document.getElementById('an-insight-history-drawer');
+  if (d) d.remove();
+  document.body.style.overflow = '';
+}
+
+async function analyticsHistFiltrar(btn, escopo) {
+  document.querySelectorAll('.an-hist-tab').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  await analyticsHistCarregar(escopo);
+}
+
+async function analyticsHistCarregar(escopo) {
+  const list = document.getElementById('an-hist-list');
+  if (!list) return;
+  list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3);font-size:12px">Carregando...</div>';
+  try {
+    let q = sb.from('analytics_insights').select('id, escopo, periodo_dias, modelo_provider, custo_estimado, user_nome, cargo_autor, insight, created_at').order('created_at', { ascending: false }).limit(30);
+    if (escopo === 'painel_geral') q = q.eq('escopo', 'painel_geral');
+    else if (escopo === 'sistema') q = q.eq('escopo', 'sistema');
+    else if (escopo === 'drill')   q = q.in('escopo', ['drill_canal','drill_pagina','drill_campanha']);
+    const { data, error } = await q;
+    if (error) throw error;
+    if (!data || !data.length) {
+      list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3);font-size:12px">Nenhum insight encontrado.</div>';
+      return;
+    }
+    // Agrupa por dia (yyyy-mm-dd local)
+    const grupos = {};
+    for (const r of data) {
+      const d = new Date(r.created_at);
+      const key = d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      (grupos[key] = grupos[key] || []).push(r);
+    }
+    const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    const ontem = new Date(Date.now() - 86400000).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    list.innerHTML = Object.entries(grupos).map(([dia, rows]) => {
+      const label = dia === hoje ? 'Hoje' : dia === ontem ? 'Ontem' : dia;
+      return `<div class="an-hist-day">
+        <div class="an-hist-day-label">${label} · ${rows.length} insight${rows.length>1?'s':''}</div>
+        ${rows.map(r => {
+          const tag = r.escopo === 'sistema' ? '🤖 Cron' : r.escopo === 'painel_geral' ? '📊 Painel' : '🔍 Drill';
+          const tagCls = r.escopo === 'sistema' ? 'sistema' : r.escopo === 'painel_geral' ? 'painel' : 'drill';
+          const hora = new Date(r.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+          const autor = r.cargo_autor === 'sistema' ? 'sistema' : (r.user_nome || '—');
+          // Preview = primeiras 200 chars do insight (sem markdown)
+          const preview = String(r.insight || '').replace(/\*\*/g,'').replace(/RESUMO\s*EXECUTIVO\s*:?\s*/i,'').slice(0, 240);
+          return `<div class="an-hist-item" onclick="analyticsHistAbrir('${r.id}')">
+            <div class="an-hist-item-head">
+              <span class="an-hist-item-tag ${tagCls}">${tag}</span>
+              <span style="font-size:10.5px;color:var(--text3)">${hora} · ${esc(autor)} · ${r.periodo_dias}d</span>
+            </div>
+            <div class="an-hist-item-preview">${esc(preview)}</div>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = `<div style="text-align:center;padding:30px;color:var(--red);font-size:12px">Erro: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+// Abrir um insight do histórico — substitui o card do topo com esse insight
+async function analyticsHistAbrir(insightId) {
+  try {
+    const { data } = await sb.from('analytics_insights').select('*').eq('id', insightId).single();
+    if (!data) return;
+    window._anLastInsight = data;
+    const periodoAtual = parseInt(document.getElementById('an-periodo')?.value || '30');
+    window._anInsightDirty = (data.periodo_dias !== periodoAtual);
+    const secoes = parseAnalyticsInsightSecoes(data.insight);
+    _anRenderInsightCard(secoes, {
+      modelo: data.modelo, provider: data.modelo_provider,
+      custo_estimado: data.custo_estimado, gerado_em: data.created_at,
+    });
+    analyticsFecharHistoricoInsight();
+    showToast('📜 Insight do histórico carregado');
+  } catch (e) {
+    showToast('Erro: ' + (e.message || e));
+  }
+}
 
 // Marca dirty quando user troca período (insight em cache fica obsoleto)
 document.addEventListener('change', (e) => {
