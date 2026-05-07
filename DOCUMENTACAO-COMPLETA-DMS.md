@@ -6062,4 +6062,372 @@ Pra desativar futuramente: `SELECT cron.alter_job(25, active := false);` (ou `26
 
 ---
 
-**Fim da documentação · Atualizado em 06/05/2026 — ciclo 59 + auto-sync Analytics · v6.2**
+## 61. CICLO ANALYTICS IA — EXECUTADO COMPLETO (06/05/2026)
+
+Resposta ao pedido literal da Manu: *"no DMS, na parte de analise de trafego. Os dados nao estao claros sabe? Tinha que ficar mais intuitivo, gerar insights, pontos de acao e ver oque esta performando e o pq"*
+
+5 fases entregues numa sessão. Aproveitou 90% da infra de IA já operante no Cliente 360 (`cliente360-insight`, `cliente_insights_config`, parser de seções, cascade Groq→Gemini, kill-switch).
+
+### 61.1 Fase 0 — UX foundation (sem IA)
+
+Pré-requisito visual antes de plumbar IA. 4 melhorias na seção `/analytics`:
+
+- **Skeleton shimmer** nos 12 KPI cards durante load (substituiu "Sem dados" piscando)
+- **Pílula de contexto** no topo: `📅 Últimos 30 dias · vs período anterior (06-30 abr → 06-30 mai)` com datas explícitas
+- **Mini-sparkline SVG** abaixo de cada KPI value (12 sparklines):
+  - GA4: sessions/users/page_views/conversions
+  - Ads: cost/clicks/conversions/cpa (CPA dia-a-dia)
+  - ML: agrega pedidos por date_closed → bruto/líquido/margem/pedidos
+  - Cor por tendência: up=verde, dn=vermelho, flat=cinza (média segunda metade vs primeira metade dos pontos, tolerância 5%)
+- **Reorder** dos 3 cards (GA4/Ads/ML): KPIs → tabelas top-N → gráfico no fim
+
+Helpers novos: `_anRenderSparkline`, `_anSetSkeleton`, `_anUpdateContextPilula`.
+CSS novo: `.kpi-spark`, `.skeleton-shimmer` com keyframes `an-shimmer`, `.an-context-pilula`.
+
+Commits: `5f42987` DanaComercial, `b48c724` DanaJalecos.
+
+### 61.2 Fase 1 — Schema + edge function `analytics-insight`
+
+Schema novo (`sql-scripts/sql-analytics-insights.sql`):
+- `analytics_insights_config` (singleton id=1) com kill-switch + quotas por cargo (gerente=10, trafego=10, producao=5) + limite mensal R$ 30
+- `analytics_insights` (logging) com escopo (painel_geral/drill_canal/drill_pagina/drill_campanha/sistema), periodo, contexto JSON snapshot, insight, modelo, provider, custo, user_id, cargo_autor
+- RPCs `analytics_insights_count_hoje(uid)` e `analytics_insights_gasto_mes()` timezone São Paulo
+- RLS: 5 cargos com SELECT, INSERT só via service_role, realtime ativado
+
+Edge function `analytics-insight` v1 ACTIVE:
+- Auth JWT + 5 cargos (admin + gerente_marketing + gerente_comercial + trafego_pago + producao_conteudo)
+- Bypass via `X-System-Cron: true`
+- Body: `{ escopo, periodo_dias, data_ini, data_fim, contexto: {ga4, ads, ml, top_canais, top_paginas, top_campanhas} }`
+- Sanitização: trunca strings >120 chars, limite 8KB JSON
+- Cascade Groq Llama 3.3 → Gemini 2.5 Flash fallback
+- System prompt 4 seções fixas: RESUMO EXECUTIVO / PONTOS DE AÇÃO (🔴🟡🟢) / O QUE FUNCIONOU / O QUE PIOROU
+- Regras anti-alucinação: "Use SOMENTE números do contexto JSON"
+
+Smoke test passou: 401 sem JWT, 200 + insight real via cron com contexto fake. Provider=groq (R$0).
+
+Commits: `f1b38e9` DanaComercial, `035b804` DanaJalecos.
+
+### 61.3 Fase 2 — UI Insight card no topo do painel
+
+Bloco `<div id="an-insight-card">` entre pílula e card GA4:
+- Header com badge quota (3/10 hoje colorido, ∞ ADMIN roxo) + botões Histórico + Gerar agora
+- Body: 4 seções stacked com cores semânticas (Resumo cinza / Ações azul 🔴🟡🟢 / Funcionou verde / Piorou vermelho)
+- Footer: "Gerado em DD/MM HH:mm · Llama 3.3 (Groq) · gratuito"
+- Banner amarelo "♻ Esse insight foi gerado em outro período" se trocar select
+
+Helpers JS novos: `parseAnalyticsInsightSecoes`, `_anMarkInsightHTML`, `_anRenderInsightCard`, `_anRenderInsightSkeleton`, `analyticsLoadInsightQuota`, `analyticsApplyInsightVisibility`, `analyticsLoadLastInsight`, `analyticsGenerateInsight`.
+
+Plumbagem em `loadAnalytics`: monta `window._anLastContexto` com KPIs (atual/anterior/delta_pct) + top-N enxutos. Trunca strings de nomes a 60 chars (evita 8KB cap).
+
+Commits: `4864509` DanaComercial, `a41c5cc` DanaJalecos.
+
+### 61.4 Fase 4 — Cron diário + drawer histórico
+
+Cron `cron-analytics-insight-diario` (jobid 27):
+- Schedule: `30 9 * * *` (06:30 BRT, depois do `sync-analytics-diario` 06:07 BRT)
+- Header X-System-Cron pra bypass de auth + quota (mantém kill-switch mensal R$30)
+- cargo_autor='sistema', user_id=NULL no log
+- Período fixo: últimos 7 dias
+- Custo: ~R$ 0,60/mês (Gemini) ou R$0 (Groq)
+
+SQL idempotente em `sql-scripts/sql-cron-analytics-insight.sql`.
+
+Drawer histórico: botão "📜 Histórico" abre drawer 540px com slide-in. 4 abas filtro (Todos / Painel / 🤖 Cron diário / Drill-downs). Lista últimos 30 insights agrupados por dia. Click no item carrega no card do topo.
+
+Total crons ativos: 27.
+
+Commits: `993086d` DanaComercial, `8e064b0` DanaJalecos.
+
+### 61.5 Fase 3 — Drill-down causal "POR QUÊ?" + bug fixes
+
+Click em qualquer KPI (12 cards) ou linha de tabela top-N (canais/páginas/campanhas/produtos ML) abre drawer lateral 720px com:
+- KPI grande: valor atual + delta colorido + valor anterior
+- Mini-chart SVG sobreposto: série diária atual (linha sólida + fill 12%) vs série anterior (tracejada cinza)
+- Top contribuidores clicáveis (drill recursivo)
+- Sub-insight IA contextual (escopo drill_*) — renderiza só RESUMO EXECUTIVO
+
+Helpers novos: `_AN_DRILL_CONFIG`, `_anDrillCalcular`, `_anDrillSerieDiaria`, `_anDrillRenderChart`, `_anDrillRenderContribuidores`, `_anDrillGenerateSubInsight`, `analyticsAbrirDrill`/`analyticsFecharDrill`.
+
+Cache local 1h (`window._anDrillCache` Map) + debounce 500ms + quota compartilhada com insight geral.
+
+Cache de dados raw (`window._anLastDados`) populado em loadAnalytics: ga4 (diaAtual/diaAnt/canais/canaisAnt/devices/paginas/paginasAnt), ads (diaAtual/diaAnt/campanhas/campanhasAnt), ml (pedAtual/pedAnt/diaAgg/produtos/porTipo).
+
+Commits: `edb71cd` DanaComercial, `43ad568` DanaJalecos.
+
+### 61.6 Bug fixes pós-deploy do drill
+
+**Bug 1 — Barras dos charts invisíveis** (commits `8cbfe70` / `1c3b4fb`):
+- Causa: `height:100%` inline no `.bar-wrap` resolvia pra zero porque pai `.bar-group` tem altura auto
+- Fix: remover height:100% inline, deixar class default `.bar-wrap { height:128px }` aplicar
+
+**Bug 2 — Tooltip preto vazio ao hover** (commits `5f857da` / `2fe1a69`):
+- Causa: CSS `.bar:hover::after` lê `attr(data-val)`, template não setava
+- Fix: setar `data-val` em cada `.bar` com data + valor formatado (BRL pra cost/bruto/líquido)
+
+**Bug 3 — Drill secundário sem série temporal e período anterior=0** (commits `b9c1de2` / `51b58fb`):
+- Causa A: SELECTs de `analytics_ga4_canais/paginas` e `analytics_ads_campanhas` não incluíam `data` → série diária zerada
+- Causa B: `ant = []` hardcoded pros sub-drills (TODO esquecido)
+- Causa C: branch ML produto não setava serieAtual
+- Fix: incluir `data` nos selects + 3 queries do período anterior (canaisAnt/paginasAnt/campanhasAnt) + ML produto agrega pedAtual+pedAnt filtrados por mlb_id por dia
+
+### 61.7 Estado final do ciclo Analytics IA
+
+| Componente | Estado |
+|---|---|
+| UX foundation | ✅ |
+| Schema + RPCs + RLS | ✅ |
+| Edge function `analytics-insight` v1 ACTIVE | ✅ |
+| UI Insight card | ✅ |
+| Drawer histórico | ✅ |
+| Cron diário 06:30 BRT (jobid 27) | ✅ |
+| Drill-down causal | ✅ |
+
+Custo mensal estimado: R$ 0–0,60 (cron) + on-demand limitado a R$ 30/mês via kill-switch. Total worst case ~R$ 30,60/mês.
+
+Cargos: admin (∞) + gerente_marketing (10/dia) + gerente_comercial (10/dia) + trafego_pago (10/dia) + producao_conteudo (5/dia). Vendedor não vê.
+
+---
+
+## 62. PRÓXIMOS PASSOS PRIORITÁRIOS — IMPLEMENTAR APÓS /COMPACT
+
+Baseado em análise exaustiva dos docs RD Station (`Ideias Projeto/RD Station/`) confrontada com o estado atual do DMS. Excluindo email + WhatsApp (Manu disse que não quer agora), sobram **3 features de Alta Prioridade**.
+
+Manu confirmou ordem de execução: 1 → 2 → 3.
+
+### 62.1 ⏰ Feature #1 — Motivos de Perda (1h, ganho rápido)
+
+**Por que primeiro**: simples, rápido, ganho imediato, base pra relatório futuro.
+
+**Onde aparece**:
+- **Prospecção**: ao arrastar lead pra coluna "Descartado" no Kanban → modal "Por quê?" com opções pré-definidas + texto livre
+- **Cliente 360 detalhe** (Acompanhamento Comercial): mesmo modal quando muda status pra "Perdido"
+- **Performance** (seção): card novo "🎯 Top motivos de perda do mês" com barra horizontal por % do total
+
+**SQL** (`sql-scripts/sql-motivos-perda.sql` — criar):
+```sql
+ALTER TABLE prospects          ADD COLUMN motivo_perda TEXT, ADD COLUMN motivo_perda_detalhe TEXT;
+ALTER TABLE cliente_metadata   ADD COLUMN motivo_perda TEXT, ADD COLUMN motivo_perda_detalhe TEXT;
+ALTER TABLE clientes_manuais   ADD COLUMN motivo_perda TEXT, ADD COLUMN motivo_perda_detalhe TEXT;
+```
+
+**Opções pré-definidas**:
+- `sem_orcamento` — Sem orçamento
+- `comprou_concorrente` — Comprou de concorrente
+- `nao_responde` — Não responde
+- `nao_era_icp` — Não era ICP (perfil errado)
+- `preco_alto` — Preço alto
+- `prazo_longo` — Prazo de entrega muito longo
+- `sem_interesse` — Não tem interesse no momento
+- `outro` — Outro (texto livre obrigatório)
+
+**Frontend**:
+- `index.html`: nova função `prospAbrirModalMotivoPerda(prospectId)` que abre modal com select + textarea
+- Hook em `prospMudarStatus` quando novo status = `descartado`: abrir modal antes de UPDATE
+- Hook em `prospKanbanDrop` quando coluna destino = `descartado`: idem
+- `cliente-360-boot.js`: hook em mudança de `status_relacionamento` no Acompanhamento Comercial pra `perdido`/`sem_interesse`
+- View `view-performance`: card novo agregando `prospects.motivo_perda` + `cliente_metadata.motivo_perda` (último mês), barra horizontal ordenada por contagem
+
+**Arquivos a tocar**:
+- `index.html` (markup do modal + JS dos hooks + card no Performance)
+- `cliente-360-boot.js` (hook no Acompanhamento Comercial)
+- `sql-scripts/sql-motivos-perda.sql` (criar)
+
+**Tempo estimado**: 1h.
+
+### 62.2 🔗 Feature #2 — UTM Parser (2-3h, depende de pré-requisito)
+
+**Por que segundo**: leve, ganho real ("vendi quanto vindo do Insta?"), mas pré-requisito externo: Magazord precisa estar enviando UTM nos pedidos pro Bling.
+
+**Pré-requisito a verificar antes de começar**:
+```sql
+SELECT id, observacoes, observacoes_internas, dados_extras
+FROM pedidos
+WHERE observacoes ILIKE '%utm_%' OR observacoes_internas ILIKE '%utm_%'
+LIMIT 10;
+```
+Se vazio: pedir pra Dana ativar passagem de UTM no Magazord (Configurações → Integrações → Bling → Mapping de campos custom). É config, não código.
+
+**Onde aparece**:
+- **Cliente 360 detalhe** (header): nova linha `🔗 Origem: Instagram · campanha primavera25 · primeiro toque há 14 dias` (do PRIMEIRO pedido cronologicamente)
+- **Analytics** (após card ML): card novo `📊 Vendas por UTM` — top fontes por R$ vendido (não só sessões como GA4)
+- **Cliente 360 lista**: filtro novo "Origem UTM" no topbar (Instagram / Facebook / Google / Direto / Email / Outro)
+
+**SQL** (`sql-scripts/sql-utm-pedidos.sql` — criar):
+```sql
+ALTER TABLE pedidos ADD COLUMN utm_source TEXT, ADD COLUMN utm_medium TEXT,
+                    ADD COLUMN utm_campaign TEXT, ADD COLUMN utm_content TEXT, ADD COLUMN utm_term TEXT;
+CREATE INDEX idx_pedidos_utm_source   ON pedidos(utm_source)   WHERE utm_source IS NOT NULL;
+CREATE INDEX idx_pedidos_utm_campaign ON pedidos(utm_campaign) WHERE utm_campaign IS NOT NULL;
+
+CREATE OR REPLACE VIEW vendas_por_utm AS
+SELECT empresa, utm_source, utm_campaign,
+       COUNT(*) AS pedidos,
+       SUM(COALESCE(total, total_produtos, 0)) AS faturamento,
+       AVG(COALESCE(total, total_produtos, 0)) AS ticket_medio
+FROM pedidos
+WHERE utm_source IS NOT NULL
+GROUP BY empresa, utm_source, utm_campaign;
+```
+
+**Edge function** (modificar `sync-pedidos.ts` + `sync-pedidos-bc.ts`): regex que extrai UTMs de `observacoes` ou `dados_extras`:
+```ts
+const utmRegex = /utm_(source|medium|campaign|content|term)=([^&\s]+)/g;
+const matches = pedido.observacoes?.matchAll(utmRegex) || [];
+const utms = {};
+for (const m of matches) utms[`utm_${m[1]}`] = decodeURIComponent(m[2]);
+```
+
+**Frontend**:
+- `cliente-360-boot.js`: header do detalhe ganha linha de origem (busca primeiro pedido do cliente)
+- `index.html` Analytics: novo card lendo da view `vendas_por_utm`
+- Filtro UTM no topbar do Cliente 360 lista
+
+**Arquivos a tocar**:
+- `sql-scripts/sql-utm-pedidos.sql` (criar)
+- `edge-functions/sync-pedidos.ts` + `sync-pedidos-bc.ts` (parser UTM no upsert)
+- `index.html` Analytics (card novo)
+- `cliente-360-boot.js` (header + filtro)
+
+**Tempo estimado**: 2-3h (depende se Magazord já passa UTM).
+
+### 62.3 🔍 Feature #3 — Lead Tracking script .js (6-8h, mais valiosa)
+
+**Por que terceiro**: mais cara mas é a que mais agrega — captura visitantes anônimos do site Dana e amarra retroativamente quando viram cliente. Coração do Lead Tracking do RD.
+
+**Onde aparece**:
+- **Cliente 360 detalhe** (Timeline existente): eventos novos `👁 Viu /jaleco-feminino-chloe (3x)`, `🛒 Adicionou ao carrinho`, etc
+- **Cliente 360 detalhe** (aba nova "🔍 Comportamento"): páginas mais vistas, sessão média, dias entre 1ª visita e 1ª compra, gráfico de jornada
+- **Analytics** (futuro card): visitantes anônimos online agora
+
+**Arquitetura**:
+```
+Magazord site (com <script src="/dms-tracker.js?id=XXX">)
+  ↓ pageview/click ping
+Edge function dms-tracker-ingest (recebe eventos)
+  ↓ INSERT
+analytics_lead_events (tabela nova, série temporal)
+  ↑ resolve identidade
+sync-pedidos (existente — quando vira cliente, faz match retroativo via cookie_id ou email)
+```
+
+**SQL** (`sql-scripts/sql-lead-tracking.sql` — criar):
+```sql
+CREATE TABLE analytics_lead_events (
+  id BIGSERIAL PRIMARY KEY,
+  cookie_id UUID NOT NULL,
+  contato_id BIGINT,
+  contato_nome TEXT,
+  empresa TEXT,
+  evento_tipo TEXT NOT NULL,    -- pageview|click|form_view|add_cart|checkout_start|purchase
+  url TEXT, referrer TEXT,
+  utm_source TEXT, utm_medium TEXT, utm_campaign TEXT,
+  device TEXT,                  -- mobile|desktop|tablet
+  user_agent TEXT,
+  ip_anon TEXT,                 -- /24 mascarado pra LGPD
+  metadata JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_lle_cookie  ON analytics_lead_events(cookie_id, created_at DESC);
+CREATE INDEX idx_lle_contato ON analytics_lead_events(contato_nome, created_at DESC);
+CREATE INDEX idx_lle_created ON analytics_lead_events(created_at DESC);
+
+CREATE TABLE analytics_lead_identity (
+  cookie_id UUID PRIMARY KEY,
+  contato_nome TEXT,
+  email_hash TEXT,              -- LGPD friendly
+  primeiro_evento TIMESTAMPTZ,
+  resolvido_em TIMESTAMPTZ
+);
+
+CREATE OR REPLACE VIEW analytics_jornada_cliente AS
+SELECT contato_nome, empresa,
+       COUNT(*) FILTER (WHERE evento_tipo='pageview') AS pageviews,
+       COUNT(DISTINCT DATE(created_at)) AS dias_visitando,
+       MIN(created_at) AS primeiro_toque, MAX(created_at) AS ultimo_toque,
+       array_agg(DISTINCT url ORDER BY url) FILTER (WHERE evento_tipo='pageview') AS paginas_unicas,
+       array_agg(DISTINCT utm_source) FILTER (WHERE utm_source IS NOT NULL) AS canais
+FROM analytics_lead_events
+WHERE contato_nome IS NOT NULL
+GROUP BY contato_nome, empresa;
+```
+
+**Arquivo público `public/dms-tracker.js`** (criar — vai pra `_staging-dana-marketing/` na raiz pra Vercel servir):
+- Cookie first-party `dms_visitor_id`
+- Pageview no load + popstate (SPA)
+- `navigator.sendBeacon` ou `fetch keepalive`
+- Captura UTM da URL atual
+
+**Edge function `dms-tracker-ingest`** (criar):
+- POST público sem JWT
+- Rate limit por IP
+- Validação body
+- INSERT em `analytics_lead_events`
+- Se evento for `purchase`/`form_submit` com email/contato_nome → atualiza `analytics_lead_identity` + UPDATE retroativo em todos os eventos do cookie
+
+**Frontend Cliente 360 boot**:
+- Aba nova "🔍 Comportamento" no detalhe do cliente
+- Lê `analytics_jornada_cliente`
+- KPIs: pageviews totais, dias visitando, primeiro toque há X dias
+- Lista páginas únicas + canais (UTM sources)
+- Mini timeline: linha do tempo dos primeiros 20 eventos
+- Adicionar eventos de `analytics_lead_events` na Timeline existente (UNION ALL na view `cliente_eventos_timeline`)
+
+**Magazord setup** (Manu/Juan ativam manual):
+1. Magazord → Configurações → Snippets → adicionar no `<head>`:
+   ```html
+   <script async src="https://danadash.netlify.app/dms-tracker.js"></script>
+   ```
+2. Pronto.
+
+**LGPD**: cookie first-party (mesmo domínio), `ip_anon` mascara último octeto. Banner de consentimento opcional.
+
+**Arquivos a tocar**:
+- `sql-scripts/sql-lead-tracking.sql` (criar)
+- `edge-functions/dms-tracker-ingest.ts` (criar)
+- `_staging-dana-marketing/dms-tracker.js` (criar — Vercel serve da raiz)
+- `cliente-360-boot.js` (aba "Comportamento" + integração na Timeline)
+
+**Tempo estimado**: 6-8h.
+
+---
+
+## 63. PROMPT PARA RETOMAR APÓS /COMPACT
+
+Use exatamente esse prompt no próximo chat:
+
+```
+Estou continuando o desenvolvimento do DMS (Dana Marketing System) da Dana Jalecos.
+
+Por favor leia antes de tudo:
+C:\Users\Juan - Dana Jalecos\Documents\Sistema Marketing\DOCUMENTACAO-COMPLETA-DMS.md
+
+ATENÇÃO Sections 61, 62 e 63 — Section 62 tem os 3 PRÓXIMOS PASSOS PRIORITÁRIOS pra
+implementar AGORA, na ordem:
+  1) Motivos de Perda (1h)
+  2) UTM Parser (2-3h, requer Magazord configurado)
+  3) Lead Tracking script .js (6-8h)
+
+Estado atual (06/05/2026 noite):
+- Ciclo Analytics IA executado COMPLETO (Fases 0+1+2+3+4 em uma sessão)
+- 27 crons rodando, edge function analytics-insight v1 ACTIVE
+- Drill-down causal funcionando (KPIs + tabelas top-N)
+- Bug fixes: bar-wrap height, tooltip data-val, drill secundário com dados reais
+
+Repos:
+- DanaComercial: github.com/DanaComercial/dana-marketing (espelho/GH Pages)
+- DanaJalecos: github.com/DanaJalecos/dana-marketing (Vercel oficial)
+- Worktree: .claude/worktrees/vibrant-davinci (edita aqui, push pra ambos)
+- Staging: _staging-dana-marketing (cópia espelho do DanaJalecos)
+
+Workflow de deploy a cada fase:
+1. Edita worktree
+2. Sync: cp index.html → _staging-dana-marketing/
+3. git commit + push origin HEAD:main (DanaComercial)
+4. cd staging + git commit + push origin main (DanaJalecos)
+
+Vamos começar pelo passo #1 (Motivos de Perda).
+```
+
+---
+
+**Fim da documentação · Atualizado em 06/05/2026 noite — ciclo Analytics IA completo + próximos passos · v7.0**
