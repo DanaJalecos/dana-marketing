@@ -44,40 +44,56 @@ const QUOTAS = {
   producao_conteudo: 5,
 }
 
-// System prompt — formato JSON ESTRUTURADO + anti-alucinação rígida
-const SYSTEM_PROMPT = `Você é um analista comercial sênior da Dana Jalecos (jalecos, scrubs e uniformes profissionais de saúde).
+// System prompt — formato JSON ESTRUTURADO + hipóteses inferenciais marcadas
+const SYSTEM_PROMPT = `Você é um analista comercial sênior da Dana Jalecos (jalecos, scrubs e uniformes profissionais de saúde) com 10+ anos de experiência no segmento. Conhece os padrões típicos de cada tipo de cliente.
 
-Sua tarefa: qualificar um LEAD em 6 pilares clássicos de vendas e sugerir a próxima ação. Use APENAS os dados do contexto JSON.
+Sua tarefa: qualificar um LEAD em 6 pilares clássicos de vendas e sugerir a próxima ação. Use os dados do contexto JSON COMO BASE PRIMÁRIA, mas você está autorizado a INFERIR HIPÓTESES TÍPICAS por segmento quando o contexto for limitado — desde que MARQUE EXPLICITAMENTE como hipótese.
 
 REGRAS CRÍTICAS:
-1. Use SOMENTE informações presentes no JSON. Se um pilar não tem dado, escreva "—" ou marque incerteza explícita ("provavelmente", "indício de").
-2. NÃO invente nomes, valores, datas, segmentos ou conversas que não estejam no contexto.
-3. Português brasileiro, direto, sem floreio. Tom consultivo de quem fala com vendedora experiente.
-4. Cite NÚMEROS quando o contexto tiver (ex: "3 pageviews", "última visita há 4 dias", "1 pedido anterior R$ 280").
-5. Pra "Objeções", liste 1-3 itens curtos (max 30 chars cada). Se não houver indício, responda ["—"].
-6. Pra "Ação recomendada", seja PRÁTICO e EXECUTÁVEL hoje (ex: "Mandar foto do tecido em zoom + cupom FRETE10").
+1. Dados PRIMÁRIOS: nomes, valores, datas, conversas REAIS — use SOMENTE se estão no JSON. NÃO invente esses.
+2. INFERÊNCIAS por segmento: se o contexto traz segmento ou nicho conhecido (ex: "clínica de harmonização", "consultório odontológico", "estudante medicina"), VOCÊ PODE preencher Dor/Budget/Objeções com hipóteses TÍPICAS daquele segmento, marcando com "Provável:", "Típico em [segmento]:", ou "Hipótese a validar:".
+3. NUNCA deixe um pilar como "—" se o contexto traz segmento/perfil identificável — sempre dê pelo menos 1 hipótese marcada.
+4. Português brasileiro, direto, tom consultivo.
+5. Pra "Objeções", liste 1-3 itens curtos (max 40 chars). Se for hipótese, prefixe com "Possível: ".
+6. Pra "Ação recomendada", seja PRÁTICO e EXECUTÁVEL hoje. Cite produto Dana específico se possível (ex: "scrub Lorenzo", "jaleco gola padre Manuela").
+7. Use a "conversa_extra" se ela vier no contexto — é OURO, vendedora colou diálogo real.
+
+CONHECIMENTO DE SEGMENTOS (use pra inferir hipóteses):
+- Clínicas de estética/harmonização → DOR típica: padronização visual + identidade premium · BUDGET típico: Médio-Alto (R$ 300-600/peça) · OBJEÇÕES: prazo, MOQ, política de troca
+- Consultórios odontológicos → DOR: durabilidade contra produtos químicos + conforto longas jornadas · BUDGET: Médio (R$ 200-400) · OBJEÇÕES: tecido tecnológico, manga ergonômica
+- Estudantes medicina/enfermagem → DOR: jaleco aprovado pelo curso, primeiro uniforme · BUDGET: Baixo (R$ 100-200) · OBJEÇÕES: parcelamento, pegar pra formatura no prazo
+- Hospitais/grandes redes → DOR: licitação, padronização em escala · BUDGET: Alto (volume) · OBJEÇÕES: NF, prazo de pagamento, termo de aceite
+- Salões/spas/clínicas estéticas pequenas → DOR: visual instagramável + diferenciar do concorrente · BUDGET: Médio · OBJEÇÕES: cores customizadas, bordado nome
 
 FORMATO DE SAÍDA — DEVOLVA APENAS JSON VÁLIDO (sem markdown, sem prefixo):
 
 {
-  "dor": "string curta — qual problema o lead tenta resolver",
+  "dor": "string — pode ser inferida do segmento, marque 'Provável:' ou 'Típico:' se for hipótese",
   "perfil": "string curta — quem é (B2B/B2C, profissão, tamanho, nicho)",
-  "budget": "NIVEL · faixa estimada · ex: 'Médio · R$ 200-400/peça' ou '— · sem indício'",
-  "urgencia": "NIVEL · descrição · ex: 'Alta · provável fechamento em 7 dias' ou 'Baixa · sem prazo definido'",
-  "timing": "ETAPA · descrição · ex: 'Consideração · comparando 2 fornecedores' ou 'Pesquisa · só conheceu a marca agora'",
-  "objecoes": ["array", "de", "strings"],
+  "budget": "NIVEL · faixa estimada · ex: 'Médio · R$ 200-400/peça (típico do segmento)'",
+  "urgencia": "NIVEL · descrição. Se sem prazo no contexto, escreva 'Baixa · sem prazo informado — confirmar com lead'",
+  "timing": "ETAPA · descrição",
+  "objecoes": ["lista de 1-3 objeções, hipóteses marcadas com 'Possível:'"],
   "lead_score": 0-100,
-  "acao_recomendada": "string com a próxima ação concreta da vendedora"
+  "acao_recomendada": "próxima ação concreta da vendedora — mencione produto Dana se couber",
+  "descobrir": ["lista de 2-4 perguntas que a vendedora deveria fazer pro lead pra preencher pilares vazios ou validar hipóteses"]
 }
 
-REGRAS PRO LEAD_SCORE (0-100):
-- 80-100: lead quente, decisão eminente, dados ricos confirmando intenção
-- 60-79: lead morno, demonstrou interesse claro, faltam detalhes pra fechar
-- 40-59: lead frio com sinais positivos, precisa nutrir
-- 20-39: lead muito frio, info insuficiente
-- 0-19: praticamente sem qualificação possível, dados quase nulos
+REGRAS PRO LEAD_SCORE (BASELINE MAIS AGRESSIVO):
+- 85-100: dados ricos confirmando alta intenção (conversa explícita + segmento + status avançado)
+- 65-84: bom perfil identificado + status indica engajamento + 1+ sinal forte
+- 45-64: BASELINE pra lead com perfil/segmento conhecido + status pelo menos 'novo' (NÃO ir abaixo disso se segmento bate com Dana)
+- 25-44: lead com info ESPARSA — só nome e cidade, sem segmento útil
+- 0-24: praticamente nada (lead órfão, sem nem segmento)
 
-NIVEIS aceitos: 'Alta' | 'Média' | 'Baixa' (urgência), 'Premium' | 'Alto' | 'Médio' | 'Baixo' (budget), 'Pesquisa' | 'Consideração' | 'Decisão' (timing).`
+IMPORTANTE: mesmo lead 'novo' B2B com segmento bem definido alinhado à Dana DEVE pontuar 45-60 (não 20). Subir o baseline.
+
+NIVEIS aceitos: 'Alta' | 'Média' | 'Baixa' (urgência), 'Premium' | 'Alto' | 'Médio' | 'Baixo' (budget), 'Pesquisa' | 'Consideração' | 'Decisão' (timing).
+
+PRA "DESCOBRIR" (perguntas pra vendedora fazer):
+- Sempre 2-4 perguntas práticas
+- Foco em pilares marcados como hipótese ou vazios
+- Linguagem natural pra fluir no WhatsApp ("Quantas pessoas da equipe usam jaleco?", "Qual a urgência? Tem evento marcado?", "Já pesquisou outras opções?")`
 
 async function callGroq(messages: any[]) {
   const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -134,16 +150,17 @@ async function gerar(contexto: string): Promise<{ obj: any, modelo: string, prov
 // Calcula confiança DETERMINISTICAMENTE pelo backend (não pela IA)
 function calcularConfianca(sinais: any): number {
   let conf = 30  // base
-  if (sinais.tem_segmento) conf += 5
+  if (sinais.tem_segmento) conf += 8        // segmento é sinal forte (permite hipóteses)
   if (sinais.tem_cidade) conf += 5
   if (sinais.tem_whatsapp) conf += 3
   if (sinais.tem_mensagem_ia) conf += 5
   if (sinais.tem_observacao) conf += 5
-  if (sinais.status_avancado) conf += 10  // se status != 'novo' (vendedora já contatou)
+  if (sinais.tem_conversa_real) conf += 25  // conversa real WhatsApp colada = OURO
+  if (sinais.status_avancado) conf += 10
   if (sinais.qtd_eventos_tracker > 0) conf += Math.min(15, sinais.qtd_eventos_tracker * 2)
   if (sinais.qtd_pedidos_anteriores > 0) conf += 12
-  if (sinais.tem_motivo_perda) conf += 5  // motivo de perda já registrado é sinal forte
-  return Math.min(95, conf)  // teto 95% — nunca prometer 100% certeza
+  if (sinais.tem_motivo_perda) conf += 5
+  return Math.min(95, conf)
 }
 
 Deno.serve(async (req) => {
@@ -175,6 +192,8 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}))
     const prospectId: string = body.prospect_id
     if (!prospectId) return json({ error: 'prospect_id obrigatório' }, 400)
+    // OPCIONAL: conversa que a vendedora colou do WhatsApp (ouro pro contexto)
+    const conversaExtra: string = String(body.conversa_extra || '').trim().slice(0, 4000)
 
     // Quota — admin ilimitado
     if (cargo !== 'admin') {
@@ -260,13 +279,19 @@ Deno.serve(async (req) => {
     }
     if (qtdPedidos > 0) contextoLead.pedidos_anteriores_count = qtdPedidos
 
+    // Conversa colada pela vendedora — vai pro contexto se veio
+    if (conversaExtra) {
+      contextoLead.conversa_real_whatsapp = conversaExtra
+    }
+
     // Sinais pra calcular confiança
     const sinais = {
       tem_segmento: !!prospect.segmento,
       tem_cidade: !!prospect.cidade,
       tem_whatsapp: !!prospect.whatsapp,
       tem_mensagem_ia: !!prospect.ia_mensagem,
-      tem_observacao: false,  // prospects não tem campo observacao genérico
+      tem_observacao: false,
+      tem_conversa_real: !!conversaExtra,  // ← novo sinal forte
       status_avancado: prospect.status && prospect.status !== 'novo',
       qtd_eventos_tracker: qtdEventosTracker,
       qtd_pedidos_anteriores: qtdPedidos,
@@ -293,6 +318,7 @@ Deno.serve(async (req) => {
     // Normaliza objeto
     const obj = result.obj || {}
     const objecoesArr = Array.isArray(obj.objecoes) ? obj.objecoes.slice(0, 5).map((o: any) => String(o).slice(0, 80)) : ['—']
+    const descobrirArr = Array.isArray(obj.descobrir) ? obj.descobrir.slice(0, 6).map((o: any) => String(o).slice(0, 200)) : []
     const leadScore = Math.max(0, Math.min(100, parseInt(obj.lead_score) || 50))
 
     // Custo estimado
@@ -304,13 +330,15 @@ Deno.serve(async (req) => {
       .insert({
         prospect_id: prospectId,
         contato_nome: prospect.nome,
-        empresa: null,  // prospects não tem empresa setada
+        empresa: null,
         dor: String(obj.dor || '—').slice(0, 400),
         perfil: String(obj.perfil || '—').slice(0, 300),
         budget: String(obj.budget || '—').slice(0, 200),
         urgencia: String(obj.urgencia || '—').slice(0, 200),
         timing: String(obj.timing || '—').slice(0, 200),
         objecoes: objecoesArr,
+        descobrir: descobrirArr,
+        conversa_extra: conversaExtra || null,
         lead_score: leadScore,
         acao_recomendada: String(obj.acao_recomendada || '—').slice(0, 600),
         confianca_pct: confiancaPct,
@@ -341,6 +369,7 @@ Deno.serve(async (req) => {
         urgencia: obj.urgencia || '—',
         timing: obj.timing || '—',
         objecoes: objecoesArr,
+        descobrir: descobrirArr,
         lead_score: leadScore,
         acao_recomendada: obj.acao_recomendada || '—',
         confianca_pct: confiancaPct,

@@ -21233,7 +21233,10 @@ window.prospAbrirQualificacao = async function(id) {
 // Gera nova qualificação chamando edge function
 window.prospGerarQualificacao = async function(prospectId) {
   const btn = document.getElementById('qualif-gerar-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Analisando lead...'; }
+  // Lê conversa colada (opcional) — só se modal vazio tem o textarea
+  const conversaEl = document.getElementById('qualif-conversa-extra');
+  const conversaExtra = (conversaEl?.value || '').trim();
+  if (btn) { btn.disabled = true; btn.textContent = conversaExtra ? '⏳ Analisando conversa + lead...' : '⏳ Analisando lead...'; }
   try {
     const { data: { session } } = await sb.auth.getSession();
     if (!session) throw new Error('Sessão expirada. Recarregue a página.');
@@ -21244,7 +21247,7 @@ window.prospGerarQualificacao = async function(prospectId) {
         'apikey': SUPABASE_ANON_KEY,
         'Authorization': 'Bearer ' + session.access_token,
       },
-      body: JSON.stringify({ prospect_id: prospectId }),
+      body: JSON.stringify({ prospect_id: prospectId, conversa_extra: conversaExtra }),
     });
     const j = await r.json();
     if (!r.ok) {
@@ -21267,6 +21270,7 @@ window.prospGerarQualificacao = async function(prospectId) {
       urgencia: q.urgencia,
       timing: q.timing,
       objecoes: q.objecoes,
+      descobrir: q.descobrir,
       lead_score: q.lead_score,
       acao_recomendada: q.acao_recomendada,
       confianca_pct: q.confianca_pct,
@@ -21295,7 +21299,7 @@ function _qualifRenderModal(p, q) {
   if (!q) {
     const html = `
       <div class="modal-overlay open" id="prsp-qualif-modal" style="z-index:10100" onclick="if(event.target===this){this.remove()}">
-        <div class="modal" style="max-width:560px">
+        <div class="modal" style="max-width:620px;max-height:92vh;display:flex;flex-direction:column;overflow:hidden">
           <div class="modal-header">
             <div>
               <div class="modal-title">🎯 Qualificação IA</div>
@@ -21303,16 +21307,38 @@ function _qualifRenderModal(p, q) {
             </div>
             <button class="modal-close" onclick="document.getElementById('prsp-qualif-modal').remove()">×</button>
           </div>
-          <div style="padding:18px;text-align:center">
-            <div style="font-size:48px;margin-bottom:12px;opacity:0.55">🎯</div>
-            <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px">Lead ainda não foi qualificado</div>
-            <div style="font-size:12.5px;color:var(--text3);line-height:1.55;margin-bottom:18px;max-width:460px;margin-left:auto;margin-right:auto">
-              A IA vai analisar os dados disponíveis (mensagem gerada, cidade, status, comportamento no site, pedidos anteriores) e classificar o lead nos <strong>6 pilares clássicos de venda</strong>: Dor · Perfil · Budget · Urgência · Timing · Objeção.
+          <div style="padding:16px 18px;flex:1;overflow-y:auto">
+            <div style="text-align:center;margin-bottom:14px">
+              <div style="font-size:38px;margin-bottom:6px;opacity:0.55">🎯</div>
+              <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:5px">Lead ainda não foi qualificado</div>
+              <div style="font-size:12px;color:var(--text3);line-height:1.55;max-width:480px;margin:0 auto">
+                A IA vai analisar dados disponíveis + inferir hipóteses típicas do segmento, e classificar nos <strong>6 pilares</strong>: Dor · Perfil · Budget · Urgência · Timing · Objeção.
+              </div>
             </div>
-            <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:10px 14px;font-size:11.5px;color:var(--text2);line-height:1.5;margin-bottom:14px;text-align:left">
-              <strong style="color:#92400e">⚠️ Sobre precisão:</strong> a confiança da IA depende dos dados disponíveis sobre esse lead. Hoje (sem WhatsApp API integrada e Lead Tracker desligado), espere <strong>50-65% de confiança</strong>. Isso é honesto, não inflado.
+
+            <!-- Campo OURO: conversa colada do WhatsApp -->
+            <div style="background:linear-gradient(135deg,rgba(34,197,94,0.06),rgba(16,163,74,0.04));border:1px solid rgba(34,197,94,0.3);border-radius:10px;padding:12px 14px;margin-bottom:14px">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                <span style="font-size:14px">💬</span>
+                <strong style="font-size:11.5px;color:#16a34a;text-transform:uppercase;letter-spacing:0.4px">Cole a conversa do WhatsApp <span style="font-weight:500;color:var(--text3);text-transform:none;letter-spacing:0">(opcional, mas faz toda diferença)</span></strong>
+              </div>
+              <div style="font-size:11px;color:var(--text2);line-height:1.4;margin-bottom:8px">
+                Se vc já trocou mensagens com esse lead, cola aqui o que rolou. A IA vai ler e a confiança pula de ~50% pra ~80%+. Você pode colar copiando direto do WhatsApp.
+              </div>
+              <textarea id="qualif-conversa-extra" rows="5" placeholder="Ex:
+Cliente: Oi, vocês fazem bordado personalizado?
+Eu: Fazemos sim! Quantas peças vc precisa?
+Cliente: Umas 8 jalecos pra equipe da clínica, prazo até dia 20...
+&#10;
+(opcional — pode deixar em branco)" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:9px 10px;font-size:12px;font-family:inherit;line-height:1.45;background:var(--white);resize:vertical;min-height:90px"></textarea>
             </div>
-            <button id="qualif-gerar-btn" onclick="prospGerarQualificacao('${p.id}')" class="btn btn-primary" style="background:#7c3aed;border:none;color:white;padding:10px 18px;font-size:13px">🎯 Gerar Qualificação</button>
+
+            <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:9px 12px;font-size:11px;color:var(--text2);line-height:1.5;text-align:left">
+              <strong style="color:#92400e">⚠️ Sobre precisão:</strong> sem conversa colada e sem Lead Tracker ativo, espere <strong>50-65% de confiança</strong>. Com conversa colada, sobe pra 80%+. Esses números são honestos, não inflados.
+            </div>
+          </div>
+          <div style="padding:12px 18px;border-top:1px solid var(--border);background:var(--surface);text-align:center">
+            <button id="qualif-gerar-btn" onclick="prospGerarQualificacao('${p.id}')" class="btn btn-primary" style="background:#7c3aed;border:none;color:white;padding:10px 22px;font-size:13px">🎯 Gerar Qualificação</button>
           </div>
         </div>
       </div>`;
@@ -21331,6 +21357,7 @@ function _qualifRenderModal(p, q) {
   const objs = Array.isArray(q.objecoes) ? q.objecoes : ['—'];
   const fontes = q.fontes_analisadas || {};
   const fontesArr = [
+    fontes.tem_conversa_real && '💬 Conversa WhatsApp colada (sinal forte)',
     fontes.tem_segmento && '🏢 Segmento',
     fontes.tem_cidade && '📍 Cidade/UF',
     fontes.tem_whatsapp && '📱 WhatsApp',
@@ -21340,7 +21367,7 @@ function _qualifRenderModal(p, q) {
     fontes.qtd_pedidos_anteriores > 0 && `🛒 ${fontes.qtd_pedidos_anteriores}× pedidos`,
     fontes.tem_motivo_perda && '📉 Motivo de perda',
   ].filter(Boolean);
-  const semSinaisFortes = !fontes.qtd_eventos_tracker && !fontes.qtd_pedidos_anteriores && !fontes.tem_mensagem_ia;
+  const semSinaisFortes = !fontes.qtd_eventos_tracker && !fontes.qtd_pedidos_anteriores && !fontes.tem_mensagem_ia && !fontes.tem_conversa_real;
 
   const card = (icone, titulo, conteudo, cor) => `
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 13px;border-left:3px solid ${cor||'var(--border)'}">
@@ -21430,6 +21457,23 @@ function _qualifRenderModal(p, q) {
             </div>
             <div style="font-size:12.5px;color:var(--text);line-height:1.55">${esc(q.acao_recomendada || '—')}</div>
           </div>
+
+          <!-- Pra descobrir (perguntas pra fazer) -->
+          ${(Array.isArray(q.descobrir) && q.descobrir.length) ? `
+          <div style="background:linear-gradient(135deg,rgba(14,165,233,0.07),rgba(2,132,199,0.04));border:1px solid rgba(14,165,233,0.25);border-radius:10px;padding:14px 16px;margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+              <span style="font-size:16px">🔎</span>
+              <div style="font-size:11px;color:#0369a1;text-transform:uppercase;letter-spacing:0.6px;font-weight:700">Pra descobrir <span style="font-weight:500;color:var(--text3);text-transform:none">— perguntas pra fazer ao lead</span></div>
+            </div>
+            <ul style="margin:0;padding:0 0 0 4px;list-style:none">
+              ${q.descobrir.map(perg => `
+                <li style="display:flex;gap:8px;font-size:12px;color:var(--text);line-height:1.5;padding:4px 0;border-bottom:1px dashed rgba(14,165,233,0.15)">
+                  <span style="color:#0ea5e9;flex-shrink:0;font-weight:700">›</span>
+                  <span>${esc(perg)}</span>
+                </li>`).join('')}
+            </ul>
+            <div style="margin-top:7px;font-size:10.5px;color:var(--text3);font-style:italic">💬 Fazendo essas perguntas e regenerando, a confiança sobe consideravelmente.</div>
+          </div>` : ''}
 
           <!-- Fontes analisadas -->
           ${fontesArr.length ? `
