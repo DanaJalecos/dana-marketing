@@ -1518,7 +1518,7 @@
   window.loadSiteMagazord = async function(force) {
     const panel = document.getElementById('c360-tabpanel-site');
     if (!panel) return;
-    if (!window.supabase) {
+    if (!state.sb) {
       panel.innerHTML = '<div style="color:#94a3b8;padding:20px;font-size:12.5px;text-align:center">Supabase não inicializado</div>';
       return;
     }
@@ -1532,7 +1532,7 @@
     }
 
     try {
-      const sb = window.supabase;
+      const sb = state.sb;
       // Match por nome ILIKE (Magazord ainda não libera /cliente, então não temos email/CPF cruzável diretamente)
       const { data, error } = await sb
         .from('magazord_pedido_completo')
