@@ -7454,4 +7454,251 @@ Vamos começar pela Fase 1 do Sync Magazord.
 
 ---
 
-**Fim da documentação · Atualizado em 08/05/2026 noite — Magazord API validada + plano de Sync · v11.0**
+
+## 76. CICLO 09/05/2026 (TARDE) — MAGAZORD SYNC FASE 1 COMPLETA + ENDPOINTS RECONFERIDOS
+
+User pediu pra "enriquecer o DMS, a aba E-commerce tá vazia". Executei a Fase 1 completa do Sync Magazord (schema + edge + secrets + cron + smoke test). Fase 2 (UI) pausada porque user disse que Magazord liberou cliente/cupom/erp, mas teste comprovou que **não liberou de fato** — só `/v2/site/carrinho` foi liberado.
+
+### 76.1 Schema aplicado (`sql-scripts/sql-magazord.sql`)
+
+**6 tabelas** (todas com `raw JSONB` + `synced_at`, idempotentes):
+
+| Tabela | Linhas após sync | Origem |
+|---|---|---|
+| `magazord_pedidos` | **5.133** | `/v2/site/pedido` (full sync) |
+| `magazord_pessoas` | **5.720** | `/v2/site/pessoa` (full sync) — inclui `email_hash` SHA256 pra cruzar com Lead Tracker |
+| `magazord_produtos` | **755** | `/v2/site/produto` (full sync) — GIN portuguese full-text em `nome` |
+| `magazord_categorias` | **108** | `/v2/site/categoria` (árvore com `pai_id`) |
+| `magazord_marcas` | **4** | `/v2/site/marca` (Dana Jalecos = id 2) |
+| `magazord_carrinhos` | **914** | `/v2/site/carrinho` (15d) — só LIST, GET individual ainda 405 |
+
+**1 view**: `magazord_pedido_completo` (JOIN pedido + pessoa, expõe `pessoa_email_hash` pro match)
+
+**5 RPCs**:
+- `magazord_resumo_periodo(dias)` → KPIs E-commerce (total, pagos, cancelados, faturamento, ticket médio, % cancel, clientes únicos/recorrentes)
+- `magazord_top_clientes(dias, limite)` → ranking por gasto
+- `magazord_dist_forma_pagamento(dias)` → distribuição PIX/Cartão/Boleto/etc
+- `magazord_serie_diaria(dias)` → série temporal pra gráfico (timezone São Paulo)
+- `magazord_carrinho_stats(dias)` → abandonados + taxa conversão
+
+**RLS**: 6 cargos podem ler (admin, gerente_marketing, gerente_comercial, trafego_pago, producao_conteudo, **vendedora**), só admin pode escrever.
+
+**13 índices** otimizados (data, pessoa, situação, forma_pgto, marketplace, email_hash, full-text português).
+
+### 76.2 Edge function `sync-magazord.ts` v1 ACTIVE
+
+**Body**: `{ recurso?: 'pedidos'|'pessoas'|'produtos'|'categorias'|'marcas'|'carrinhos'|'all', dias_atras?: number }`
+
+- Auth Basic com `MAGAZORD_API_TOKEN:MAGAZORD_API_SENHA`
+- URL via `MAGAZORD_API_URL` (default `https://danajalecos.painel.magazord.com.br/api`)
+- Paginação genérica (`?page=N&limit=100`, max 200 páginas)
+- SHA256 hex de email pra `email_hash` em pessoas
+- Upserts em batches de 500
+- Tratamento de carrinho (precisa `dataAtualizacaoInicio` + `dataAtualizacaoFim`, intervalo máx 30d)
+
+### 76.3 Secrets configurados
+
+- `MAGAZORD_API_TOKEN` ✅
+- `MAGAZORD_API_SENHA` ✅
+- `MAGAZORD_API_URL` ✅
+
+### 76.4 Smoke tests (todos passaram)
+
+| Teste | Tempo | Resultado |
+|---|---|---|
+| `recurso=marcas` | 0.5s | 4 upserted |
+| `recurso=categorias` | 0.5s | 108 upserted |
+| `recurso=pedidos` 7d | 13.6s | 65 filtrados de 5133 lidos |
+| `recurso=carrinhos` 15d | 3.9s | 914 upserted |
+| `recurso=produtos` | 9.3s | 755 upserted |
+| `recurso=pessoas` | 24.8s | 5720 upserted |
+| `recurso=pedidos` full (`dias_atras=9999`) | 32.5s | 5133 upserted (desde 1998!) |
+
+**Total full sync**: ~80s pra 12.634 registros. Bem dentro do budget de 5min de timeout.
+
+### 76.5 Cron jobid 29 ativo
+
+```
+sync-magazord-diario   '35 9 * * *'   → 09:35 UTC = 06:35 BRT
+body: {"recurso":"all","dias_atras":7}
+timeout: 300000ms
+```
+
+Agendado 10min após `sync-ml-ads` (06:25) pra não competir.
+
+### 76.6 🚨 ENDPOINTS QUE A MAGAZORD DISSE QUE LIBEROU — NÃO LIBEROU DE FATO
+
+Magazord falou pra Juan: "liberamos `/v2/site/cliente`, `/v2/site/cupom`, `/v2/erp/*`, `/v2/site/carrinho`".
+
+**Teste real (38 endpoints + variações):**
+
+| Endpoint | Status | Variações testadas |
+|---|---|---|
+| `/v2/site/cliente` | ❌ 405 todas | singular, plural, com data, com `?limit=1`, `/cliente/1`, v1, v3 |
+| `/v2/site/cupom` | ❌ 405 todas | mesmas variações |
+| `/v2/erp/*` (15 sub-rotas) | ❌ 405 todas | pedido, produto, cliente, marca, categoria, estoque, movimento-estoque, nota-fiscal, condicao-pagamento, forma-pagamento, contas-a-receber, contas-a-pagar |
+| `/v3/site/{cliente,cupom}` | ❌ 405 | v3 não existe |
+| `/v1/{...}` | ❌ 405 | v1 deprecated (só `/v1/ping` retorna 200) |
+| **`/v2/site/carrinho` (LIST)** | ✅ 200 | precisa `dataAtualizacaoInicio` + `dataAtualizacaoFim` |
+| `/v2/site/carrinho/{id}` (GET individual) | ❌ 405 | só LIST liberado |
+
+**Conclusão**: ÚNICO endpoint novo que de fato funcionou foi `/v2/site/carrinho` (listagem básica, sem detalhes).
+
+**Carrinho retorna dados pobres** (id, status, hash, dataInicio, dataAtualizacao, e às vezes `pedido.{id,codigo}` quando converteu) — sem email/cliente/itens/valor. Útil pra:
+- ✅ Contar carrinhos abandonados no período
+- ✅ Calcular taxa de conversão (status=3 / total)
+- ❌ Remarketing por email (não temos email)
+- ❌ Mostrar valor recuperável
+
+### 76.7 Relatório técnico pra Magazord
+
+Gerado em `relatorio-magazord-endpoints.md` (raiz do repositório, 7.4 KB / 234 linhas):
+
+- Diagnóstico do problema
+- 38 endpoints testados resumidos
+- Comandos cURL prontos pra Magazord reproduzir do lado deles
+- Headers HTTP capturados (incluindo `Allow: OPTIONS` provando o problema)
+- Endpoint de CONTROLE (`/v2/site/pedido?limit=1`) que funciona com a mesma auth — prova que problema é só do lado deles
+- Pedido formal listando o que precisa ser liberado
+
+User vai encaminhar pra Magazord e aguardar liberação real.
+
+### 76.8 Estado final do ciclo
+
+| Componente | Estado |
+|---|---|
+| Schema 6 tabelas + view + 5 RPCs + RLS | ✅ aplicado em prod |
+| Edge sync-magazord v1 | ✅ ACTIVE |
+| Secrets MAGAZORD_API_* | ✅ configurados |
+| Smoke tests todos | ✅ passando |
+| Cron diário jobid 29 | ✅ ativo |
+| Relatório pra Magazord | ✅ gerado |
+| **Fase 2 (UI)** | 🟡 PAUSADA (aguardando Magazord liberar endpoints) |
+| **Fase 3 (cruzamento Lead Tracker)** | 🟡 PAUSADA |
+
+**Custo**: zero (tudo dentro do plano Supabase Pro + API Magazord incluso).
+
+---
+
+## 77. PRÓXIMOS PASSOS — APÓS MAGAZORD LIBERAR ENDPOINTS
+
+### 77.1 Quando Magazord retornar (depende deles)
+
+1. Re-testar endpoints liberados (cliente/cupom/erp)
+2. Adicionar tabelas ao schema (`magazord_clientes`, `magazord_cupons`, `magazord_erp_*`)
+3. Adicionar funções `syncClientes`, `syncCupons` no edge
+4. Pedir GET individual do carrinho (`/v2/site/carrinho/{id}`) pra ter detalhes (cliente + itens + valor)
+5. Re-aplicar schema
+6. Smoke test dos novos recursos
+
+### 77.2 Fase 2 — UI E-commerce (~2-3h após endpoints liberados)
+
+Layout aprovado pelo user: **padrão atual (KPIs + tabela + cards)**.
+
+**Aba E-commerce** (`view-ecommerce` linhas 3240-3267 do index.html — substituir o placeholder):
+- 4 KPIs no topo: Faturamento, Pedidos, Ticket Médio, % Cancelamento
+- Filtro de período (mês atual / YTD / 30d / 90d)
+- Card "Tendência diária" com gráfico (RPC `magazord_serie_diaria`)
+- Card "Por forma de pagamento" (RPC `magazord_dist_forma_pagamento`)
+- Card "Por status" (situacao_tipo: Pago/Cancelado/Em separação)
+- Card "Marketplaces" (loja_marketplace_nome)
+- Card "Carrinhos abandonados" (RPC `magazord_carrinho_stats`)
+- Tabela "Pedidos recentes" (últimos 50, paginação)
+- ~~Top clientes~~ — fica pra depois (precisa do endpoint de cliente liberado pra ter mais dados)
+
+**Cliente 360** — opção escolhida: **aba nova "🛍 Site (Magazord)"** (entre Pedidos Bling e Comportamento):
+- Pedidos do site daquele cliente (match por CPF/email/telefone na view `magazord_pedido_completo`)
+- Ticket médio site
+- Primeira/última compra site
+- Lista de carrinhos abandonados desse cliente (quando tivermos email no carrinho)
+
+**Analytics** — sub-tab nova "🛍 Site (Magazord)":
+- Mesmos KPIs do E-commerce, mas agregados pra IA gerar insights
+- Cruzamento com Google Analytics (sessões → pedidos)
+
+### 77.3 Fase 3 — Cruzamento Lead Tracker (~1-2h)
+
+- Edge `match-magazord-tracker`: cruza `magazord_pessoas.email_hash` com `analytics_lead_events.email_hash`
+- Quando Lead Tracker dispara `purchase` na URL `/checkout/sucesso/...`, busca pedido recente daquele email no Magazord e enriquece o evento com `pedido_magazord_id`
+- Resultado: jornada completa visível na aba Comportamento do C360 — primeiro pageview → carrinho → pedido pago
+- **Pré-requisito**: tracker.js precisa estar colado no Magazord (5min manual). Sem isso a Fase 3 não tem dados pra cruzar.
+
+### 77.4 Outras melhorias paralelas (não dependem de Magazord)
+
+User também pediu (Section 70.x ~74.x):
+- 🔥 Histórico de Qualificações IA no modal (schema histórico já existe, falta UI)
+- 🔥 Ranking "leads quentes da semana" na Prospecção
+- 🔥 Alerta automático lead frio→quente em <7d
+
+Posso fazer essas em paralelo enquanto aguarda Magazord. Atualmente PAUSADAS por escolha do user.
+
+---
+
+## 78. PROMPT PARA RETOMAR APÓS MAGAZORD LIBERAR
+
+Use exatamente este prompt no próximo chat (quando Magazord confirmar a liberação):
+
+```
+Estou continuando o desenvolvimento do DMS (Dana Marketing System) da Dana Jalecos.
+
+Por favor leia antes de tudo:
+C:\Users\Juan - Dana Jalecos\Documents\Sistema Marketing\DOCUMENTACAO-COMPLETA-DMS.md
+
+ATENÇÃO Sections 76, 77 e 78 — Section 76 documenta a Fase 1 do Sync Magazord
+COMPLETA (schema, edge, secrets, cron). Section 77.2 tem o plano da Fase 2 (UI),
+que ficou PAUSADA aguardando Magazord liberar endpoints.
+
+Estado atual (08/05/2026 noite):
+- Magazord Sync Fase 1 ✅ COMPLETA
+  * 5.133 pedidos + 5.720 pessoas + 755 produtos + 108 categorias + 4 marcas + 914 carrinhos no Supabase
+  * Edge sync-magazord v1 ACTIVE
+  * Cron jobid 29 ativo (06:35 BRT diário)
+  * Endpoints cliente/cupom/erp ainda 405 (Magazord não liberou de fato)
+- Magazord Sync Fase 2 (UI) 🟡 PAUSADA
+- Magazord Sync Fase 3 (cruzamento) 🟡 PAUSADA
+- Qualificação IA do Lead ✅ entregue
+- Lead Tracking ✅ entregue (tracker.js pronto, falta colar no Magazord)
+- Mercado Ads ✅ entregue
+- Sub-tabs Analytics ✅
+- Bug fix Avatar Personas ✅
+
+REGRAS PERMANENTES (READ-ONLY):
+🔒 Conta ML = SOMENTE LEITURA (Section 67.6)
+🔒 Conta Kommo = SOMENTE LEITURA (Section 70.5)
+🔒 Conta Magazord = SOMENTE LEITURA (Section 73.7)
+
+PRIMEIRA AÇÃO depende de retorno da Magazord:
+
+Cenário A — Magazord LIBEROU os endpoints:
+1. Re-testar /v2/site/cliente, /v2/site/cupom, /v2/erp/*
+2. Adicionar tabelas ao schema (sql-scripts/sql-magazord-extra.sql)
+3. Adicionar funções no edge sync-magazord
+4. Smoke test
+5. Aí sim partir pra Fase 2 (UI)
+
+Cenário B — Magazord ainda não liberou:
+1. Construir Fase 2 com o que já temos (5133 pedidos + 5720 pessoas + 914 carrinhos)
+2. Section 77.2 detalha o layout aprovado: padrão (KPIs + tabela + cards)
+3. C360 ganha aba '🛍 Site (Magazord)'
+4. Analytics ganha sub-tab '🛍 Site (Magazord)'
+
+Repos:
+- DanaComercial: github.com/DanaComercial/dana-marketing (espelho/GH Pages)
+- DanaJalecos: github.com/DanaJalecos/dana-marketing (Vercel oficial)
+- Worktree: .claude/worktrees/vibrant-davinci
+- Staging: _staging-dana-marketing
+
+Tokens:
+- Supabase Mgmt: TOKENS ANALYTICS/Token novo supabase.txt
+- Magazord: TOKENS ANALYTICS/Token Magazord.txt
+
+Workflow de deploy a cada fase:
+1. Edita worktree
+2. Sync: cp index.html → _staging-dana-marketing/
+3. git commit + push origin HEAD:main (DanaComercial)
+4. cd staging + git commit + push origin main (DanaJalecos)
+```
+
+---
+
+**Fim da documentação · Atualizado em 08/05/2026 tarde — Magazord Sync Fase 1 COMPLETA + relatório pra Magazord pronto · v12.0**
