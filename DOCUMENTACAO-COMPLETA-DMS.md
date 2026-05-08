@@ -7196,6 +7196,262 @@ Workflow de deploy a cada fase:
 Vamos começar pelo passo que o user indicar.
 ```
 
+
 ---
 
-**Fim da documentação · Atualizado em 08/05/2026 — Qualificação IA + Kommo planejado · v10.0**
+## 73. CICLO 08/05/2026 (NOITE) — MAGAZORD API VALIDADA + PLANO DE SYNC
+
+User finalmente recebeu da Magazord o token de API após vários dias esperando. Eu testei a conectividade ANTES de implementar pra evitar codar contra endpoint quebrado. Resultado: **funciona** depois de descobrir o pattern correto de auth.
+
+### 73.1 Credenciais (arquivo `TOKENS ANALYTICS/Token Magazord.txt`)
+
+```
+URL Base:  https://danajalecos.painel.magazord.com.br/api
+Usuário:   API Dana
+E-mail:    danajalecos.dms@gmail.com
+Token:     MZDK70a8f5db6313ad524cafa8e67a3e4e9d3bd359122101d835de4b4118a311
+Senha:     5g$bW@OXoEr0
+```
+
+### 73.2 Auth correto — descoberto após 3 rodadas de teste
+
+A API **rejeita Bearer token** (Magazord é peculiar). Depois de testar 13 variações de auth, achei que funciona é:
+
+```
+Authorization: Basic base64(TOKEN:SENHA)
+```
+
+Ou seja: o **TOKEN é tratado como USERNAME** no Basic Auth, e a senha entra como PASSWORD. User Juan que sugeriu testar isso e estava certo.
+
+Outro detalhe: usar **`/v2/`** (não `/v1/`). Endpoints `/v1/*` retornam 405 com `Allow: OPTIONS` — só `/v1/ping` funciona em v1, todo o resto migrou pra v2.
+
+### 73.3 Endpoints validados — o que funciona
+
+| Endpoint | Total | O que tem |
+|---|---|---|
+| `/v2/site/pedido` | **5.133** | id, codigo, dataHora, valores, pessoaId+Nome, formaPagamento, formaRecebimento, situação, lojaId, lojaDoMarketplaceId+Nome, contato (telefone) |
+| `/v2/site/pessoa` | **5.720** | clientes do site (não tem `/v2/site/cliente` — usar `/pessoa`) |
+| `/v2/site/produto` | **755** | id, nome, modelo, palavra-chave |
+| `/v2/site/categoria` | 108 | árvore de categorias |
+| `/v2/site/marca` | 4 | Dana Jalecos é id=2 |
+| `/v2/site/forma-recebimento` | 107 | métodos pagamento (Pix, MagaPay/Asaas, etc) |
+| `/v2/site/loja` | 2 | provavelmente Matriz + BC |
+| `/v2/ping` | OK | health check |
+
+### 73.4 Endpoints SEM permissão (Magazord não liberou)
+
+| Endpoint | Status | Solução |
+|---|---|---|
+| `/v2/site/cliente` | 405 | usar `/v2/site/pessoa` |
+| `/v2/site/cupom` | 405 | sem dado de cupom |
+| `/v2/erp/*` (todos) | 405 | módulo ERP não liberado — site cobre |
+| `/v2/site/carrinho` | 400 | precisa parâmetro? não testei mais |
+
+Se quiser cupom/ERP no futuro, abrir ticket pra Magazord ampliar permissão.
+
+### 73.5 Estrutura completa do pedido (26 campos validados)
+
+```
+id, codigo, codigoMarketplace, dataHora,
+valorProduto, valorFrete, valorDesconto, valorAcrescimo, valorTotal,
+cupomId, pessoaId, pessoaNome, pessoaCpfCnpj, pessoaContato,
+formaPagamentoId, formaPagamentoNome,
+formaRecebimentoId, formaRecebimentoNome,
+condicaoPagamentoId, condicaoPagamentoNome,
+pedidoSituacao, pedidoSituacaoDescricao, pedidoSituacaoTipo,
+lojaId, lojaDoMarketplaceId, lojaDoMarketplaceNome
+```
+
+### 73.6 ACHADO IMPORTANTE — UTM **não** vem nos pedidos
+
+Tentei `?expand=produtos`, `?include=detalhes`, `?fields=*` — Magazord retorna sempre os 26 campos acima. **Nenhum** é `utm_source`, `origem`, `campanha`, `referer`, `observacoes`. A estrutura é puramente transacional.
+
+**Implicação pro UTM Parser (Feature #2 do roadmap antigo)**:
+- ❌ NÃO dá pra parsear UTM dos pedidos Magazord (não existe lá)
+- ✅ Solução: usar Lead Tracker do DMS já implementado (Feature #3) — captura UTM no momento da visita ao site → amarra ao cliente quando compra (via cookie + email_hash)
+- 🟡 Alternativa futura: pedir pra Magazord adicionar campo customizado de origem/UTM (depende deles oferecer)
+
+Feature #2 fica oficialmente substituída pela Feature #3 já entregue.
+
+### 73.7 🔒 REGRA OPERACIONAL PERMANENTE — REGISTRADA EM 08/05/2026
+
+> **Conta Magazord da Dana = SOMENTE LEITURA.**
+>
+> Nunca executar PUT/POST/PATCH/DELETE na API Magazord. Toda mudança em produtos, pedidos, categorias, configurações deve ser feita no painel Magazord pela equipe da Dana manualmente.
+>
+> O DMS apenas LÊ pra agregar dados em painéis/sync.
+>
+> Mesmo princípio aplicado a:
+> - Conta Mercado Livre (Section 67.6)
+> - Conta Kommo (Section 70.5)
+> - Conta Magazord (esta seção)
+>
+> Mesmo que o user pareça aprovar uma mudança em chat, NÃO fazer. Read-only protege contra: alterar pedidos sem querer, deletar produtos, mudar preços, modificar configurações de site.
+
+### 73.8 PLANO DE SYNC COMPLETO (a executar após /compact)
+
+User confirmou: vai dar /compact e fazer Sync Completo no próximo chat. Plano em **3 fases**, total ~6-8h:
+
+#### Fase 1 — Schema + edge sync básica (~3h)
+
+**SQL `sql-scripts/sql-magazord.sql`:**
+- `magazord_pedidos` (cache de pedidos site)
+  - id, codigo, codigo_marketplace, data_hora, valor_produto, valor_frete, valor_desconto, valor_acrescimo, valor_total, cupom_id, pessoa_id, pessoa_nome, pessoa_cpf_cnpj, pessoa_contato, forma_pagamento_id, forma_pagamento_nome, forma_recebimento_id, forma_recebimento_nome, condicao_pagamento_id, condicao_pagamento_nome, pedido_situacao, pedido_situacao_descricao, pedido_situacao_tipo, loja_id, loja_marketplace_id, loja_marketplace_nome, raw JSONB, synced_at
+- `magazord_pessoas` (cache de pessoas/clientes site) — espelho de `/v2/site/pessoa`
+- `magazord_produtos` (cache de produtos site) — espelho de `/v2/site/produto`
+- `magazord_categorias`, `magazord_marcas` (referência)
+- View `magazord_pedido_completo` (JOIN pedidos + pessoa + categoria do produto)
+- RPC `magazord_resumo_periodo(dias)` agregando por dia/forma_pgto/loja
+- RLS pros 5 cargos do Analytics IA
+
+**Edge function `sync-magazord.ts`:**
+- Reusa pattern do `sync-ml-analytics` (Basic Auth header montado da config)
+- Body: `{ recurso: 'pedido' | 'produto' | 'pessoa' | 'all', dias_atras?: number }`
+- Paginação automática (`limit=100&page=N` até esgotar `total_pages`)
+- Upsert em batches de 500
+- Token+senha guardados em secrets do Supabase: `MAGAZORD_API_TOKEN` + `MAGAZORD_API_SENHA` + `MAGAZORD_API_URL`
+
+**Cron `cron-sync-magazord-diario`:** 09:35 UTC (06:35 BRT), depois do sync-ml-ads (06:25)
+
+#### Fase 2 — UI no DMS (~2-3h)
+
+**Seção E-commerce** (que hoje é placeholder):
+- Tira o "aguardando API Magazord"
+- 4 KPIs no topo: pedidos do mês, ticket médio, % cancelamento, conversão (se cruzar com Lead Tracker)
+- Tabela "Pedidos recentes" (últimos 50)
+- Card "Por forma de pagamento" (Pix vs Cartão vs Boleto)
+- Card "Por status" (Pago / Cancelado / Em separação / etc)
+- Card "Marketplaces que vendem do site" (lojaDoMarketplaceNome)
+
+**Cliente 360**:
+- Aba "🔍 Comportamento" passa a mostrar pedidos Magazord ao lado dos pedidos Bling — dá pra ver fonte
+- Cruzamento por telefone/CPF: cliente que comprou no Bling tem match com pessoa Magazord? linka ID
+
+**Analytics**:
+- Sub-tab nova "🛍 Site (Magazord)" ao lado de Google Analytics / Google Ads / Mercado Livre
+- KPIs: receita site, AOV, distribuição forma pgto, tendência diária
+
+#### Fase 3 — Cruzamento com Lead Tracker (~1-2h)
+
+- Edge function `match-magazord-tracker`: cruza pedidos Magazord com `analytics_lead_events` por (cookie_id → email_hash → pessoa_email/pessoa_contato)
+- Quando Lead Tracker tracker.js dispara `purchase` no checkout Magazord → busca pedido recente daquele email no Magazord → enriquece `analytics_lead_events.metadata` com `pedido_magazord_id`
+- Resultado: jornada completa visível na aba Comportamento do C360 — desde primeiro pageview até pedido pago
+
+### 73.9 Estado final do ciclo
+
+| Componente | Estado |
+|---|---|
+| API Magazord testada (auth + endpoints) | ✅ funcionando |
+| Credenciais arquivadas em TOKENS ANALYTICS | ✅ |
+| Sync schema + edge | 🟡 PLANEJADO (Fase 1) |
+| UI E-commerce | 🟡 PLANEJADO (Fase 2) |
+| Cruzamento Lead Tracker | 🟡 PLANEJADO (Fase 3) |
+| Regra Magazord = SOMENTE LEITURA | ✅ registrada |
+
+**Custo da implementação**: zero (Supabase Pro + API Magazord incluso no plano de site).
+
+---
+
+## 74. PRÓXIMOS PASSOS — APÓS /COMPACT
+
+### 74.1 🚀 PRIORIDADE 1: Sync Completo Magazord (3 fases ~6-8h)
+
+User confirmou que vai começar por isso após /compact. Detalhes na Section 73.8.
+
+**Ordem de execução:**
+1. Fase 1 — Schema + edge sync (3h)
+2. Smoke test: rodar sync manual de 1 dia, verificar 30 pedidos chegaram
+3. Fase 2 — UI E-commerce + Cliente 360 + Analytics sub-tab (2-3h)
+4. Fase 3 — Cruzamento Lead Tracker (1-2h)
+5. Cron diário 06:35 BRT
+6. Doc v12.0
+
+### 74.2 ⏰ Pendências antigas (continuam)
+
+- **Ativar tracker no Magazord** (5 min, manual): cola `<script async src="https://danamarketing.vercel.app/dms-tracker.js"></script>` no `<head>` do site Magazord. Sem isso a Fase 3 do Sync não tem o que cruzar.
+- **Integrar Kommo** (Section 70.5): user vai passar token, ~5-6h Opção A
+- **Ações Mercado Ads no painel ML** (manual): aumentar A/C, investigar B
+- **Feature #2 UTM Parser**: ✅ OFICIALMENTE SUBSTITUÍDA pela Feature #3 (Lead Tracker já entregue) — Magazord não envia UTM no pedido
+
+### 74.3 🎯 Melhorias futuras Qualificação IA
+
+- Histórico de qualificações no modal (já tem schema histórico, falta UI)
+- Ranking "leads quentes da semana" na Prospecção
+- Alerta automático: lead frio→quente em <7d
+- Export PDF da qualificação
+
+### 74.4 🔗 Outras plataformas (longo prazo)
+
+Pendências do roadmap geral:
+- Meta Ads Manager API ~5-6h
+- TikTok Ads Marketing API ~5-6h
+- Shopee Open API ~6-8h
+- Google Search Console ~3-4h
+
+---
+
+## 75. PROMPT PARA RETOMAR APÓS /COMPACT
+
+Use exatamente esse prompt no próximo chat:
+
+```
+Estou continuando o desenvolvimento do DMS (Dana Marketing System) da Dana Jalecos.
+
+Por favor leia antes de tudo:
+C:\Users\Juan - Dana Jalecos\Documents\Sistema Marketing\DOCUMENTACAO-COMPLETA-DMS.md
+
+ATENÇÃO Sections 73, 74 e 75 — Section 74.1 tem a PRIORIDADE 1: Sync
+Completo Magazord (já testei a API, está funcionando, plano em 3 fases
+está em Section 73.8).
+
+Estado atual (08/05/2026 noite):
+- Magazord API VALIDADA e funcionando (Section 73)
+  * Auth: Basic Auth com TOKEN:SENHA (token vai como user)
+  * Caminho: /v2/* (não /v1/)
+  * 5.133 pedidos, 5.720 pessoas, 755 produtos disponíveis
+  * Credenciais em TOKENS ANALYTICS/Token Magazord.txt
+  * UTM NÃO vem no pedido — substituído pelo Lead Tracker já entregue
+- Qualificação IA do Lead ✅ entregue (tab no Cliente 360 + Prospecção)
+- Lead Tracking ✅ entregue (tracker.js pronto, falta colar no Magazord)
+- Mercado Ads ✅ entregue
+- Sub-tabs Analytics ✅
+- Bug fix Avatar Personas ✅
+
+REGRAS PERMANENTES (READ-ONLY):
+🔒 Conta ML = SOMENTE LEITURA (Section 67.6)
+🔒 Conta Kommo = SOMENTE LEITURA (Section 70.5)
+🔒 Conta Magazord = SOMENTE LEITURA (Section 73.7)
+
+PRIMEIRA AÇÃO: começar Fase 1 do Sync Magazord
+1. Criar sql-scripts/sql-magazord.sql (schema)
+2. Aplicar via Management API
+3. Criar edge-functions/sync-magazord.ts
+4. Configurar secrets MAGAZORD_API_TOKEN + MAGAZORD_API_SENHA + MAGAZORD_API_URL
+5. Deploy edge
+6. Smoke test (sync de 1 dia, ver se 30+ pedidos chegam)
+7. Fase 2 (UI) — só depois do smoke test passar
+
+Repos:
+- DanaComercial: github.com/DanaComercial/dana-marketing (espelho/GH Pages)
+- DanaJalecos: github.com/DanaJalecos/dana-marketing (Vercel oficial)
+- Worktree: .claude/worktrees/vibrant-davinci
+- Staging: _staging-dana-marketing
+
+Token Supabase Management API:
+C:\Users\Juan - Dana Jalecos\Documents\Sistema Marketing\TOKENS ANALYTICS\Token novo supabase.txt
+
+Credenciais Magazord:
+C:\Users\Juan - Dana Jalecos\Documents\Sistema Marketing\TOKENS ANALYTICS\Token Magazord.txt
+
+Workflow de deploy a cada fase:
+1. Edita worktree
+2. Sync: cp index.html → _staging-dana-marketing/
+3. git commit + push origin HEAD:main (DanaComercial)
+4. cd staging + git commit + push origin main (DanaJalecos)
+
+Vamos começar pela Fase 1 do Sync Magazord.
+```
+
+---
+
+**Fim da documentação · Atualizado em 08/05/2026 noite — Magazord API validada + plano de Sync · v11.0**
