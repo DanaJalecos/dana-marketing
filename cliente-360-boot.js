@@ -1533,15 +1533,40 @@
 
     try {
       const sb = state.sb;
-      // Match por nome ILIKE (Magazord ainda não libera /cliente, então não temos email/CPF cruzável diretamente)
-      const { data, error } = await sb
+      // Match por nome — Magazord não libera busca por email/CPF, então cruzamos por nome
+      // Estratégia em 2 etapas:
+      //   1) tenta nome completo (cobre PFs e PJs com mesmo sufixo)
+      //   2) se não achou, remove sufixos PJ comuns (EIRELI/LTDA/SA/ME/EPP/MEI) e tenta o núcleo
+      // Cobre casos tipo "DHOM ... EIRELI" no Bling vs "Dhom ... Ltda" no Magazord.
+      const limparPJ = s => (s || '')
+        .replace(/\s*[-–]\s*(eireli|ltda|s\.?\s*a\.?|s\/a|me|epp|mei|cia|s\.?\s*c\.?|empresa\s+individual)\b.*$/gi, '')
+        .replace(/\b(eireli|ltda|s\.?\s*a\.?|s\/a|me|epp|mei|cia|s\.?\s*c\.?)\.?\s*$/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const nomeNucleo = limparPJ(nome);
+      const usarNucleo = nomeNucleo && nomeNucleo.length >= 4 && nomeNucleo.toLowerCase() !== nome.toLowerCase();
+
+      // Tenta nome completo primeiro
+      let { data, error } = await sb
         .from('magazord_pedido_completo')
         .select('*')
         .ilike('pessoa_nome', '%' + nome + '%')
         .order('data_hora', { ascending: false })
-        .limit(200);
+        .limit(500);
 
       if (error) throw error;
+
+      // Se vazio e tem núcleo PJ diferente do nome cheio, tenta o núcleo
+      if ((!data || data.length === 0) && usarNucleo) {
+        const r2 = await sb
+          .from('magazord_pedido_completo')
+          .select('*')
+          .ilike('pessoa_nome', '%' + nomeNucleo + '%')
+          .order('data_hora', { ascending: false })
+          .limit(500);
+        if (!r2.error) data = r2.data || [];
+      }
 
       const pedidos = data || [];
       const total = pedidos.length;
