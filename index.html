@@ -3073,6 +3073,11 @@ select.input { cursor: pointer; }
       <span style="font-size:18px">🛍</span> Mercado Livre
       <span style="font-size:10px;background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#451a03;padding:2px 6px;border-radius:8px;font-weight:700">+ ADS</span>
     </button>
+    <button data-subtab="site" onclick="analyticsSwitchSubtab('site')"
+      style="padding:14px 20px;background:transparent;border:none;border-bottom:3px solid transparent;color:var(--text2);cursor:pointer;font-size:14px;font-weight:500;display:flex;align-items:center;gap:8px;white-space:nowrap;margin-bottom:-2px">
+      <span style="font-size:18px">🌐</span> Site (Magazord)
+      <span style="font-size:10px;background:linear-gradient(135deg,#3b82f6,#1e40af);color:#fff;padding:2px 6px;border-radius:8px;font-weight:700">NOVO</span>
+    </button>
   </div>
 
   <!-- ════════ Wrapper GA4 ════════ -->
@@ -3234,33 +3239,144 @@ select.input { cursor: pointer; }
 
   </div><!-- ════════ /Wrapper Mercado Livre ════════ -->
 
+  <!-- ════════ Wrapper Site (Magazord) ════════ -->
+  <div id="an-section-site" class="an-subtab-section" style="display:none">
+
+  <div class="card mb20">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div>
+        <div class="card-title">🌐 Site Dana Jalecos (Magazord)</div>
+        <div class="card-sub">Pedidos, faturamento e conversão direto da plataforma do site</div>
+      </div>
+      <select class="input" id="an-site-periodo" onchange="loadAnalyticsSite()" style="width:auto;min-width:160px">
+        <option value="7">Últimos 7 dias</option>
+        <option value="30" selected>Últimos 30 dias</option>
+        <option value="90">Últimos 90 dias</option>
+        <option value="365">Último ano</option>
+      </select>
+    </div>
+
+    <div id="an-site-kpis" class="kpi-grid mb20">
+      <div class="kpi-card dark"><div class="kpi-label">Faturamento</div><div class="kpi-value" id="an-site-fat">--</div><div class="kpi-change" id="an-site-fat-sub">carregando...</div></div>
+      <div class="kpi-card"><div class="kpi-label">Pedidos</div><div class="kpi-value" id="an-site-ped">--</div><div class="kpi-change" id="an-site-ped-sub">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Ticket Médio</div><div class="kpi-value" id="an-site-ticket">--</div><div class="kpi-change">por pedido pago</div></div>
+      <div class="kpi-card"><div class="kpi-label">Clientes Únicos</div><div class="kpi-value" id="an-site-clientes">--</div><div class="kpi-change" id="an-site-clientes-sub">—</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px">
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">💳 Top Formas de Pagamento</div>
+        <div id="an-site-formas" style="display:flex;flex-direction:column;gap:6px;font-size:11.5px"></div>
+      </div>
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">🏷 Marketplaces Integrados</div>
+        <div id="an-site-marketplaces" style="display:flex;flex-direction:column;gap:6px;font-size:11.5px"></div>
+      </div>
+    </div>
+
+    <div style="margin-bottom:18px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">🛒 Carrinhos do período</div>
+      <div id="an-site-carrinhos"></div>
+    </div>
+
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px">Faturamento diário · linha do tempo</div>
+      <div style="font-size:11px;color:var(--text3)">bruto (azul)</div>
+    </div>
+    <div id="an-site-chart" class="chart-area" style="height:160px"></div>
+  </div>
+
+  </div><!-- ════════ /Wrapper Site (Magazord) ════════ -->
+
 </div>
 </div>
 
-<!-- ════════ E-COMMERCE (Site) — PLACEHOLDER aguardando API Magazord ════════ -->
+<!-- ════════ E-COMMERCE (Site) — dados Magazord ════════ -->
 <div class="view" id="view-ecommerce">
 <div style="padding:24px 28px">
 
-  <div style="margin-bottom:20px">
-    <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:20px">🌐 E-commerce</div>
-    <div style="font-size:12.5px;color:var(--text3);margin-top:3px">Vendas do site · <strong>danajalecos.com.br</strong></div>
+  <!-- Header -->
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;gap:12px;flex-wrap:wrap">
+    <div>
+      <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:20px">🌐 E-commerce</div>
+      <div style="font-size:12.5px;color:var(--text3);margin-top:3px">Vendas do site · <strong>danajalecos.com.br</strong> · dados Magazord</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select class="input" id="ec-filtro-periodo" onchange="loadEcommerce()" style="width:auto;min-width:160px">
+        <option value="7">Últimos 7 dias</option>
+        <option value="30" selected>Últimos 30 dias</option>
+        <option value="90">Últimos 90 dias</option>
+        <option value="365">Último ano</option>
+        <option value="9999">Histórico completo</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" onclick="ecResyncMagazord()" title="Forçar sincronização agora">🔄 Sync</button>
+    </div>
   </div>
 
-  <div class="card" style="padding:48px 32px;text-align:center;background:linear-gradient(135deg,rgba(59,130,246,0.04),rgba(139,92,246,0.04));border:1px dashed rgba(59,130,246,0.25)">
-    <div style="font-size:48px;margin-bottom:12px">📊</div>
-    <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:22px;margin-bottom:10px">Aguardando integração Magazord</div>
-    <div style="font-size:13.5px;color:var(--text2);max-width:620px;margin:0 auto 20px;line-height:1.6">
-      Os dados oficiais de e-commerce (faturamento, pedidos, ticket médio, top produtos) virão diretamente da <strong>Magazord</strong>, plataforma do site <strong>danajalecos.com.br</strong>.
-      <br><br>
-      O Bling não espelha 1:1 os valores do checkout (descontos, cupons e frete zeram o campo <code style="background:rgba(0,0,0,0.06);padding:1px 6px;border-radius:3px;font-size:11.5px">total</code>), por isso esta seção fica reservada até a API estar ativa.
+  <!-- Aviso bug Magazord (cliente/cupom/erp) — remover quando segunda virar -->
+  <div id="ec-aviso-bug" style="padding:12px 14px;background:rgba(217,119,6,0.08);border:1px solid rgba(217,119,6,0.25);border-radius:8px;font-size:11.5px;color:var(--text2);line-height:1.5;margin-bottom:16px">
+    💡 <strong>Nota:</strong> dados de cupons usados, ERP (estoque/notas/contas) e detalhes de carrinho ainda não estão disponíveis — Magazord identificou bug do lado deles e prometeu ajustar até <strong>segunda</strong>. Os pedidos, clientes e produtos abaixo já estão completos.
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-grid mb20">
+    <div class="kpi-card dark"><div class="kpi-label">Faturamento</div><div class="kpi-value" id="ec-kpi-fat">--</div><div class="kpi-change up" id="ec-kpi-fat-sub">carregando...</div></div>
+    <div class="kpi-card"><div class="kpi-label">Pedidos</div><div class="kpi-value" id="ec-kpi-ped">--</div><div class="kpi-change up" id="ec-kpi-ped-sub">carregando...</div></div>
+    <div class="kpi-card"><div class="kpi-label">Ticket Médio</div><div class="kpi-value" id="ec-kpi-ticket">--</div><div class="kpi-change up" id="ec-kpi-ticket-sub">por pedido pago</div></div>
+    <div class="kpi-card"><div class="kpi-label">% Cancelamento</div><div class="kpi-value" id="ec-kpi-cancel">--</div><div class="kpi-change up" id="ec-kpi-cancel-sub">do total no período</div></div>
+  </div>
+
+  <!-- Linha 2 KPIs (clientes únicos / recorrentes / descontos / frete) -->
+  <div class="kpi-grid mb20">
+    <div class="kpi-card"><div class="kpi-label">Clientes Únicos</div><div class="kpi-value" id="ec-kpi-clientes">--</div><div class="kpi-change up" id="ec-kpi-clientes-sub">no período</div></div>
+    <div class="kpi-card"><div class="kpi-label">Clientes Recorrentes</div><div class="kpi-value" id="ec-kpi-recorrentes">--</div><div class="kpi-change up">com 2+ pedidos</div></div>
+    <div class="kpi-card"><div class="kpi-label">Descontos Aplicados</div><div class="kpi-value" id="ec-kpi-descontos">--</div><div class="kpi-change up">total no período</div></div>
+    <div class="kpi-card"><div class="kpi-label">Frete Total</div><div class="kpi-value" id="ec-kpi-frete">--</div><div class="kpi-change up">somado no período</div></div>
+  </div>
+
+  <!-- Gráfico tendência diária -->
+  <div class="card mb20">
+    <div class="card-title" style="margin-bottom:14px">📈 Tendência diária — pedidos &amp; faturamento</div>
+    <div id="ec-grafico-diario" style="min-height:180px;display:flex;align-items:flex-end;gap:4px;padding:8px 0"></div>
+  </div>
+
+  <!-- 2 cols: Forma Pagamento + Status -->
+  <div class="g2 mb20">
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">💳 Forma de Pagamento</div><div class="card-sub">% e ticket médio por método</div></div></div>
+      <div id="ec-forma-pgto"><div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Carregando...</div></div>
     </div>
-    <div style="display:inline-block;background:rgba(0,0,0,0.04);padding:12px 18px;border-radius:10px;font-size:12.5px;color:var(--text2);text-align:left;max-width:520px">
-      <div style="font-weight:700;color:var(--ink);margin-bottom:6px">📧 Próximo passo</div>
-      Dana precisa enviar e-mail pra <strong>integracao@magazord.com.br</strong> solicitando credenciais de API. Assim que as chaves chegarem, integramos aqui.
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">📦 Status do Pedido</div><div class="card-sub">distribuição no período</div></div></div>
+      <div id="ec-status"><div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Carregando...</div></div>
     </div>
-    <div style="margin-top:24px;font-size:11.5px;color:var(--text3)">
-      💡 Enquanto isso, confira <strong>Faturamento geral</strong> no Dashboard ou <strong>Marketplaces</strong> pra canais externos.
+  </div>
+
+  <!-- 2 cols: Marketplaces + Carrinhos -->
+  <div class="g2 mb20">
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">🏷 Marketplaces que vendem do site</div><div class="card-sub">via integrações Magazord</div></div></div>
+      <div id="ec-marketplaces"><div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Carregando...</div></div>
     </div>
+    <div class="card">
+      <div class="card-header"><div><div class="card-title">🛒 Carrinhos do período</div><div class="card-sub">abandonados vs convertidos · janela 30d (limite Magazord)</div></div></div>
+      <div id="ec-carrinhos"><div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Carregando...</div></div>
+    </div>
+  </div>
+
+  <!-- Top clientes -->
+  <div class="card mb20">
+    <div class="card-header"><div><div class="card-title">👑 Top 20 Clientes do site</div><div class="card-sub">por gasto total no período · cruzamento Magazord + email</div></div></div>
+    <div id="ec-top-clientes"><div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Carregando...</div></div>
+  </div>
+
+  <!-- Tabela pedidos recentes -->
+  <div class="card">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div><div class="card-title">📋 Pedidos recentes</div><div class="card-sub" id="ec-tab-sub">últimos 50 pedidos do período</div></div>
+      <input type="search" class="input" id="ec-tab-search" placeholder="🔎 Buscar por cliente, código, CPF..." oninput="ecFiltrarTabela()" style="max-width:280px">
+    </div>
+    <div id="ec-tabela-pedidos" style="overflow-x:auto"><div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Carregando...</div></div>
   </div>
 
 </div>
@@ -10270,7 +10386,7 @@ window.addEventListener('popstate', () => {
 const EXPORT_PDF_VIEWS = {
   relatorio:    'Relatório Executivo',
   financeiro:   'Financeiro',
-  // ecommerce:    'E-commerce', // desativado — seção em placeholder aguardando Magazord
+  ecommerce:    'E-commerce',
   lojafisica:   'Loja Física + WhatsApp',
   marketplaces: 'Marketplaces',
   projecoes:    'Projeções',
@@ -16735,7 +16851,7 @@ function _anRenderChart(elId, points, valorKey, valorKey2, cor1, cor2) {
 // ════════════════════════════════════════════════════════════════════
 // Persiste a aba ativa em sessionStorage pra sobreviver F5 sem perder contexto.
 window.analyticsSwitchSubtab = function(tab) {
-  if (!['ga4','ads','ml'].includes(tab)) tab = 'ga4';
+  if (!['ga4','ads','ml','site'].includes(tab)) tab = 'ga4';
   // Esconde todas, mostra a ativa
   document.querySelectorAll('.an-subtab-section').forEach(s => {
     s.style.display = 'none';
@@ -16743,7 +16859,7 @@ window.analyticsSwitchSubtab = function(tab) {
   const ativa = document.getElementById('an-section-' + tab);
   if (ativa) ativa.style.display = '';
   // Atualiza visual dos botões (cor + borda inferior)
-  const corPorTab = { ga4: '#4285f4', ads: '#ea4335', ml: '#fbbf24' };
+  const corPorTab = { ga4: '#4285f4', ads: '#ea4335', ml: '#fbbf24', site: '#3b82f6' };
   document.querySelectorAll('#an-subtabs button').forEach(btn => {
     const t = btn.getAttribute('data-subtab');
     const isAtiva = t === tab;
@@ -16751,6 +16867,11 @@ window.analyticsSwitchSubtab = function(tab) {
     btn.style.color = isAtiva ? 'var(--text)' : 'var(--text2)';
     btn.style.fontWeight = isAtiva ? '700' : '500';
   });
+  // Lazy load Magazord quando ativar
+  if (tab === 'site' && typeof loadAnalyticsSite === 'function' && !window._anSiteLoaded) {
+    loadAnalyticsSite();
+    window._anSiteLoaded = true;
+  }
   // Persiste
   try { sessionStorage.setItem('an-subtab', tab); } catch(e) {}
 };
@@ -16767,6 +16888,120 @@ window.analyticsSwitchSubtab = function(tab) {
     setTimeout(apply, 0);
   }
 })();
+
+// ════════════════════════════════════════════════════════════════════
+// Analytics → Sub-tab Site (Magazord)
+// ════════════════════════════════════════════════════════════════════
+window.loadAnalyticsSite = async function() {
+  const dias = parseInt(document.getElementById('an-site-periodo')?.value || '30', 10);
+  const SUP = (typeof SUPABASE_URL !== 'undefined') ? SUPABASE_URL : 'https://wltmiqbhziefusnzmmkt.supabase.co';
+  const ANON = (typeof SUPABASE_ANON_KEY !== 'undefined') ? SUPABASE_ANON_KEY : '';
+  const sb = window.supabase?.createClient ? window.supabase.createClient(SUP, ANON) : null;
+  if (!sb) return;
+
+  ['an-site-fat','an-site-ped','an-site-ticket','an-site-clientes'].forEach(id => {
+    const e = document.getElementById(id); if (e) e.textContent = '...';
+  });
+
+  try {
+    const [resumoR, formaR, mktR, serieR, carrR] = await Promise.all([
+      sb.rpc('magazord_resumo_periodo', { p_dias: dias }),
+      sb.rpc('magazord_dist_forma_pagamento', { p_dias: dias }),
+      sb.from('magazord_pedidos').select('loja_marketplace_nome,valor_total')
+        .gte('data_hora', new Date(Date.now() - dias * 86400000).toISOString()),
+      sb.rpc('magazord_serie_diaria', { p_dias: dias }),
+      sb.rpc('magazord_carrinho_stats', { p_dias: Math.min(dias, 30) }),
+    ]);
+
+    const r = (resumoR.data && resumoR.data[0]) || {};
+    const fmtR = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmtN = v => Number(v || 0).toLocaleString('pt-BR');
+
+    document.getElementById('an-site-fat').textContent = fmtR(r.faturamento_liquido || 0);
+    document.getElementById('an-site-fat-sub').textContent = `bruto ${fmtR(r.faturamento_bruto || 0)} · ${dias}d`;
+    document.getElementById('an-site-ped').textContent = fmtN(r.total_pedidos || 0);
+    document.getElementById('an-site-ped-sub').textContent = `${fmtN(r.pedidos_pagos || 0)} pagos · ${(r.pct_cancelamento || 0).toFixed(1)}% cancel`;
+    document.getElementById('an-site-ticket').textContent = fmtR(r.ticket_medio || 0);
+    document.getElementById('an-site-clientes').textContent = fmtN(r.clientes_unicos || 0);
+    document.getElementById('an-site-clientes-sub').textContent = `${fmtN(r.clientes_recorrentes || 0)} recorrentes`;
+
+    // Top 5 formas
+    const formas = (formaR.data || []).slice(0, 5);
+    const formasEl = document.getElementById('an-site-formas');
+    if (formasEl) {
+      formasEl.innerHTML = formas.length ? formas.map(f => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--surface2);border-radius:6px">
+          <div style="font-weight:600">${(f.forma_recebimento || '—').slice(0, 30)}</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="color:var(--text2);font-size:11px">${fmtN(f.qtd_pedidos)} pedidos</span>
+            <strong style="color:var(--good)">${fmtR(f.total)}</strong>
+            <span style="background:var(--ink);color:var(--surface);padding:2px 7px;border-radius:8px;font-weight:700;font-size:10.5px">${(f.pct || 0).toFixed(1)}%</span>
+          </div>
+        </div>`).join('') : '<div style="color:var(--text3);text-align:center;padding:14px">Sem dados</div>';
+    }
+
+    // Top marketplaces (agg cliente-side)
+    const aggM = {};
+    (mktR.data || []).forEach(p => {
+      const k = (p.loja_marketplace_nome || 'Site direto').trim() || 'Site direto';
+      if (!aggM[k]) aggM[k] = { qtd: 0, total: 0 };
+      aggM[k].qtd += 1;
+      aggM[k].total += Number(p.valor_total || 0);
+    });
+    const arrM = Object.entries(aggM).sort((a, b) => b[1].total - a[1].total);
+    const mktEl = document.getElementById('an-site-marketplaces');
+    if (mktEl) {
+      mktEl.innerHTML = arrM.length ? arrM.map(([k, v]) => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--surface2);border-radius:6px">
+          <div style="font-weight:600">${k}</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="color:var(--text2);font-size:11px">${fmtN(v.qtd)} pedidos</span>
+            <strong style="color:var(--good)">${fmtR(v.total)}</strong>
+          </div>
+        </div>`).join('') : '<div style="color:var(--text3);text-align:center;padding:14px">Sem dados</div>';
+    }
+
+    // Carrinhos
+    const c = (carrR.data && carrR.data[0]) || {};
+    const cEl = document.getElementById('an-site-carrinhos');
+    if (cEl) {
+      cEl.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div style="text-align:center;padding:14px;background:rgba(59,130,246,0.06);border-radius:8px">
+          <div style="font-size:22px;font-weight:800;color:#1e40af">${fmtN(c.total_carrinhos || 0)}</div>
+          <div style="font-size:10.5px;color:var(--text3);margin-top:2px">total no período</div>
+        </div>
+        <div style="text-align:center;padding:14px;background:rgba(217,119,6,0.06);border-radius:8px">
+          <div style="font-size:22px;font-weight:800;color:#92400e">${fmtN(c.abandonados || 0)}</div>
+          <div style="font-size:10.5px;color:var(--text3);margin-top:2px">abandonados</div>
+        </div>
+        <div style="text-align:center;padding:14px;background:rgba(34,197,94,0.06);border-radius:8px">
+          <div style="font-size:22px;font-weight:800;color:#15803d">${(c.taxa_conversao_pct || 0).toFixed(1)}%</div>
+          <div style="font-size:10.5px;color:var(--text3);margin-top:2px">taxa conversão</div>
+        </div>
+      </div>`;
+    }
+
+    // Chart simples (barras flexbox como o E-commerce)
+    const serie = serieR.data || [];
+    const chartEl = document.getElementById('an-site-chart');
+    if (chartEl) {
+      const maxFat = Math.max(...serie.map(s => Number(s.faturamento || 0)), 1);
+      chartEl.innerHTML = '<div style="display:flex;align-items:flex-end;gap:4px;height:100%;padding:8px 0">' +
+        serie.map(s => {
+          const h = Math.max(8, (Number(s.faturamento || 0) / maxFat * 130));
+          const dia = (s.dia || '').slice(5).split('-').reverse().join('/');
+          const fat = fmtR(s.faturamento || 0);
+          return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0">
+            <div style="background:linear-gradient(180deg,#3b82f6,#1e40af);width:100%;max-width:22px;height:${h}px;border-radius:3px 3px 0 0" title="${dia}: ${s.qtd_pedidos} pedidos · ${fat}"></div>
+            <div style="font-size:9px;color:var(--text3);writing-mode:vertical-rl;transform:rotate(180deg);max-height:42px;overflow:hidden">${dia}</div>
+          </div>`;
+        }).join('') + '</div>' || '<div style="text-align:center;color:var(--text3);font-size:12px;padding:30px">Sem dados</div>';
+    }
+  } catch (e) {
+    console.error('[an-site] erro:', e);
+    document.getElementById('an-site-fat').textContent = 'erro';
+  }
+};
 
 window.loadAnalytics = async function() {
   const dias = parseInt(document.getElementById('an-periodo')?.value || '30');
@@ -19746,9 +19981,249 @@ async function carregarCanal(prefix, canal, filtro) {
   }
 }
 
+// ════════ E-COMMERCE (Magazord) — implementação ════════
+let _ecPedidosCache = [];
+
 async function loadEcommerce() {
-  // Placeholder ativo — aguardando integração Magazord.
-  // Quando a API chegar, restaurar: carregarCanal('ec', 'site', document.getElementById('ec-filtro-periodo')?.value || 'atual');
+  const dias = parseInt(document.getElementById('ec-filtro-periodo')?.value || '30', 10);
+  const SUP = (typeof SUPABASE_URL !== 'undefined') ? SUPABASE_URL : 'https://wltmiqbhziefusnzmmkt.supabase.co';
+  const ANON = (typeof SUPABASE_ANON_KEY !== 'undefined') ? SUPABASE_ANON_KEY : '';
+  if (!ANON) {
+    console.warn('[ec] sem SUPABASE_ANON_KEY');
+    return;
+  }
+  const sb = window.supabase?.createClient ? window.supabase.createClient(SUP, ANON) : null;
+
+  // Reset visual
+  ['ec-kpi-fat','ec-kpi-ped','ec-kpi-ticket','ec-kpi-cancel','ec-kpi-clientes','ec-kpi-recorrentes','ec-kpi-descontos','ec-kpi-frete']
+    .forEach(id => { const e = document.getElementById(id); if (e) e.textContent = '...'; });
+
+  try {
+    // Disparar todos os RPCs em paralelo
+    const [resumoR, formaR, statusR, mktR, serieR, topCliR, carrinhoR, pedidosR] = await Promise.all([
+      sb.rpc('magazord_resumo_periodo', { p_dias: dias }),
+      sb.rpc('magazord_dist_forma_pagamento', { p_dias: dias }),
+      // status: agrego cliente-side via SELECT
+      sb.from('magazord_pedidos').select('pedido_situacao_descricao,pedido_situacao_tipo,valor_total')
+        .gte('data_hora', new Date(Date.now() - dias * 86400000).toISOString()),
+      sb.from('magazord_pedidos').select('loja_marketplace_nome,valor_total')
+        .gte('data_hora', new Date(Date.now() - dias * 86400000).toISOString()),
+      sb.rpc('magazord_serie_diaria', { p_dias: dias }),
+      sb.rpc('magazord_top_clientes', { p_dias: dias, p_limite: 20 }),
+      sb.rpc('magazord_carrinho_stats', { p_dias: Math.min(dias, 30) }),
+      sb.from('magazord_pedido_completo').select('*')
+        .gte('data_hora', new Date(Date.now() - dias * 86400000).toISOString())
+        .order('data_hora', { ascending: false })
+        .limit(200)
+    ]);
+
+    // ── KPIs (resumo) ──
+    const r = (resumoR.data && resumoR.data[0]) || {};
+    const fmtR = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmtN = v => Number(v || 0).toLocaleString('pt-BR');
+    document.getElementById('ec-kpi-fat').textContent = fmtR(r.faturamento_liquido || 0);
+    document.getElementById('ec-kpi-fat-sub').textContent = `bruto ${fmtR(r.faturamento_bruto || 0)}`;
+    document.getElementById('ec-kpi-ped').textContent = fmtN(r.total_pedidos || 0);
+    document.getElementById('ec-kpi-ped-sub').textContent = `${fmtN(r.pedidos_pagos || 0)} pagos · ${fmtN(r.pedidos_cancelados || 0)} cancelados`;
+    document.getElementById('ec-kpi-ticket').textContent = fmtR(r.ticket_medio || 0);
+    document.getElementById('ec-kpi-cancel').textContent = (r.pct_cancelamento || 0).toFixed(1) + '%';
+    document.getElementById('ec-kpi-clientes').textContent = fmtN(r.clientes_unicos || 0);
+    document.getElementById('ec-kpi-recorrentes').textContent = fmtN(r.clientes_recorrentes || 0);
+    document.getElementById('ec-kpi-descontos').textContent = fmtR(r.total_descontos || 0);
+    document.getElementById('ec-kpi-frete').textContent = fmtR(r.total_frete || 0);
+
+    // ── Gráfico tendência diária ──
+    const serie = serieR.data || [];
+    const grafEl = document.getElementById('ec-grafico-diario');
+    if (grafEl) {
+      const maxFat = Math.max(...serie.map(s => Number(s.faturamento || 0)), 1);
+      grafEl.innerHTML = serie.map(s => {
+        const h = Math.max(8, (Number(s.faturamento || 0) / maxFat * 160));
+        const dia = (s.dia || '').slice(5).split('-').reverse().join('/');
+        const fat = fmtR(s.faturamento || 0);
+        return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0">
+          <div style="background:linear-gradient(180deg,#3b82f6,#1e40af);width:100%;max-width:24px;height:${h}px;border-radius:3px 3px 0 0" title="${dia}: ${s.qtd_pedidos} pedidos · ${fat}"></div>
+          <div style="font-size:9px;color:var(--text3);writing-mode:vertical-rl;transform:rotate(180deg);max-height:46px;overflow:hidden">${dia}</div>
+        </div>`;
+      }).join('') || '<div style="text-align:center;color:var(--text3);font-size:12px;padding:30px">Sem dados no período</div>';
+    }
+
+    // ── Forma de pagamento ──
+    const formas = formaR.data || [];
+    const formaEl = document.getElementById('ec-forma-pgto');
+    if (formaEl) {
+      if (!formas.length) {
+        formaEl.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Sem dados</div>';
+      } else {
+        formaEl.innerHTML = `<table style="width:100%"><thead><tr><th>Forma</th><th style="text-align:right">Pedidos</th><th style="text-align:right">Total</th><th style="text-align:right">Ticket</th><th style="text-align:right">%</th></tr></thead><tbody>
+          ${formas.map(f => `<tr>
+            <td class="em">${esc(f.forma_recebimento || '—')}</td>
+            <td style="text-align:right">${fmtN(f.qtd_pedidos)}</td>
+            <td style="text-align:right" class="good">${fmtR(f.total)}</td>
+            <td style="text-align:right">${fmtR(f.ticket_medio)}</td>
+            <td style="text-align:right"><strong>${(f.pct || 0).toFixed(1)}%</strong></td>
+          </tr>`).join('')}
+        </tbody></table>`;
+      }
+    }
+
+    // ── Status (agregação cliente-side) ──
+    const statusEl = document.getElementById('ec-status');
+    if (statusEl) {
+      const aggS = {};
+      (statusR.data || []).forEach(p => {
+        const k = (p.pedido_situacao_descricao || 'Sem status').trim();
+        if (!aggS[k]) aggS[k] = { qtd: 0, total: 0, tipo: p.pedido_situacao_tipo };
+        aggS[k].qtd += 1;
+        aggS[k].total += Number(p.valor_total || 0);
+      });
+      const arrS = Object.entries(aggS).sort((a, b) => b[1].qtd - a[1].qtd);
+      const totS = arrS.reduce((s, [, v]) => s + v.qtd, 0) || 1;
+      statusEl.innerHTML = arrS.length ? `<table style="width:100%"><thead><tr><th>Status</th><th style="text-align:right">Pedidos</th><th style="text-align:right">Total</th><th style="text-align:right">%</th></tr></thead><tbody>
+        ${arrS.map(([k, v]) => `<tr>
+          <td class="em">${esc(k)}</td>
+          <td style="text-align:right">${fmtN(v.qtd)}</td>
+          <td style="text-align:right" class="good">${fmtR(v.total)}</td>
+          <td style="text-align:right"><strong>${(v.qtd / totS * 100).toFixed(1)}%</strong></td>
+        </tr>`).join('')}
+      </tbody></table>` : '<div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Sem dados</div>';
+    }
+
+    // ── Marketplaces ──
+    const mktEl = document.getElementById('ec-marketplaces');
+    if (mktEl) {
+      const aggM = {};
+      (mktR.data || []).forEach(p => {
+        const k = (p.loja_marketplace_nome || 'Site direto').trim() || 'Site direto';
+        if (!aggM[k]) aggM[k] = { qtd: 0, total: 0 };
+        aggM[k].qtd += 1;
+        aggM[k].total += Number(p.valor_total || 0);
+      });
+      const arrM = Object.entries(aggM).sort((a, b) => b[1].total - a[1].total);
+      mktEl.innerHTML = arrM.length ? `<table style="width:100%"><thead><tr><th>Marketplace</th><th style="text-align:right">Pedidos</th><th style="text-align:right">Faturamento</th></tr></thead><tbody>
+        ${arrM.map(([k, v]) => `<tr>
+          <td class="em">${esc(k)}</td>
+          <td style="text-align:right">${fmtN(v.qtd)}</td>
+          <td style="text-align:right" class="good">${fmtR(v.total)}</td>
+        </tr>`).join('')}
+      </tbody></table>` : '<div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Sem dados</div>';
+    }
+
+    // ── Carrinhos ──
+    const carr = (carrinhoR.data && carrinhoR.data[0]) || {};
+    const carrEl = document.getElementById('ec-carrinhos');
+    if (carrEl) {
+      carrEl.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding:8px 0">
+        <div style="text-align:center;padding:14px;background:rgba(59,130,246,0.06);border-radius:8px">
+          <div style="font-size:22px;font-weight:800;color:#1e40af">${fmtN(carr.total_carrinhos || 0)}</div>
+          <div style="font-size:10.5px;color:var(--text3);margin-top:2px">total no período</div>
+        </div>
+        <div style="text-align:center;padding:14px;background:rgba(217,119,6,0.06);border-radius:8px">
+          <div style="font-size:22px;font-weight:800;color:#92400e">${fmtN(carr.abandonados || 0)}</div>
+          <div style="font-size:10.5px;color:var(--text3);margin-top:2px">abandonados</div>
+        </div>
+        <div style="text-align:center;padding:14px;background:rgba(34,197,94,0.06);border-radius:8px">
+          <div style="font-size:22px;font-weight:800;color:#15803d">${(carr.taxa_conversao_pct || 0).toFixed(1)}%</div>
+          <div style="font-size:10.5px;color:var(--text3);margin-top:2px">taxa conversão</div>
+        </div>
+      </div>
+      <div style="font-size:10.5px;color:var(--text3);text-align:center;padding:6px 0 0">
+        Magazord limita janela de carrinho a 30 dias e não retorna detalhes (itens/email) — pendente liberação.
+      </div>`;
+    }
+
+    // ── Top clientes ──
+    const topCli = topCliR.data || [];
+    const topEl = document.getElementById('ec-top-clientes');
+    if (topEl) {
+      topEl.innerHTML = topCli.length ? `<table style="width:100%"><thead><tr><th>#</th><th>Cliente</th><th>Cidade</th><th style="text-align:right">Pedidos</th><th style="text-align:right">Total</th><th style="text-align:right">Ticket</th><th>Último</th></tr></thead><tbody>
+        ${topCli.map((c, i) => `<tr>
+          <td style="font-weight:700;color:${i<3?'#1a4fa0':'var(--text3)'}">${i+1}</td>
+          <td class="em" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.pessoa_nome || '')}">${esc(c.pessoa_nome || '—')}</td>
+          <td style="color:var(--text2);font-size:11.5px">${esc(c.pessoa_cidade || '—')}</td>
+          <td style="text-align:right">${fmtN(c.qtd_pedidos)}</td>
+          <td style="text-align:right" class="good">${fmtR(c.total_gasto)}</td>
+          <td style="text-align:right">${fmtR(c.ticket_medio)}</td>
+          <td style="font-size:11px;color:var(--text2)">${(c.ultimo_pedido || '').slice(0, 10).split('-').reverse().join('/')}</td>
+        </tr>`).join('')}
+      </tbody></table>` : '<div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Sem clientes no período</div>';
+    }
+
+    // ── Tabela pedidos recentes ──
+    _ecPedidosCache = pedidosR.data || [];
+    document.getElementById('ec-tab-sub').textContent = `${_ecPedidosCache.length} pedidos · ordenados do mais recente pro mais antigo`;
+    ecRenderTabela(_ecPedidosCache);
+
+  } catch (e) {
+    console.error('[ec] erro:', e);
+    document.getElementById('ec-kpi-fat').textContent = 'erro';
+  }
+}
+
+function ecRenderTabela(pedidos) {
+  const fmtR = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const tabEl = document.getElementById('ec-tabela-pedidos');
+  if (!tabEl) return;
+  if (!pedidos.length) {
+    tabEl.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Nenhum pedido</div>';
+    return;
+  }
+  const rows = pedidos.slice(0, 100).map(p => {
+    const dt = (p.data_hora || '').slice(0, 16).replace('T', ' ');
+    const stTipo = (p.pedido_situacao_tipo || '').toLowerCase();
+    let stColor = 'var(--text2)';
+    if (stTipo.includes('cancel')) stColor = '#dc2626';
+    else if (stTipo.includes('pago') || stTipo.includes('aprov') || stTipo.includes('entreg') || stTipo.includes('faturad')) stColor = '#15803d';
+    return `<tr>
+      <td style="font-size:11px;color:var(--text2)">${dt}</td>
+      <td style="font-family:monospace;font-size:11px">${esc(p.codigo || '—')}</td>
+      <td class="em" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.pessoa_nome || '')}">${esc(p.pessoa_nome || '—')}</td>
+      <td style="color:var(--text2);font-size:11.5px">${esc(p.pessoa_cidade || p.pessoa_uf || '—')}</td>
+      <td style="font-size:11px">${esc(p.forma_recebimento_nome || '—')}</td>
+      <td style="font-size:11px;color:${stColor}">${esc(p.pedido_situacao_descricao || '—')}</td>
+      <td style="text-align:right" class="good">${fmtR(p.valor_total)}</td>
+    </tr>`;
+  }).join('');
+  tabEl.innerHTML = `<table style="width:100%"><thead><tr><th>Data</th><th>Código</th><th>Cliente</th><th>Cidade</th><th>Pgto</th><th>Status</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function ecFiltrarTabela() {
+  const q = (document.getElementById('ec-tab-search')?.value || '').toLowerCase().trim();
+  if (!q) { ecRenderTabela(_ecPedidosCache); return; }
+  const f = _ecPedidosCache.filter(p =>
+    (p.pessoa_nome || '').toLowerCase().includes(q) ||
+    (p.codigo || '').toLowerCase().includes(q) ||
+    (p.pessoa_cpf_cnpj || '').toLowerCase().includes(q) ||
+    (p.pessoa_email || '').toLowerCase().includes(q)
+  );
+  ecRenderTabela(f);
+}
+
+async function ecResyncMagazord() {
+  const btn = event?.target;
+  const orig = btn?.textContent;
+  if (btn) { btn.textContent = '⏳ syncing...'; btn.disabled = true; }
+  try {
+    const SUP = (typeof SUPABASE_URL !== 'undefined') ? SUPABASE_URL : 'https://wltmiqbhziefusnzmmkt.supabase.co';
+    const ANON = (typeof SUPABASE_ANON_KEY !== 'undefined') ? SUPABASE_ANON_KEY : '';
+    const r = await fetch(`${SUP}/functions/v1/sync-magazord`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ANON}`, 'apikey': ANON },
+      body: JSON.stringify({ recurso: 'all', dias_atras: 30 })
+    });
+    const j = await r.json();
+    if (typeof toast === 'function') {
+      toast('✅ Sync OK em ' + (j.elapsed_ms ? (j.elapsed_ms / 1000).toFixed(1) + 's' : '?'));
+    } else {
+      alert('Sync concluído em ' + (j.elapsed_ms ? (j.elapsed_ms / 1000).toFixed(1) + 's' : '?'));
+    }
+    loadEcommerce();
+  } catch (e) {
+    console.error('[ec] sync erro:', e);
+    if (typeof toast === 'function') toast('❌ Erro: ' + e.message);
+  } finally {
+    if (btn) { btn.textContent = orig; btn.disabled = false; }
+  }
 }
 
 async function loadLojaFisica() {

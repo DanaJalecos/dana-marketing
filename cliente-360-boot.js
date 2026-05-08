@@ -582,6 +582,7 @@
     window._c360TimelineLoaded = false; // reseta cache da Timeline (Onda #2)
     window._c360ComportamentoLoaded = false; // reseta cache da aba Comportamento (Lead Tracking)
     window._c360QualifLoaded = false;        // reseta cache da aba Qualificação IA
+    window._c360SiteLoaded = false;          // reseta cache da aba Site (Magazord)
     const page = document.getElementById('page-cliente-1');
     if (!page) { console.error('[c360] page-cliente-1 nao encontrada'); return; }
 
@@ -1048,6 +1049,7 @@
       <button id="c360-tab-pedidos" onclick="c360SwitchTab('pedidos')" style="padding:14px 20px;background:transparent;border:none;color:oklch(88% 0.018 80);cursor:pointer;font-size:14px;font-weight:600;border-bottom:2px solid oklch(88% 0.018 80);display:flex;align-items:center;gap:6px">
         🛒 Pedidos <span style="background:rgba(255,255,255,0.1);color:oklch(88% 0.018 80);padding:2px 8px;border-radius:20px;font-size:11px">${fmtNum(pedidos.length)}</span>
       </button>
+      <button id="c360-tab-site" onclick="c360SwitchTab('site')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px" title="Pedidos do site danajalecos.com.br via Magazord">🛍 Site</button>
       <button id="c360-tab-timeline" onclick="c360SwitchTab('timeline')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">📜 Timeline</button>
       <button id="c360-tab-comportamento" onclick="c360SwitchTab('comportamento')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">🔍 Comportamento</button>
       <button id="c360-tab-qualificacao" onclick="c360SwitchTab('qualificacao')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">🎯 Qualificação</button>
@@ -1055,6 +1057,9 @@
       <button id="c360-tab-notas" onclick="c360SwitchTab('notas')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">💬 Notas</button>
     </div>
     <div id="c360-tabpanel-pedidos" style="padding:16px">${pedidosHtml}</div>
+    <div id="c360-tabpanel-site" style="padding:20px;display:none">
+      <div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando pedidos do site...</div>
+    </div>
     <div id="c360-tabpanel-timeline" style="padding:20px;display:none">
       <div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando timeline...</div>
     </div>
@@ -1094,7 +1099,7 @@
 
   // Tabs internos
   window.c360SwitchTab = function(tab) {
-    const tabs = ['pedidos','timeline','comportamento','qualificacao','insights','notas'];
+    const tabs = ['pedidos','site','timeline','comportamento','qualificacao','insights','notas'];
     for (const t of tabs) {
       const btn = document.getElementById('c360-tab-'+t);
       const panel = document.getElementById('c360-tabpanel-'+t);
@@ -1109,6 +1114,9 @@
     // Lazy load por aba
     if (tab === 'timeline' && typeof loadTimeline === 'function' && !window._c360TimelineLoaded) {
       loadTimeline();
+    }
+    if (tab === 'site' && typeof loadSiteMagazord === 'function' && !window._c360SiteLoaded) {
+      loadSiteMagazord();
     }
     if (tab === 'comportamento' && typeof loadComportamento === 'function' && !window._c360ComportamentoLoaded) {
       loadComportamento();
@@ -1500,6 +1508,154 @@
       const isMissing = msg.includes('does not exist') || msg.includes('analytics_lead');
       panel.innerHTML = `<div style="color:${isMissing?'#94a3b8':'#ef4444'};padding:20px;font-size:12.5px;text-align:center">
         ${isMissing ? '⚙️ Schema de Lead Tracking ainda não aplicado no banco.' : 'Erro ao carregar: ' + escapeHtml(msg)}
+      </div>`;
+    }
+  };
+
+  // ─── Aba "🛍 Site (Magazord)" — pedidos do site daquele cliente ───
+  // Cruzamento por nome (ILIKE) — quando Magazord liberar /v2/site/cliente
+  // adicionamos email/CPF pra match preciso. Por ora, nome funciona pra grande maioria.
+  window.loadSiteMagazord = async function(force) {
+    const panel = document.getElementById('c360-tabpanel-site');
+    if (!panel) return;
+    if (!window.supabase) {
+      panel.innerHTML = '<div style="color:#94a3b8;padding:20px;font-size:12.5px;text-align:center">Supabase não inicializado</div>';
+      return;
+    }
+    if (window._c360SiteLoaded && !force) return;
+    panel.innerHTML = '<div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando pedidos do site...</div>';
+
+    const nome = (state.currentContatoNome || '').trim();
+    if (!nome) {
+      panel.innerHTML = '<div style="color:#94a3b8;padding:20px;font-size:12.5px;text-align:center">Sem nome de contato pra cruzar</div>';
+      return;
+    }
+
+    try {
+      const sb = window.supabase;
+      // Match por nome ILIKE (Magazord ainda não libera /cliente, então não temos email/CPF cruzável diretamente)
+      const { data, error } = await sb
+        .from('magazord_pedido_completo')
+        .select('*')
+        .ilike('pessoa_nome', '%' + nome + '%')
+        .order('data_hora', { ascending: false })
+        .limit(200);
+
+      if (error) throw error;
+
+      const pedidos = data || [];
+      const total = pedidos.length;
+
+      if (total === 0) {
+        panel.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+            <div>
+              <div style="font-size:14px;font-weight:600;color:#f1f5f9">🛍 Site Dana Jalecos (Magazord)</div>
+              <div style="font-size:11.5px;color:#64748b;margin-top:2px">Pedidos no site danajalecos.com.br</div>
+            </div>
+            <button onclick="loadSiteMagazord(true)" style="background:transparent;border:1px solid rgba(255,255,255,0.15);color:#94a3b8;padding:5px 10px;border-radius:6px;font-size:11px;cursor:pointer">🔄 Atualizar</button>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:30px;text-align:center;color:#64748b;font-size:13px">
+            <div style="font-size:28px;margin-bottom:8px;opacity:0.5">🛍</div>
+            <div style="font-weight:600;color:#94a3b8;margin-bottom:4px">Sem pedidos no site</div>
+            <div style="font-size:11.5px">Cruzamento feito por nome (<em>${escapeHtml(nome)}</em>) — Magazord ainda não libera busca por email/CPF.</div>
+          </div>`;
+        window._c360SiteLoaded = true;
+        return;
+      }
+
+      // KPIs
+      const totalGasto = pedidos.reduce((s, p) => s + Number(p.valor_total || 0), 0);
+      const ticketMedio = totalGasto / total;
+      const primeira = pedidos[pedidos.length - 1].data_hora;
+      const ultima = pedidos[0].data_hora;
+      const fmtR = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const fmtData = d => (d || '').slice(0, 10).split('-').reverse().join('/');
+
+      const aggForma = {};
+      const aggMkt = {};
+      pedidos.forEach(p => {
+        const f = p.forma_recebimento_nome || 'N/A';
+        aggForma[f] = (aggForma[f] || 0) + 1;
+        const m = p.loja_marketplace_nome || 'Site direto';
+        aggMkt[m] = (aggMkt[m] || 0) + 1;
+      });
+
+      const kpisHtml = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">
+          ${kpiCard('Pedidos no site', String(total))}
+          ${kpiCard('Total gasto', fmtR(totalGasto))}
+          ${kpiCard('Ticket médio', fmtR(ticketMedio))}
+          ${kpiCard('Primeira compra', fmtData(primeira), '', 14)}
+          ${kpiCard('Última compra', fmtData(ultima), '', 14)}
+        </div>`;
+
+      const formaTopArr = Object.entries(aggForma).sort((a, b) => b[1] - a[1]).slice(0, 3);
+      const mktTopArr = Object.entries(aggMkt).sort((a, b) => b[1] - a[1]);
+
+      const sinaisHtml = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+          <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px">
+            <div style="font-size:11px;color:#64748b;margin-bottom:8px">💳 Formas de pagamento preferidas</div>
+            ${formaTopArr.map(([k, v]) => `<div style="display:flex;justify-content:space-between;font-size:12px;color:#cbd5e1;padding:4px 0;border-top:1px solid rgba(255,255,255,0.05)"><span>${escapeHtml(k)}</span><strong>${v}×</strong></div>`).join('')}
+          </div>
+          <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px">
+            <div style="font-size:11px;color:#64748b;margin-bottom:8px">🏷 Origem dos pedidos</div>
+            ${mktTopArr.map(([k, v]) => `<div style="display:flex;justify-content:space-between;font-size:12px;color:#cbd5e1;padding:4px 0;border-top:1px solid rgba(255,255,255,0.05)"><span>${escapeHtml(k)}</span><strong>${v}×</strong></div>`).join('')}
+          </div>
+        </div>`;
+
+      const tabRows = pedidos.slice(0, 50).map(p => {
+        const stTipo = (p.pedido_situacao_tipo || '').toLowerCase();
+        let stColor = '#94a3b8';
+        if (stTipo.includes('cancel')) stColor = '#fca5a5';
+        else if (stTipo.includes('pago') || stTipo.includes('aprov') || stTipo.includes('entreg') || stTipo.includes('faturad')) stColor = '#86efac';
+        return `<tr>
+          <td style="padding:8px 6px;font-size:11px;color:#94a3b8">${fmtData(p.data_hora)}</td>
+          <td style="padding:8px 6px;font-family:monospace;font-size:11px;color:#cbd5e1">${escapeHtml(p.codigo || '—')}</td>
+          <td style="padding:8px 6px;font-size:11.5px;color:#cbd5e1">${escapeHtml(p.forma_recebimento_nome || '—')}</td>
+          <td style="padding:8px 6px;font-size:11px;color:${stColor}">${escapeHtml(p.pedido_situacao_descricao || '—')}</td>
+          <td style="padding:8px 6px;font-size:11px;color:#94a3b8">${escapeHtml(p.loja_marketplace_nome || 'Direto')}</td>
+          <td style="padding:8px 6px;text-align:right;font-weight:700;color:#86efac">${fmtR(p.valor_total)}</td>
+        </tr>`;
+      }).join('');
+
+      const tabHtml = `
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0;overflow:hidden">
+          <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,0.06);font-size:13px;font-weight:600;color:#f1f5f9">📋 Pedidos do site (${total} total · mostrando 50 mais recentes)</div>
+          <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="background:rgba(255,255,255,0.04);color:#64748b;font-size:10.5px;text-align:left">
+              <th style="padding:8px 6px">Data</th>
+              <th style="padding:8px 6px">Código</th>
+              <th style="padding:8px 6px">Pgto</th>
+              <th style="padding:8px 6px">Status</th>
+              <th style="padding:8px 6px">Origem</th>
+              <th style="padding:8px 6px;text-align:right">Total</th>
+            </tr></thead>
+            <tbody>${tabRows}</tbody>
+          </table>
+          </div>
+        </div>`;
+
+      panel.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div>
+            <div style="font-size:14px;font-weight:600;color:#f1f5f9">🛍 Site Dana Jalecos (Magazord)</div>
+            <div style="font-size:11.5px;color:#64748b;margin-top:2px">${total} pedidos · cruzamento por nome (Magazord não libera busca por email/CPF ainda)</div>
+          </div>
+          <button onclick="loadSiteMagazord(true)" style="background:transparent;border:1px solid rgba(255,255,255,0.15);color:#94a3b8;padding:5px 10px;border-radius:6px;font-size:11px;cursor:pointer">🔄 Atualizar</button>
+        </div>
+        ${kpisHtml}
+        ${sinaisHtml}
+        ${tabHtml}`;
+      window._c360SiteLoaded = true;
+    } catch (e) {
+      console.error('[c360 site] erro:', e);
+      const msg = String(e.message || e);
+      const isMissing = msg.includes('does not exist') || msg.includes('magazord');
+      panel.innerHTML = `<div style="color:${isMissing?'#94a3b8':'#ef4444'};padding:20px;font-size:12.5px;text-align:center">
+        ${isMissing ? '⚙️ Schema Magazord ainda não aplicado no banco.' : 'Erro ao carregar: ' + escapeHtml(msg)}
       </div>`;
     }
   };
