@@ -661,6 +661,20 @@
         <div style="font-size:10.5px;color:#64748b">💡 Esses campos são locais do DMS — não mexem no Bling.</div>
         <button id="c360-meta-save" onclick="c360SaveMetadata(${contatoId}, '${escapeHtml(empresa)}')" style="padding:7px 16px;border-radius:6px;border:1px solid rgba(167,139,250,0.4);background:rgba(167,139,250,0.15);color:#c4b5fd;cursor:pointer;font-size:12px;font-weight:600">💾 Salvar</button>
       </div>
+
+      <!-- 🎯 Qualificação IA — seção pedida pela Manu (dentro do Acompanhamento Comercial) -->
+      <div style="margin-top:14px;padding-top:14px;border-top:1px dashed rgba(255,255,255,0.1)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;flex-wrap:wrap">
+          <div>
+            <div style="font-family:'Playfair Display',serif;font-size:13.5px;font-weight:600;color:#f1f5f9">🎯 Qualificação IA do Lead</div>
+            <div style="font-size:10.5px;color:#64748b;margin-top:2px">6 pilares · score · ação recomendada · perguntas pra investigar</div>
+          </div>
+          <div id="c360-qualif-actions" style="display:flex;gap:6px"></div>
+        </div>
+        <div id="c360-qualif-conteudo" style="font-size:11.5px;color:#94a3b8">
+          <div style="text-align:center;padding:14px;color:#64748b;font-size:11px">⏳ Carregando última qualificação…</div>
+        </div>
+      </div>
     `;
 
     // Insere DEPOIS do botao "Voltar" (primeiro botao do page)
@@ -670,6 +684,9 @@
     } else {
       page.insertBefore(panel, page.firstChild);
     }
+
+    // Carrega/renderiza qualificação IA (lazy)
+    setTimeout(() => c360CarregarQualificacao(nome, empresa), 0);
   }
 
   window.c360SaveMetadata = async function(contatoId, empresa) {
@@ -726,6 +743,160 @@
       console.error('[c360] salvar metadata', e);
       if (typeof showToast === 'function') showToast('Erro: ' + (e.message || e), 'error');
       if (btn) { btn.disabled = false; btn.textContent = '💾 Salvar'; }
+    }
+  };
+
+  // ════════════════════════════════════════════════════════════════════
+  // 🎯 QUALIFICAÇÃO IA — seção dentro do "Acompanhamento Comercial"
+  // ════════════════════════════════════════════════════════════════════
+  // Pedido da Manu desde o início: "criar dentro da aba comercial uma seção
+  // de qualificação do lead". 6 pilares + score + ação + descobrir + sinais.
+  // Reusa edge function qualificar-lead (mesma do Prospecção, agora aceita
+  // contato_nome). Quota: vendedora 3/dia · gerente 10 · admin ilimitado.
+
+  async function c360CarregarQualificacao(contatoNome, empresa) {
+    const conteudo = document.getElementById('c360-qualif-conteudo');
+    const actions = document.getElementById('c360-qualif-actions');
+    if (!conteudo) return;
+    try {
+      const { data, error } = await state.sb.from('lead_qualificacao')
+        .select('*')
+        .eq('contato_nome', contatoNome)
+        .order('created_at', { ascending: false })
+        .limit(1).maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        // Nunca foi qualificado — mostra CTA pra gerar
+        conteudo.innerHTML = `
+          <div style="text-align:center;padding:14px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);border-radius:8px">
+            <div style="font-size:11.5px;color:#94a3b8;line-height:1.5;margin-bottom:8px">
+              Esse cliente ainda não foi qualificado pela IA. Ela vai analisar pedidos, RFM, notas e comportamento pra dar Score 0-100, identificar dor/budget/urgência típicos e sugerir próxima ação.
+            </div>
+            <button onclick="c360GerarQualificacao('${escapeHtml(contatoNome)}', '${escapeHtml(empresa)}')" id="c360-qualif-gerar-btn" style="padding:8px 14px;border-radius:7px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:11.5px;font-weight:600">🎯 Gerar Qualificação IA</button>
+          </div>`;
+        if (actions) actions.innerHTML = '';
+        return;
+      }
+      // Já tem qualificação — renderiza compacto
+      _c360RenderQualif(contatoNome, empresa, data);
+    } catch (e) {
+      console.warn('[c360 qualif]', e);
+      conteudo.innerHTML = `<div style="padding:10px;font-size:11px;color:#94a3b8">⚙️ ${e.message?.includes('does not exist') ? 'Aguardando schema lead_qualificacao' : 'Erro ao carregar: '+escapeHtml(String(e.message||e))}</div>`;
+    }
+  }
+
+  function _c360QualifScoreCor(s) { return s >= 75 ? '#22c55e' : s >= 50 ? '#fbbf24' : '#ef4444'; }
+  function _c360QualifScoreLabel(s) { return s >= 75 ? 'Quente 🔥' : s >= 50 ? 'Morno' : 'Frio'; }
+
+  function _c360RenderQualif(contatoNome, empresa, q) {
+    const conteudo = document.getElementById('c360-qualif-conteudo');
+    const actions = document.getElementById('c360-qualif-actions');
+    if (!conteudo) return;
+    const score = Number(q.lead_score) || 0;
+    const conf = Number(q.confianca_pct) || 0;
+    const scoreCor = _c360QualifScoreCor(score);
+    const scoreLbl = _c360QualifScoreLabel(score);
+    const confLbl = conf >= 75 ? 'Alta' : conf >= 55 ? 'Média' : 'Preliminar';
+    const objs = Array.isArray(q.objecoes) ? q.objecoes : ['—'];
+    const descobrir = Array.isArray(q.descobrir) ? q.descobrir : [];
+    const dataStr = q.created_at ? new Date(q.created_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
+
+    const card = (icone, titulo, conteudoHtml, cor) => `
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:7px;padding:9px 11px;border-left:3px solid ${cor || '#475569'}">
+        <div style="display:flex;align-items:center;gap:5px;margin-bottom:4px">
+          <span style="font-size:13px">${icone}</span>
+          <div style="font-size:9.5px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;font-weight:700">${titulo}</div>
+        </div>
+        <div style="font-size:11.5px;color:#cbd5e1;line-height:1.4">${conteudoHtml}</div>
+      </div>`;
+
+    conteudo.innerHTML = `
+      <!-- Header com score + confiança -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <div style="display:flex;align-items:baseline;gap:4px">
+          <span style="font-family:'Playfair Display',serif;font-size:24px;font-weight:800;color:${scoreCor}">${score}</span>
+          <span style="font-size:11px;color:#64748b">/100</span>
+        </div>
+        <span style="font-size:10.5px;padding:2px 8px;border-radius:10px;background:${scoreCor}22;color:${scoreCor};font-weight:700">${scoreLbl}</span>
+        <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(148,163,184,0.15);color:#94a3b8">Confiança ${confLbl} · ${conf}%</span>
+        <div style="flex:1;min-width:120px;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${score}%;background:linear-gradient(90deg,#dc2626,#fbbf24 ${score>50?'30%':'50%'},#22c55e);border-radius:3px"></div>
+        </div>
+      </div>
+
+      ${conf < 60 ? `<div style="padding:6px 10px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:6px;font-size:10.5px;color:#fbbf24;line-height:1.4;margin-bottom:9px">⚠️ <strong>Qualificação preliminar</strong> — poucos sinais disponíveis. Use como ponto de partida.</div>` : ''}
+
+      <!-- 6 pilares em grid 3x2 compacto -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px;margin-bottom:10px">
+        ${card('🩹', 'Dor', escapeHtml(q.dor || '—'), '#dc2626')}
+        ${card('👤', 'Perfil', escapeHtml(q.perfil || '—'), '#3b82f6')}
+        ${card('💰', 'Budget', escapeHtml(q.budget || '—'), '#f59e0b')}
+        ${card('🚨', 'Urgência', escapeHtml(q.urgencia || '—'), '#ef4444')}
+        ${card('🎯', 'Timing', escapeHtml(q.timing || '—'), '#0ea5e9')}
+        ${card('🚫', 'Objeções', objs.map(o => `<span style="display:inline-block;background:rgba(239,68,68,0.12);color:#fca5a5;padding:1px 6px;border-radius:8px;font-size:10px;margin:1px 2px 1px 0">${escapeHtml(o)}</span>`).join(''), '#dc2626')}
+      </div>
+
+      <!-- Ação recomendada -->
+      <div style="background:linear-gradient(135deg,rgba(124,58,237,0.1),rgba(168,85,247,0.05));border:1px solid rgba(124,58,237,0.25);border-radius:8px;padding:10px 12px;margin-bottom:8px">
+        <div style="font-size:9.5px;color:#a78bfa;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;margin-bottom:4px">💡 Ação recomendada</div>
+        <div style="font-size:11.5px;color:#e2e8f0;line-height:1.5">${escapeHtml(q.acao_recomendada || '—')}</div>
+      </div>
+
+      ${descobrir.length ? `
+      <div style="background:linear-gradient(135deg,rgba(14,165,233,0.08),rgba(2,132,199,0.04));border:1px solid rgba(14,165,233,0.25);border-radius:8px;padding:10px 12px;margin-bottom:8px">
+        <div style="font-size:9.5px;color:#38bdf8;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;margin-bottom:5px">🔎 Pra descobrir <span style="color:#64748b;font-weight:500;text-transform:none">— perguntas pra fazer</span></div>
+        ${descobrir.map(p => `<div style="font-size:11px;color:#cbd5e1;line-height:1.5;padding:2px 0"><span style="color:#0ea5e9;font-weight:700">› </span>${escapeHtml(p)}</div>`).join('')}
+      </div>` : ''}
+
+      <div style="font-size:10px;color:#64748b;text-align:right">
+        Por ${escapeHtml(q.user_nome || '—')} · ${escapeHtml(q.modelo_provider || '—')} · ${dataStr}
+      </div>
+    `;
+    if (actions) {
+      actions.innerHTML = `
+        <button onclick="c360GerarQualificacao('${escapeHtml(contatoNome)}', '${escapeHtml(empresa)}')" id="c360-qualif-gerar-btn" style="padding:5px 11px;border-radius:6px;border:1px solid rgba(124,58,237,0.4);background:rgba(124,58,237,0.12);color:#c4b5fd;cursor:pointer;font-size:10.5px;font-weight:600" title="Re-qualificar com IA">↻ Regenerar</button>`;
+    }
+  }
+
+  window.c360GerarQualificacao = async function(contatoNome, empresa) {
+    const btn = document.getElementById('c360-qualif-gerar-btn');
+    const conteudo = document.getElementById('c360-qualif-conteudo');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Analisando...'; }
+    try {
+      const { data: { session } } = await state.sb.auth.getSession();
+      if (!session) throw new Error('Sessão expirada. Recarregue a página.');
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/qualificar-lead`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': 'Bearer ' + session.access_token,
+        },
+        body: JSON.stringify({ contato_nome: contatoNome, empresa }),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        if (j.error === 'quota_excedida') {
+          if (typeof showToast === 'function') showToast(j.mensagem || 'Limite diário atingido', 'error');
+        } else {
+          if (typeof showToast === 'function') showToast('Erro: ' + (j.error || 'desconhecido'), 'error');
+        }
+        if (btn) { btn.disabled = false; btn.textContent = '🎯 Gerar Qualificação IA'; }
+        return;
+      }
+      if (typeof showToast === 'function') showToast('✓ Qualificação gerada');
+      // Mapeia formato + renderiza
+      const q = j.qualificacao;
+      _c360RenderQualif(contatoNome, empresa, {
+        dor: q.dor, perfil: q.perfil, budget: q.budget, urgencia: q.urgencia,
+        timing: q.timing, objecoes: q.objecoes, descobrir: q.descobrir,
+        lead_score: q.lead_score, acao_recomendada: q.acao_recomendada,
+        confianca_pct: q.confianca_pct, modelo_provider: q.provider,
+        created_at: q.gerado_em, user_nome: q.gerado_por,
+      });
+    } catch (e) {
+      if (typeof showToast === 'function') showToast('Erro: ' + (e.message || e).slice(0, 200), 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '🎯 Gerar Qualificação IA'; }
     }
   };
 

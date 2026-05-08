@@ -6916,6 +6916,286 @@ Workflow de deploy a cada fase:
 Vamos começar pelo passo que o user indicar.
 ```
 
+
 ---
 
-**Fim da documentação · Atualizado em 07/05/2026 noite — Mercado Ads + sub-tabs + limpeza · v9.0**
+## 70. CICLO 08/05/2026 — QUALIFICAÇÃO IA + KOMMO PLANEJADO
+
+Pedido inicial da Manu: *"criar dentro da aba comercial uma seção de qualificação do lead"* baseada nos 6 pilares clássicos de venda (Dor / Perfil / Budget / Urgência / Timing / Objeção).
+
+Implementado em 4 fases ao longo do dia + planejamento de Kommo no fim. Tudo registrado abaixo.
+
+### 70.1 Feature — Qualificação IA do Lead (entregue em 2 lugares)
+
+**Ondee aparece**:
+- **Prospecção**: botão "🎯 Qualificar IA" no card do Kanban + Lista. Badge com score 0-100 colorido aparece no card depois que qualifica
+- **Cliente 360 (Acompanhamento Comercial)**: seção "🎯 Qualificação IA do Lead" dentro do painel comercial — aqui a Manu pediu originalmente
+
+**O que a IA gera**:
+- Lead Score 0-100 (banda: <50 frio · 50-74 morno · ≥75 quente)
+- 6 pilares em cards coloridos
+- Ação recomendada concreta (com produto Dana específico se possível)
+- 2-4 perguntas pra vendedora investigar ("🔎 Pra descobrir")
+- Confiança calculada **deterministicamente** pelo backend (não inventada pela IA) — cap 95%, transparente
+
+**Anti-alucinação**: prompt restrito a usar dados do contexto JSON OU inferir hipóteses TÍPICAS por segmento (clínicas estética/odonto, estudantes, hospitais, salões) marcadas com "Provável:" / "Típico em:" / "Hipótese a validar:".
+
+**Score baseline agressivo**: lead com perfil/segmento conhecido tem mínimo 45-64 (era 20). Só vai abaixo se for órfão sem segmento.
+
+### 70.2 Componentes técnicos
+
+**Schema (`sql-scripts/sql-lead-qualificacao.sql`):**
+- Tabela histórica `lead_qualificacao` (cada geração = nova row, igual cliente_insights)
+- Aceita `prospect_id` (Prospecção) OU `contato_nome` (Cliente 360 Bling)
+- View `lead_qualificacao_atual` DISTINCT ON pra última qualificação por lead
+- RPCs `lead_qualificacao_count_hoje(uid)` + `lead_qualificacao_gasto_mes()`
+- ALTER TABLE adicionou colunas `descobrir JSONB` (perguntas pra investigar) + `conversa_extra TEXT` (audit do que vendedora colou)
+- RLS escopada: vendedora vê só qualificações dos próprios leads; gerentes/trafego/produção vêem tudo
+
+**Edge function `qualificar-lead.ts` v3:**
+- Reusa pattern do `cliente360-insight` (cascade Groq Llama 3.3 → Gemini 2.5)
+- `response_format: json_object` força saída JSON estruturada
+- Aceita `prospect_id` (Prospecção) OU `contato_nome + empresa` (C360)
+- Pra C360 enriquece com RFM scoring (`cliente_scoring_full`), metadata (`cliente_metadata`), notas (`cliente_notas`)
+- Aceita `conversa_extra` opcional — vendedora cola conversa do WhatsApp (sinal forte +25% confiança)
+- Quotas: vendedora **3/dia**, gerente **10/dia**, trafego_pago **10/dia**, producao_conteudo **5/dia**, admin ilimitado
+- Kill-switch compartilhado com `cliente_insights_config` (R$30/mês)
+
+**Cálculo de confiança (determinístico):**
+```
+base 30%
++8 segmento conhecido
++5 cidade
++3 whatsapp
++5 mensagem IA gerada
++5 observação
++25 conversa real WhatsApp colada (OURO)
++10 RFM scoring (cliente Bling)
++8 notas dos vendedores
++10 status avançado
++2/evento tracker (cap 15)
++12 pedidos anteriores
++5 motivo de perda já registrado
+cap final: 95% (nunca prometer 100%)
+```
+
+**Frontend Prospecção:**
+- Botão "🎯 Qualificar IA" no card Kanban (compacto) + Lista (completo)
+- Modal grande com termômetro lead score, 6 pilares, ação recomendada, "Pra descobrir", footer com modelo/provider/data
+- Banner amarelo "⚠️ Qualificação preliminar" quando confiança < 60%
+- Banner verde "💬 Cole a conversa do WhatsApp" no estado vazio (textarea pra vendedora colar diálogo real)
+- Pré-carregamento da view `lead_qualificacao_atual` em `prospLoad()` → badge `🎯 N/100 🔥/👌/🥶` no card
+
+**Frontend Cliente 360:**
+- Seção "🎯 Qualificação IA do Lead" inserida DENTRO do painel "Acompanhamento Comercial" (abaixo dos campos status/tel/observação) — exatamente onde a Manu pediu
+- Layout compacto pra caber no painel sem quebrar layout
+- Lazy load: carrega assim que abre o detalhe do cliente
+- Botão "🎯 Gerar" se nunca foi qualificado, "↻ Regenerar" se já tem
+- Mesmo edge function da Prospecção, agora aceitando `contato_nome` + `empresa`
+
+### 70.3 Honestidade sobre precisão
+
+User questionou ao testar primeiro lead: *"só isso ele conseguiu analisar?"* (saiu Score 20 + tudo "—"). Diagnóstico: a IA estava sendo HONESTA DEMAIS — não inferia hipóteses por segmento mesmo tendo conhecimento.
+
+4 melhorias aplicadas (commit `a331d44`):
+1. **Hipóteses por segmento**: prompt expandido com conhecimento de mercado (clínicas estética/odonto, estudantes, hospitais, salões). IA agora infere Dor/Budget/Objeções típicas marcando "Provável:" / "Típico em:"
+2. **Score baseline agressivo**: 45-64 default pra lead com segmento (era 20)
+3. **Textarea "Cole a conversa do WhatsApp"** no modal vazio: vendedora cola diálogo real — confiança pula de ~50% pra ~80%+
+4. **7º bloco "Pra descobrir"**: 2-4 perguntas pro vendedor fazer pra preencher pilares vazios
+
+**Roadmap de precisão (transparente)**:
+| Fase | Estado | Precisão |
+|---|---|---|
+| 1. Heurística atual | ✅ entregue | 50-65% |
+| 2. + Lead Tracker ativo no Magazord (5min user) | aguardando ativação | 70-75% |
+| 3. + Form pré-qualificação no site | futuro (~3h) | 80% |
+| 4. + Conversa real (Kommo OU WhatsApp API) | **planejado abaixo** | 85-90% |
+| 5. + Loop feedback vendedora | futuro | 88-92% |
+
+### 70.4 ⚠️ Bug fix — Avatar IA Personas
+
+User reportou erro 500 no Gemini ao gerar Avatar IA pro "Diretor Gabriel" (persona Empresas).
+
+**Causa**: prompt do Diretor Gabriel diz "NOT a doctor, NO lab coat — he is a suit-and-tie business executive". Meu código injetava produto Dana ("vista este jaleco") como referência → conflito direto no prompt → Gemini 500.
+
+Bug 2: filtro pegou produto KIDS ("Marta Kids Branco" — jaleco infantil) pra persona empresas, bateu em "jaleco"+"branco" mas é absurdo pra adulto.
+
+**Fixes** (commit `46fe38a`):
+- `PERSONA_PRODUTO_FILTRO` ganha flag `usa_jaleco`. Empresas (Diretor Gabriel) e Instituições (Coord. Eduardo) ficam com `usa_jaleco: false` → não sorteia produto
+- `PERSONA_PRODUTO_EXCLUDE` lista palavras descartadoras: kids, infantil, crian, bebê, baby
+- Subtítulo do modal explica claramente: "👔 executivo de terno (não usa roupa médica)"
+- `incluir_logo: false` pra Gabriel/Eduardo (evita logo Dana no terno)
+
+### 70.5 INTEGRAÇÃO KOMMO — PLANEJADO (não implementado)
+
+User compartilhou que a Dana usa **Kommo CRM** (https://www.kommo.com/br/) com **24.000+ leads** acumulados. Pediu análise de viabilidade de integrar **read-only**.
+
+**Por que Kommo é o "elo perdido" pra IA**:
+- Kommo agrega WhatsApp Business + Instagram + Facebook + Email + Telegram
+- Conversas reais do WhatsApp da Dana já estão lá (a empresa toda usa)
+- Resolve EXATAMENTE o gap que limita Qualificação IA a 50-65% hoje
+- Com conversa real, confiança IA pula pra 80-90% automaticamente (sem vendedora precisar colar nada)
+
+**Distinção importante** entre as 2 fontes de leads:
+| Fonte | O que é | Conversa? |
+|---|---|---|
+| **DMS Prospecção** (outbound) | Vendedora SAI buscando — IA gera lista | ❌ frio recém-encontrado |
+| **Kommo** (inbound) | Lead VEM até a Dana — formulário, WhatsApp espontâneo, Insta | ✅ normalmente |
+
+Não é pra unificar — é pra usar cada um onde faz sentido. Lead frio do DMS que responde e vira conversa real → vendedora cria no Kommo manualmente → próxima qualificação IA puxa conversa automaticamente.
+
+**Problema dos 24k leads**: sync ingênuo geraria ~500MB-1GB no Supabase, batendo rate limit Kommo. Maioria dos leads é histórico antigo/morto/duplicado. Solução: **NÃO sincronizar tudo**.
+
+**3 estratégias com tradeoffs**:
+
+| Opção | Como funciona | Storage | Latência | Complexidade |
+|---|---|---|---|---|
+| **A) Sob demanda puro** | Vendedora abre lead → edge busca Kommo NA HORA → IA usa → não grava | 0 | +2s sempre | Baixa (~4h) |
+| **B) Sync seletivo + filtro temporal** | Cron 1h sincroniza só leads dos últimos 90d ou pipeline ativo | ~50-100MB | 0ms | Alta (~8h) |
+| **C) Híbrido (recomendada)** | Lazy fetch + cache 7d no Supabase + sync agendado SÓ pros leads que cruzam com Bling/prospects ativos | ~10-30MB | 0ms cached / +2s primeira vez | Média (~6h) |
+
+**Recomendação**: começar com **Opção A** (sob demanda puro) — valida o conceito 1-2 semanas, ZERO risco de inflação de dados, migrar pra C depois é fácil.
+
+**🔒 REGRA OPERACIONAL PERMANENTE — REGISTRADA EM 08/05/2026:**
+
+> **Conta Kommo da Dana = SOMENTE LEITURA.**
+>
+> Nunca executar PUT/POST/PATCH/DELETE na API Kommo. Toda mudança em leads, conversas, pipelines, tags, atividades deve ser feita no painel Kommo pelas vendedoras/Manu manualmente.
+>
+> O DMS apenas LÊ pra agregar dados na Qualificação IA e em painéis futuros.
+>
+> Mesmo que o user pareça aprovar uma mudança em chat, NÃO fazer. Isso protege contra: mensagens enviadas erradas pelo WhatsApp da empresa, leads movidos sem querer, contatos deletados.
+>
+> Mesmo princípio aplicado à conta Mercado Livre (Section 67.6).
+
+**Pré-requisitos pra começar (quando user decidir)**:
+1. Subdomain do Kommo da Dana (ex: `danajalecos.kommo.com`)
+2. Token de API "Long-lived" gerado em Configurações → Integrações → API
+3. Confirmar que WhatsApp Business está conectado no Kommo (assumindo que sim)
+
+**Arquitetura proposta** (Opção A inicial, evolução pra C):
+```
+Kommo CRM (read-only)
+   ↓ API REST com Bearer token
+Edge function `kommo-fetch` (chamada sob demanda)
+   ↓ retorna mensagens + tags + notas + estágio
+Edge `qualificar-lead` v4 (futura)
+   ↓ adiciona contexto Kommo automaticamente quando lead tem match
+IA qualifica com 80-90% confiança
+```
+
+**Esforço estimado por fase**:
+- Schema + edge fetch básico: ~3-4h
+- Match Kommo↔prospects DMS (telefone+nome): ~2h
+- Edge `qualificar-lead` v4 puxa Kommo automaticamente: ~2h
+- Aba "💬 Conversas Kommo" no Cliente 360 (futuro): ~3h
+- **Total Opção A**: ~5-6h
+- **Total Opção C completa**: ~11h
+
+### 70.6 Estado final do ciclo
+
+| Componente | Estado |
+|---|---|
+| Schema lead_qualificacao + RPCs + RLS | ✅ aplicado |
+| Edge function qualificar-lead v3 (suporta C360) | ✅ ACTIVE |
+| UI Prospecção (modal + badge) | ✅ |
+| UI Cliente 360 (seção dentro Acompanhamento Comercial) | ✅ |
+| Quota vendedora 3/dia | ✅ |
+| Hipóteses por segmento + score baseline | ✅ |
+| Textarea "cole conversa WhatsApp" | ✅ |
+| 7º bloco "Pra descobrir" | ✅ |
+| Avatar IA Personas: usa_jaleco=false pra empresas/instituicoes | ✅ |
+| Avatar IA: PERSONA_PRODUTO_EXCLUDE (kids/infantil) | ✅ |
+| Integração Kommo | 🟡 PLANEJADA (Opção A recomendada, ~5-6h quando user decidir) |
+
+---
+
+## 71. PRÓXIMOS PASSOS — IMPLEMENTAR APÓS /COMPACT
+
+### 71.1 ⏰ Pendências antigas (continuam)
+
+- **Ativar tracker no Magazord** (5 min, manual): cola `<script async src="https://danamarketing.vercel.app/dms-tracker.js"></script>` no `<head>`. Já sobe Qualificação IA pra ~70-75% de precisão automaticamente
+- **Feature #2 UTM Parser** (suspensa): aguarda Magazord ter API
+- **Ações Mercado Ads no painel ML** (manual): aumentar A/C, investigar B (regra ML = SOMENTE LEITURA)
+
+### 71.2 🆕 Integrar Kommo (recomendado)
+
+Quando user decidir começar:
+1. User passa subdomain + token API Kommo
+2. Implementar Opção A (sob demanda, ~5-6h)
+3. Validar 1-2 semanas com leads reais
+4. Migrar pra Opção C (cache híbrido) se uso justificar
+
+Ver Section 70.5 acima pra detalhes.
+
+### 71.3 🎯 Melhorias futuras Qualificação IA
+
+- **Histórico de qualificações no modal**: ver evolução do lead ao longo do tempo (já temos schema histórico, falta UI)
+- **Ranking "leads quentes da semana"** na Prospecção: tabela ordenada por score
+- **Alerta automático**: lead que era frio virou quente em <7 dias → notificar vendedora
+- **Export PDF** da qualificação pra mandar pra cliente "interno" (ex: gerente comercial avaliar)
+
+### 71.4 🔗 Integrar outras plataformas (longo prazo)
+
+Pendências do roadmap geral (Section 68.5):
+- Meta Ads Manager (Facebook + Instagram) ~5-6h
+- TikTok Ads Marketing API ~5-6h
+- Shopee Open API ~6-8h
+- Google Search Console ~3-4h
+
+---
+
+## 72. PROMPT PARA RETOMAR APÓS /COMPACT
+
+Use exatamente esse prompt no próximo chat:
+
+```
+Estou continuando o desenvolvimento do DMS (Dana Marketing System) da Dana Jalecos.
+
+Por favor leia antes de tudo:
+C:\Users\Juan - Dana Jalecos\Documents\Sistema Marketing\DOCUMENTACAO-COMPLETA-DMS.md
+
+ATENÇÃO Sections 70, 71 e 72 — Section 71 tem os PRÓXIMOS PASSOS:
+  1) Ativar tracker no Magazord (5 min, manual)
+  2) Integrar Kommo CRM (~5-6h Opção A) — user vai passar token
+  3) Melhorias Qualificação IA (histórico modal, ranking, alertas)
+  4) Outras plataformas (Meta/TikTok/Shopee/Search Console)
+
+Estado atual (08/05/2026):
+- Qualificação IA do Lead ✅ entregue completa
+  * Em Prospecção: modal + badge no card
+  * Em Cliente 360: seção dentro do "Acompanhamento Comercial" (onde Manu pediu)
+  * Edge qualificar-lead v3 ACTIVE — aceita prospect_id OU contato_nome
+  * Hipóteses por segmento, score baseline 45-64, textarea cole conversa
+  * 7º bloco "Pra descobrir" (perguntas pra investigar)
+  * Confiança calculada deterministicamente (cap 95%)
+  * Quota vendedora 3/dia, gerente 10, admin ilimitado
+- Avatar IA Personas: bug fix (Diretor Gabriel/Coord. Eduardo não vestem jaleco)
+- Kommo CRM: PLANEJADO (Section 70.5) — read-only, Opção A recomendada
+- Banco: lead_qualificacao com colunas descobrir + conversa_extra
+
+REGRAS PERMANENTES:
+🔒 Conta ML = SOMENTE LEITURA (Section 67.6)
+🔒 Conta Kommo = SOMENTE LEITURA (Section 70.5)
+
+Repos:
+- DanaComercial: github.com/DanaComercial/dana-marketing (espelho/GH Pages)
+- DanaJalecos: github.com/DanaJalecos/dana-marketing (Vercel oficial)
+- Worktree: .claude/worktrees/vibrant-davinci
+- Staging: _staging-dana-marketing
+
+Token Supabase Management API:
+C:\Users\Juan - Dana Jalecos\Documents\Sistema Marketing\TOKENS ANALYTICS\Token novo supabase.txt
+
+Workflow de deploy a cada fase:
+1. Edita worktree
+2. Sync: cp index.html → _staging-dana-marketing/
+3. git commit + push origin HEAD:main (DanaComercial)
+4. cd staging + git commit + push origin main (DanaJalecos)
+
+Vamos começar pelo passo que o user indicar.
+```
+
+---
+
+**Fim da documentação · Atualizado em 08/05/2026 — Qualificação IA + Kommo planejado · v10.0**

@@ -150,12 +150,14 @@ async function gerar(contexto: string): Promise<{ obj: any, modelo: string, prov
 // Calcula confiança DETERMINISTICAMENTE pelo backend (não pela IA)
 function calcularConfianca(sinais: any): number {
   let conf = 30  // base
-  if (sinais.tem_segmento) conf += 8        // segmento é sinal forte (permite hipóteses)
+  if (sinais.tem_segmento) conf += 8
   if (sinais.tem_cidade) conf += 5
   if (sinais.tem_whatsapp) conf += 3
   if (sinais.tem_mensagem_ia) conf += 5
   if (sinais.tem_observacao) conf += 5
   if (sinais.tem_conversa_real) conf += 25  // conversa real WhatsApp colada = OURO
+  if (sinais.tem_rfm) conf += 10            // cliente Bling com histórico = sinal forte
+  if (sinais.tem_notas) conf += 8           // notas dos vendedores = contexto rico
   if (sinais.status_avancado) conf += 10
   if (sinais.qtd_eventos_tracker > 0) conf += Math.min(15, sinais.qtd_eventos_tracker * 2)
   if (sinais.qtd_pedidos_anteriores > 0) conf += 12
@@ -188,12 +190,17 @@ Deno.serve(async (req) => {
     ])
     if (!cargosOK.has(cargo)) return json({ error: 'Cargo não autorizado' }, 403)
 
-    // Body
+    // Body — aceita prospect_id (Prospecção) OU contato_nome (Cliente 360 Bling)
     const body = await req.json().catch(() => ({}))
-    const prospectId: string = body.prospect_id
-    if (!prospectId) return json({ error: 'prospect_id obrigatório' }, 400)
+    const prospectId: string = body.prospect_id || ''
+    const contatoNomeIn: string = String(body.contato_nome || '').trim()
+    const empresaIn: string = String(body.empresa || '').trim()  // 'matriz' | 'bc'
+    if (!prospectId && !contatoNomeIn) {
+      return json({ error: 'prospect_id ou contato_nome obrigatório' }, 400)
+    }
     // OPCIONAL: conversa que a vendedora colou do WhatsApp (ouro pro contexto)
     const conversaExtra: string = String(body.conversa_extra || '').trim().slice(0, 4000)
+    const fonteOrigem = prospectId ? 'prospect' : 'cliente_bling'
 
     // Quota — admin ilimitado
     if (cargo !== 'admin') {
@@ -218,63 +225,105 @@ Deno.serve(async (req) => {
       return json({ error: 'Insights pausados manualmente pelo admin.' }, 429)
     }
 
-    // Busca prospect (com permissão por RLS — service role pula RLS, então valida cargo na hora)
-    const { data: prospect, error: prospErr } = await admin
-      .from('prospects')
-      .select('*')
-      .eq('id', prospectId)
-      .single()
-    if (prospErr || !prospect) return json({ error: 'Lead não encontrado' }, 404)
+    // ── Busca dados do lead ──
+    // Caso 1: prospect_id veio → busca em prospects (Prospecção/outbound)
+    // Caso 2: contato_nome veio → busca em pedidos+cliente_metadata (Cliente 360)
+    let prospect: any = null
+    let contatoNome: string = ''
 
-    // Vendedora só pode qualificar próprio lead
-    if (cargo === 'vendedor' && prospect.criado_por !== user.id) {
-      return json({ error: 'Você só pode qualificar leads que VOCÊ criou' }, 403)
+    if (prospectId) {
+      const { data, error } = await admin.from('prospects').select('*').eq('id', prospectId).single()
+      if (error || !data) return json({ error: 'Lead não encontrado em prospects' }, 404)
+      prospect = data
+      contatoNome = data.nome
+      if (cargo === 'vendedor' && prospect.criado_por !== user.id) {
+        return json({ error: 'Você só pode qualificar leads que VOCÊ criou' }, 403)
+      }
+    } else {
+      contatoNome = contatoNomeIn
     }
 
     // ── Coleta de SINAIS pra montar contexto ──
     const contextoLead: any = {
-      nome: (prospect.nome || '').slice(0, 200),
-      cidade: prospect.cidade || null,
-      estado: prospect.estado || null,
-      segmento: prospect.segmento || null,
-      whatsapp_cadastrado: !!prospect.whatsapp,
-      status_atual: prospect.status || 'novo',
-      criado_em: prospect.created_at,
-      mensagem_ia_gerada: (prospect.ia_mensagem || '').slice(0, 800) || null,
-      motivo_perda: prospect.motivo_perda || null,
-      motivo_perda_detalhe: (prospect.motivo_perda_detalhe || '').slice(0, 200) || null,
+      origem: fonteOrigem,
+      nome: contatoNome.slice(0, 200),
+      cidade: prospect?.cidade || null,
+      estado: prospect?.estado || null,
+      segmento: prospect?.segmento || null,
+      whatsapp_cadastrado: !!(prospect?.whatsapp),
+      status_atual: prospect?.status || (fonteOrigem === 'cliente_bling' ? 'cliente_existente' : 'novo'),
+      criado_em: prospect?.created_at || null,
+      mensagem_ia_gerada: prospect?.ia_mensagem ? (prospect.ia_mensagem || '').slice(0, 800) : null,
+      motivo_perda: prospect?.motivo_perda || null,
+      motivo_perda_detalhe: (prospect?.motivo_perda_detalhe || '').slice(0, 200) || null,
     }
 
-    // Histórico de status
-    const { data: hist } = await admin.from('prospects_historico')
-      .select('acao, status_anterior, status_novo, created_at')
-      .eq('prospect_id', prospectId).order('created_at', { ascending: false }).limit(10)
-    contextoLead.historico_acoes = (hist || []).map((h: any) => ({
-      acao: h.acao, de: h.status_anterior, para: h.status_novo,
-      quando: h.created_at?.slice(0, 10),
-    }))
+    // Cliente Bling: enriquece com RFM + metadata + notas
+    let qtdPedidosBling = 0
+    if (fonteOrigem === 'cliente_bling' && contatoNome) {
+      const empresaFiltro = empresaIn || 'matriz'
+      // RFM scoring
+      const { data: rfm } = await admin.from('cliente_scoring_full')
+        .select('score_rfm, segmento_rfm, score_recompra, total_pedidos, total_gasto, ticket_medio, ultima_compra, categoria_preferida, canal_preferido_label, recencia_dias')
+        .eq('contato_nome', contatoNome).eq('empresa', empresaFiltro).maybeSingle()
+      if (rfm) {
+        contextoLead.rfm_scoring = rfm
+        qtdPedidosBling = Number(rfm.total_pedidos) || 0
+      }
+      // Acompanhamento comercial — busca metadata via contato_id de qualquer pedido com mesmo nome
+      const { data: pedSample } = await admin.from('pedidos')
+        .select('contato_id').ilike('contato_nome', contatoNome).eq('empresa', empresaFiltro).limit(1)
+      const cid = pedSample?.[0]?.contato_id
+      if (cid) {
+        const { data: meta } = await admin.from('cliente_metadata')
+          .select('status_relacionamento, observacao_rapida, motivo_perda, motivo_perda_detalhe')
+          .eq('contato_id', cid).eq('empresa', empresaFiltro).maybeSingle()
+        if (meta) contextoLead.acompanhamento_comercial = meta
+      }
+      // Notas dos vendedores
+      const { data: notas } = await admin.from('cliente_notas')
+        .select('texto, user_nome, created_at')
+        .eq('contato_nome', contatoNome).eq('empresa', empresaFiltro)
+        .order('created_at', { ascending: false }).limit(5)
+      if (notas?.length) {
+        contextoLead.notas_recentes = notas.map((n: any) => ({
+          quando: n.created_at?.slice(0, 10), por: n.user_nome, texto: (n.texto || '').slice(0, 250),
+        }))
+      }
+    }
 
-    // Eventos do tracker (se Lead Tracker estiver ativo + lead virou contato_nome)
+    // Histórico de status (só pra prospects)
+    if (prospectId) {
+      const { data: hist } = await admin.from('prospects_historico')
+        .select('acao, status_anterior, status_novo, created_at')
+        .eq('prospect_id', prospectId).order('created_at', { ascending: false }).limit(10)
+      contextoLead.historico_acoes = (hist || []).map((h: any) => ({
+        acao: h.acao, de: h.status_anterior, para: h.status_novo,
+        quando: h.created_at?.slice(0, 10),
+      }))
+    }
+
+    // Eventos do tracker (Lead Tracker)
     let qtdEventosTracker = 0
-    if (prospect.nome) {
+    if (contatoNome) {
       const { count } = await admin.from('analytics_lead_events')
         .select('*', { count: 'exact', head: true })
-        .eq('contato_nome', prospect.nome)
+        .eq('contato_nome', contatoNome)
       qtdEventosTracker = Number(count) || 0
       if (qtdEventosTracker > 0) {
         const { data: jornada } = await admin.from('analytics_jornada_cliente')
           .select('pageviews, paginas_unicas, dias_visitando, primeiro_toque, canais, campanhas, devices')
-          .eq('contato_nome', prospect.nome).maybeSingle()
+          .eq('contato_nome', contatoNome).maybeSingle()
         contextoLead.comportamento_site = jornada || null
       }
     }
 
-    // Pedidos anteriores (caso lead já tenha comprado e virou cliente)
-    let qtdPedidos = 0
-    if (prospect.nome) {
+    // Pedidos anteriores — pra prospect verifica se virou cliente; pra cliente Bling já temos qtdPedidosBling
+    let qtdPedidos = qtdPedidosBling
+    if (prospectId && contatoNome) {
       const { count } = await admin.from('pedidos')
         .select('*', { count: 'exact', head: true })
-        .ilike('contato_nome', prospect.nome)
+        .ilike('contato_nome', contatoNome)
       qtdPedidos = Number(count) || 0
     }
     if (qtdPedidos > 0) contextoLead.pedidos_anteriores_count = qtdPedidos
@@ -286,16 +335,18 @@ Deno.serve(async (req) => {
 
     // Sinais pra calcular confiança
     const sinais = {
-      tem_segmento: !!prospect.segmento,
-      tem_cidade: !!prospect.cidade,
-      tem_whatsapp: !!prospect.whatsapp,
-      tem_mensagem_ia: !!prospect.ia_mensagem,
-      tem_observacao: false,
-      tem_conversa_real: !!conversaExtra,  // ← novo sinal forte
-      status_avancado: prospect.status && prospect.status !== 'novo',
+      tem_segmento: !!(prospect?.segmento),
+      tem_cidade: !!(prospect?.cidade),
+      tem_whatsapp: !!(prospect?.whatsapp),
+      tem_mensagem_ia: !!(prospect?.ia_mensagem),
+      tem_observacao: !!(contextoLead.acompanhamento_comercial?.observacao_rapida),
+      tem_conversa_real: !!conversaExtra,
+      tem_rfm: !!contextoLead.rfm_scoring,
+      tem_notas: !!(contextoLead.notas_recentes?.length),
+      status_avancado: !!(prospect?.status && prospect.status !== 'novo') || fonteOrigem === 'cliente_bling',
       qtd_eventos_tracker: qtdEventosTracker,
       qtd_pedidos_anteriores: qtdPedidos,
-      tem_motivo_perda: !!prospect.motivo_perda,
+      tem_motivo_perda: !!(prospect?.motivo_perda || contextoLead.acompanhamento_comercial?.motivo_perda),
     }
 
     const confiancaPct = calcularConfianca(sinais)
@@ -328,9 +379,9 @@ Deno.serve(async (req) => {
     const { data: inserted, error: insErr } = await admin
       .from('lead_qualificacao')
       .insert({
-        prospect_id: prospectId,
-        contato_nome: prospect.nome,
-        empresa: null,
+        prospect_id: prospectId || null,
+        contato_nome: contatoNome,
+        empresa: empresaIn || null,
         dor: String(obj.dor || '—').slice(0, 400),
         perfil: String(obj.perfil || '—').slice(0, 300),
         budget: String(obj.budget || '—').slice(0, 200),
