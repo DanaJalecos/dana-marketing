@@ -838,6 +838,15 @@
         ${descobrir.map(p => `<div style="font-size:11px;color:#cbd5e1;line-height:1.5;padding:2px 0"><span style="color:#0ea5e9;font-weight:700">› </span>${escapeHtml(p)}</div>`).join('')}
       </div>` : ''}
 
+      <!-- Histórico (lazy) -->
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:8px 10px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="c360ToggleHistoricoQualif('${escapeHtml(contatoNome)}', '${escapeHtml(empresa || '')}')">
+          <div style="font-size:9.5px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;font-weight:700">📜 Histórico de qualificações</div>
+          <button id="c360-qualif-hist-toggle" style="background:transparent;border:1px solid rgba(255,255,255,0.15);color:#94a3b8;font-size:10.5px;padding:2px 9px;border-radius:6px;cursor:pointer">Ver histórico ▾</button>
+        </div>
+        <div id="c360-qualif-historico-conteudo" style="display:none;margin-top:8px"></div>
+      </div>
+
       <div style="font-size:10px;color:#64748b;text-align:right">
         Por ${escapeHtml(q.user_nome || '—')} · ${escapeHtml(q.modelo_provider || '—')} · ${dataStr}
       </div>
@@ -888,6 +897,100 @@
       if (typeof showToast === 'function') showToast('Erro: ' + (e.message || e).slice(0, 200), 'error');
       if (btn) { btn.disabled = false; btn.textContent = '🎯 Gerar Qualificação IA'; }
     }
+  };
+
+  // ─── Histórico de qualificações no C360 (lazy load) ───
+  window._c360QualifHistoricoCache = window._c360QualifHistoricoCache || {};
+  window.c360ToggleHistoricoQualif = async function(contatoNome, empresa) {
+    const conteudo = document.getElementById('c360-qualif-historico-conteudo');
+    const toggleBtn = document.getElementById('c360-qualif-hist-toggle');
+    if (!conteudo) return;
+    const aberto = conteudo.style.display !== 'none';
+    if (aberto) {
+      conteudo.style.display = 'none';
+      if (toggleBtn) toggleBtn.textContent = 'Ver histórico ▾';
+      return;
+    }
+    conteudo.style.display = '';
+    if (toggleBtn) toggleBtn.textContent = 'Ocultar histórico ▴';
+
+    const cacheKey = (contatoNome || '') + '|' + (empresa || '');
+    let rows = window._c360QualifHistoricoCache[cacheKey];
+    if (!rows) {
+      conteudo.innerHTML = '<div style="color:#64748b;font-size:11px;text-align:center;padding:12px">⏳ Carregando histórico...</div>';
+      try {
+        const sb = state.sb;
+        let query = sb.from('lead_qualificacao')
+          .select('id, lead_score, confianca_pct, acao_recomendada, modelo_provider, user_nome, created_at')
+          .eq('contato_nome', contatoNome)
+          .order('created_at', { ascending: false })
+          .limit(10);
+        if (empresa) query = query.eq('empresa', empresa);
+        const { data, error } = await query;
+        if (error) throw error;
+        rows = data || [];
+        window._c360QualifHistoricoCache[cacheKey] = rows;
+      } catch (e) {
+        conteudo.innerHTML = '<div style="color:#fca5a5;font-size:11px;text-align:center;padding:10px">Erro: ' + escapeHtml(e.message || String(e)) + '</div>';
+        return;
+      }
+    }
+
+    if (!rows.length) {
+      conteudo.innerHTML = '<div style="color:#64748b;font-size:11px;text-align:center;padding:10px">Sem qualificações anteriores.</div>';
+      return;
+    }
+    if (rows.length === 1) {
+      conteudo.innerHTML = '<div style="color:#64748b;font-size:11px;text-align:center;padding:10px">Só 1 qualificação até agora — clique em <strong>↻ Regenerar</strong> pra criar histórico.</div>';
+      return;
+    }
+
+    const html = rows.map((r, i) => {
+      const proxima = rows[i - 1];
+      const dt = new Date(r.created_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
+      const provider = r.modelo_provider === 'groq' ? 'Llama 3.3' : r.modelo_provider === 'gemini' ? 'Gemini 2.5' : (r.modelo_provider || '—');
+      const score = r.lead_score || 0;
+      const scoreColor = score >= 70 ? '#86efac' : score >= 50 ? '#fcd34d' : score >= 30 ? '#fdba74' : '#fca5a5';
+      const scoreLbl = score >= 70 ? '🔥 Quente' : score >= 50 ? '☕ Morno' : score >= 30 ? '🥶 Frio-morno' : '🧊 Frio';
+
+      let delta = '';
+      if (proxima) {
+        const d = (proxima.lead_score || 0) - score;
+        if (d !== 0) {
+          const cor = d > 0 ? '#86efac' : '#fca5a5';
+          delta = `<span style="color:${cor};font-weight:700;font-size:10.5px;margin-left:5px">${d > 0 ? '↑' : '↓'}${Math.abs(d)}</span>`;
+        } else {
+          delta = '<span style="color:#64748b;font-size:10.5px;margin-left:5px">=</span>';
+        }
+      } else {
+        delta = '<span style="background:#16a34a;color:#fff;font-size:9px;padding:2px 6px;border-radius:8px;margin-left:5px;font-weight:700">ATUAL</span>';
+      }
+
+      const isAtual = i === 0;
+      return `
+        <div style="display:flex;gap:8px;padding:7px 4px;border-top:${isAtual ? 'none' : '1px solid rgba(255,255,255,0.06)'};${isAtual?'background:rgba(124,58,237,0.06);border-radius:6px':''}">
+          <div style="flex-shrink:0;width:46px;text-align:center;font-size:17px;font-weight:800;color:${scoreColor};font-family:'Playfair Display',serif">${score}</div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+              <span style="font-size:11px;color:${scoreColor};font-weight:700">${scoreLbl}</span>
+              ${delta}
+              <span style="color:#64748b;font-size:10px">·</span>
+              <span style="color:#94a3b8;font-size:10.5px">conf ${r.confianca_pct || 0}%</span>
+            </div>
+            <div style="font-size:10px;color:#64748b;margin-top:1px">${escapeHtml(dt)} · ${escapeHtml(provider)}${r.user_nome ? ' · '+escapeHtml(r.user_nome) : ''}</div>
+            ${r.acao_recomendada ? `<div style="font-size:10.5px;color:#cbd5e1;margin-top:3px;line-height:1.4;${isAtual?'':'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden'}">${escapeHtml(r.acao_recomendada)}</div>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    const primeiraScore = rows[rows.length - 1].lead_score || 0;
+    const atualScore = rows[0].lead_score || 0;
+    const totalDelta = atualScore - primeiraScore;
+    const evolHtml = rows.length >= 2 ? `
+      <div style="margin-bottom:6px;padding:5px 8px;background:${totalDelta > 0 ? 'rgba(22,163,74,0.1)' : totalDelta < 0 ? 'rgba(220,38,38,0.1)' : 'rgba(255,255,255,0.04)'};border-radius:6px;font-size:10.5px;color:#cbd5e1;text-align:center">
+        Evolução: <strong style="color:${totalDelta > 0 ? '#86efac' : totalDelta < 0 ? '#fca5a5' : '#94a3b8'}">${totalDelta > 0 ? '+' : ''}${totalDelta} pts</strong> em ${rows.length} análises
+      </div>` : '';
+    conteudo.innerHTML = evolHtml + html;
   };
 
   function renderClientDetail(c, nome, pedidos, fav) {

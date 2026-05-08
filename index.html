@@ -7533,6 +7533,9 @@ updateDynamicField('foto');
     </div>
   </div>
 
+  <!-- 🔥 Ranking Leads Quentes da Semana -->
+  <div id="prsp-ranking-quentes" style="display:none;margin-bottom:18px"></div>
+
   <!-- Lista (existente) -->
   <div id="prsp-lista" style="display:none;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px">
     <div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:12.5px;padding:40px">Carregando...</div>
@@ -13788,6 +13791,15 @@ function abrirLinkAlerta(ref, alertaId, dados) {
     if (dados.comentario_id) window._scrollToComentarioId = dados.comentario_id;
     setTimeout(() => focarTarefa(dados.tarefa_id), 500);
   }
+  // Deep-link pra Prospecção — abre modal de qualificação do lead que esquentou
+  if (dados && dados.prospect_id && viewId === 'prospeccao') {
+    setTimeout(() => {
+      if (typeof prospAbrirQualificacao === 'function') {
+        prospAbrirQualificacao(dados.prospect_id);
+      }
+    }, 600);
+  }
+
   // Deep-link pra Cliente 360 — abre cliente especifico + aba Notas
   if (dados && dados.contato_nome && viewId === 'cliente360') {
     const spec = {
@@ -21131,6 +21143,8 @@ async function prospLoad() {
     }
     window._prspBootDone = true;
     prospRender();
+    // Fire-and-forget: monta o ranking de leads quentes sem bloquear render
+    if (typeof prospLoadRanking === 'function') prospLoadRanking().catch(e => console.warn('[ranking]', e));
   } catch (e) {
     console.error('[prsp] load:', e);
     lista.innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--red);font-size:12px;padding:20px">Erro: ${esc(e.message || String(e))}</div>`;
@@ -21680,6 +21694,99 @@ function _qualifConfLabel(c) {
 // Cache de qualificações já geradas nesta sessão (evita rebuscar)
 window._qualifCache = window._qualifCache || {};
 
+// ─── Ranking 🔥 Leads Quentes da Semana ───
+// Busca prospects qualificados como quentes (score >= 70) nos últimos 7 dias
+// e mostra card no topo da Prospecção com top 10. Auto-refresh toda vez que abre.
+window.prospLoadRanking = async function() {
+  const wrap = document.getElementById('prsp-ranking-quentes');
+  if (!wrap) return;
+  try {
+    const seteDiasAtras = new Date(Date.now() - 7 * 86400000).toISOString();
+    // Busca qualificações quentes recentes (DISTINCT por prospect_id, last only)
+    const { data, error } = await sb.from('lead_qualificacao')
+      .select('prospect_id, lead_score, confianca_pct, acao_recomendada, urgencia, created_at, user_nome')
+      .gte('lead_score', 70)
+      .gte('created_at', seteDiasAtras)
+      .not('prospect_id', 'is', null)
+      .order('lead_score', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) throw error;
+
+    // Pega só a qualif mais recente por prospect_id
+    const seen = new Set();
+    const dedup = (data || []).filter(r => {
+      if (seen.has(r.prospect_id)) return false;
+      seen.add(r.prospect_id);
+      return true;
+    }).slice(0, 10);
+
+    if (dedup.length === 0) {
+      wrap.style.display = 'none';
+      return;
+    }
+
+    // Resolve nomes via _prspCache (já carregado pela tela) — fallback: query
+    const ids = dedup.map(r => r.prospect_id);
+    let nomes = {};
+    const cacheLeads = (typeof _prspCache !== 'undefined' && Array.isArray(_prspCache)) ? _prspCache : [];
+    cacheLeads.forEach(p => { if (ids.includes(p.id)) nomes[p.id] = p; });
+    const idsFaltantes = ids.filter(id => !nomes[id]);
+    if (idsFaltantes.length > 0) {
+      const { data: ps } = await sb.from('prospects')
+        .select('id, nome, segmento, cidade, estado, status, whatsapp')
+        .in('id', idsFaltantes);
+      (ps || []).forEach(p => { nomes[p.id] = p; });
+    }
+
+    const html = `
+      <div class="card" style="background:linear-gradient(135deg,rgba(220,38,38,0.04),rgba(245,158,11,0.04));border:1px solid rgba(245,158,11,0.25);padding:14px 16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px;flex-wrap:wrap">
+          <div>
+            <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;display:flex;align-items:center;gap:8px">
+              🔥 Leads Quentes da Semana
+              <span style="background:linear-gradient(135deg,#dc2626,#f59e0b);color:#fff;font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700">${dedup.length}</span>
+            </div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px">Score ≥ 70 nos últimos 7 dias · ataque imediato</div>
+          </div>
+          <button onclick="prospLoadRanking()" class="btn btn-ghost btn-sm" style="font-size:11px" title="Atualizar ranking">↻</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">
+          ${dedup.map((r, i) => {
+            const p = nomes[r.prospect_id] || {};
+            const score = r.lead_score || 0;
+            const scoreColor = score >= 90 ? '#dc2626' : score >= 80 ? '#f59e0b' : '#fb923c';
+            const dt = new Date(r.created_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit' });
+            const acao = (r.acao_recomendada || '').slice(0, 90) + ((r.acao_recomendada || '').length > 90 ? '…' : '');
+            return `
+              <div onclick="prospAbrirQualificacao('${r.prospect_id}')" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer;transition:all 0.15s;display:flex;gap:10px;align-items:flex-start" onmouseover="this.style.transform='translateY(-1px)';this.style.borderColor='rgba(245,158,11,0.5)'" onmouseout="this.style.transform='';this.style.borderColor='var(--border)'">
+                <div style="flex-shrink:0;text-align:center;min-width:42px">
+                  <div style="font-size:18px;font-weight:800;color:${scoreColor};font-family:'Syne',sans-serif;line-height:1">${score}</div>
+                  <div style="font-size:9px;color:var(--text3);margin-top:1px">#${i+1}</div>
+                </div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:12.5px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.nome || 'Lead')}">${esc(p.nome || 'Lead removido')}</div>
+                  <div style="font-size:10.5px;color:var(--text3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                    ${p.segmento ? esc(p.segmento.slice(0, 28)) : '—'}${p.cidade ? ' · ' + esc(p.cidade) : ''}
+                  </div>
+                  ${acao ? `<div style="font-size:10.5px;color:var(--text2);margin-top:4px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">💡 ${esc(acao)}</div>` : ''}
+                  <div style="font-size:9.5px;color:var(--text3);margin-top:3px;display:flex;justify-content:space-between">
+                    <span>conf ${r.confianca_pct || 0}%</span>
+                    <span>${esc(dt)}</span>
+                  </div>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    wrap.innerHTML = html;
+    wrap.style.display = '';
+  } catch (e) {
+    console.warn('[prsp ranking]', e);
+    wrap.style.display = 'none';
+  }
+};
+
 window.prospAbrirQualificacao = async function(id) {
   const p = _prspCache.find(x => x.id === id);
   if (!p) { showToast('Lead não encontrado'); return; }
@@ -21952,12 +22059,21 @@ Cliente: Umas 8 jalecos pra equipe da clínica, prazo até dia 20...
 
           <!-- Fontes analisadas -->
           ${fontesArr.length ? `
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px">
             <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:6px">📚 Sinais usados pela IA (quanto mais, maior confiança)</div>
             <div style="display:flex;flex-wrap:wrap;gap:5px">
               ${fontesArr.map(f => `<span style="font-size:10.5px;background:var(--surface2);padding:3px 8px;border-radius:10px;color:var(--text2)">${esc(f)}</span>`).join('')}
             </div>
           </div>` : ''}
+
+          <!-- Histórico de qualificações (lazy load) -->
+          <div id="qualif-historico-wrapper" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="prospToggleHistorico('${p.id}')">
+              <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px;font-weight:700">📜 Histórico de qualificações</div>
+              <button id="qualif-hist-toggle" class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 10px">Ver histórico ▾</button>
+            </div>
+            <div id="qualif-historico-conteudo" style="display:none;margin-top:10px"></div>
+          </div>
         </div>
 
         <!-- Footer -->
@@ -21975,6 +22091,104 @@ Cliente: Umas 8 jalecos pra equipe da clínica, prazo até dia 20...
   wrap.innerHTML = html;
   document.body.appendChild(wrap.firstElementChild);
 }
+
+// ─── Histórico de qualificações IA (lazy load dentro do modal) ───
+window._qualifHistoricoCache = window._qualifHistoricoCache || {};
+window.prospToggleHistorico = async function(prospectId) {
+  const conteudo = document.getElementById('qualif-historico-conteudo');
+  const toggleBtn = document.getElementById('qualif-hist-toggle');
+  if (!conteudo) return;
+
+  const aberto = conteudo.style.display !== 'none';
+  if (aberto) {
+    conteudo.style.display = 'none';
+    if (toggleBtn) toggleBtn.textContent = 'Ver histórico ▾';
+    return;
+  }
+
+  conteudo.style.display = '';
+  if (toggleBtn) toggleBtn.textContent = 'Ocultar histórico ▴';
+
+  // Cache
+  let rows = window._qualifHistoricoCache[prospectId];
+  if (!rows) {
+    conteudo.innerHTML = '<div style="color:var(--text3);font-size:11.5px;text-align:center;padding:14px">⏳ Carregando histórico...</div>';
+    try {
+      const { data, error } = await sb.from('lead_qualificacao')
+        .select('id, lead_score, confianca_pct, acao_recomendada, modelo_provider, user_nome, created_at, dor, urgencia, timing')
+        .eq('prospect_id', prospectId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      if (error) throw error;
+      rows = data || [];
+      window._qualifHistoricoCache[prospectId] = rows;
+    } catch (e) {
+      conteudo.innerHTML = '<div style="color:#dc2626;font-size:11.5px;text-align:center;padding:10px">Erro: ' + esc(e.message || String(e)) + '</div>';
+      return;
+    }
+  }
+
+  if (rows.length === 0) {
+    conteudo.innerHTML = '<div style="color:var(--text3);font-size:11.5px;text-align:center;padding:10px">Sem qualificações anteriores.</div>';
+    return;
+  }
+
+  if (rows.length === 1) {
+    conteudo.innerHTML = '<div style="color:var(--text3);font-size:11.5px;text-align:center;padding:10px">Só existe 1 qualificação até agora — gere outra clicando em <strong>↻ Regenerar</strong> pra criar histórico.</div>';
+    return;
+  }
+
+  // Renderiza linha do tempo com delta de score
+  const html = rows.map((r, i) => {
+    const proxima = rows[i - 1]; // mais recente que essa
+    const dt = new Date(r.created_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
+    const provider = r.modelo_provider === 'groq' ? 'Llama 3.3' : r.modelo_provider === 'gemini' ? 'Gemini 2.5' : (r.modelo_provider || '—');
+    const score = r.lead_score || 0;
+    const scoreColor = score >= 70 ? '#16a34a' : score >= 50 ? '#f59e0b' : score >= 30 ? '#fb923c' : '#dc2626';
+    const scoreLbl = score >= 70 ? '🔥 Quente' : score >= 50 ? '☕ Morno' : score >= 30 ? '🥶 Frio-morno' : '🧊 Frio';
+
+    let delta = '';
+    if (proxima) {
+      const d = (proxima.lead_score || 0) - score;
+      if (d !== 0) {
+        const cor = d > 0 ? '#16a34a' : '#dc2626';
+        const seta = d > 0 ? '↑' : '↓';
+        delta = `<span style="color:${cor};font-weight:700;font-size:11px;margin-left:6px" title="Variou ${Math.abs(d)} pontos pra próxima qualificação">${seta}${Math.abs(d)}</span>`;
+      } else {
+        delta = '<span style="color:var(--text3);font-size:11px;margin-left:6px" title="Mesmo score">=</span>';
+      }
+    } else {
+      delta = '<span style="background:#16a34a;color:#fff;font-size:9.5px;padding:2px 6px;border-radius:8px;margin-left:6px;font-weight:700">ATUAL</span>';
+    }
+
+    const isAtual = i === 0;
+    return `
+      <div style="display:flex;gap:10px;padding:8px 6px;border-top:${isAtual ? 'none' : '1px solid var(--border)'};${isAtual?'background:rgba(124,58,237,0.04);border-radius:6px':''}">
+        <div style="flex-shrink:0;width:54px;text-align:center;font-size:18px;font-weight:800;color:${scoreColor};font-family:'Syne',sans-serif">${score}</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-size:11.5px;color:${scoreColor};font-weight:700">${scoreLbl}</span>
+            ${delta}
+            <span style="color:var(--text3);font-size:10.5px">·</span>
+            <span style="color:var(--text2);font-size:11px">conf ${r.confianca_pct || 0}%</span>
+          </div>
+          <div style="font-size:10.5px;color:var(--text3);margin-top:1px">${esc(dt)} · ${esc(provider)}${r.user_nome?' · por '+esc(r.user_nome):''}</div>
+          ${r.acao_recomendada ? `<div style="font-size:11px;color:var(--text2);margin-top:4px;line-height:1.4;${isAtual?'':'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden'}">${esc(r.acao_recomendada)}</div>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+
+  // Stat de evolução
+  const primeiraScore = rows[rows.length - 1].lead_score || 0;
+  const atualScore = rows[0].lead_score || 0;
+  const totalDelta = atualScore - primeiraScore;
+  const evolHtml = rows.length >= 2 ? `
+    <div style="margin-bottom:8px;padding:6px 10px;background:${totalDelta > 0 ? 'rgba(22,163,74,0.06)' : totalDelta < 0 ? 'rgba(220,38,38,0.06)' : 'var(--surface2)'};border-radius:6px;font-size:11px;color:var(--text2);text-align:center">
+      Evolução desde a 1ª qualificação: <strong style="color:${totalDelta > 0 ? '#16a34a' : totalDelta < 0 ? '#dc2626' : 'var(--text3)'}">${totalDelta > 0 ? '+' : ''}${totalDelta} pontos</strong> em ${rows.length} análises
+    </div>` : '';
+
+  conteudo.innerHTML = evolHtml + html;
+};
 
 async function prospAbrirHistorico(id) {
   const p = _prspCache.find(x => x.id === id);
