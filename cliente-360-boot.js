@@ -581,6 +581,7 @@
     state.currentContatoNome = nome;
     window._c360TimelineLoaded = false; // reseta cache da Timeline (Onda #2)
     window._c360ComportamentoLoaded = false; // reseta cache da aba Comportamento (Lead Tracking)
+    window._c360QualifLoaded = false;        // reseta cache da aba Qualificação IA
     const page = document.getElementById('page-cliente-1');
     if (!page) { console.error('[c360] page-cliente-1 nao encontrada'); return; }
 
@@ -661,20 +662,6 @@
         <div style="font-size:10.5px;color:#64748b">💡 Esses campos são locais do DMS — não mexem no Bling.</div>
         <button id="c360-meta-save" onclick="c360SaveMetadata(${contatoId}, '${escapeHtml(empresa)}')" style="padding:7px 16px;border-radius:6px;border:1px solid rgba(167,139,250,0.4);background:rgba(167,139,250,0.15);color:#c4b5fd;cursor:pointer;font-size:12px;font-weight:600">💾 Salvar</button>
       </div>
-
-      <!-- 🎯 Qualificação IA — seção pedida pela Manu (dentro do Acompanhamento Comercial) -->
-      <div style="margin-top:14px;padding-top:14px;border-top:1px dashed rgba(255,255,255,0.1)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;flex-wrap:wrap">
-          <div>
-            <div style="font-family:'Playfair Display',serif;font-size:13.5px;font-weight:600;color:#f1f5f9">🎯 Qualificação IA do Lead</div>
-            <div style="font-size:10.5px;color:#64748b;margin-top:2px">6 pilares · score · ação recomendada · perguntas pra investigar</div>
-          </div>
-          <div id="c360-qualif-actions" style="display:flex;gap:6px"></div>
-        </div>
-        <div id="c360-qualif-conteudo" style="font-size:11.5px;color:#94a3b8">
-          <div style="text-align:center;padding:14px;color:#64748b;font-size:11px">⏳ Carregando última qualificação…</div>
-        </div>
-      </div>
     `;
 
     // Insere DEPOIS do botao "Voltar" (primeiro botao do page)
@@ -684,9 +671,6 @@
     } else {
       page.insertBefore(panel, page.firstChild);
     }
-
-    // Carrega/renderiza qualificação IA (lazy)
-    setTimeout(() => c360CarregarQualificacao(nome, empresa), 0);
   }
 
   window.c360SaveMetadata = async function(contatoId, empresa) {
@@ -768,11 +752,16 @@
       if (!data) {
         // Nunca foi qualificado — mostra CTA pra gerar
         conteudo.innerHTML = `
-          <div style="text-align:center;padding:14px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);border-radius:8px">
-            <div style="font-size:11.5px;color:#94a3b8;line-height:1.5;margin-bottom:8px">
-              Esse cliente ainda não foi qualificado pela IA. Ela vai analisar pedidos, RFM, notas e comportamento pra dar Score 0-100, identificar dor/budget/urgência típicos e sugerir próxima ação.
+          <div style="text-align:center;padding:32px 20px;background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.12);border-radius:10px">
+            <div style="font-size:42px;margin-bottom:10px;opacity:0.6">🎯</div>
+            <div style="font-size:14px;font-weight:600;color:#f1f5f9;margin-bottom:8px">Cliente ainda não foi qualificado pela IA</div>
+            <div style="font-size:12px;color:#94a3b8;line-height:1.55;margin-bottom:18px;max-width:540px;margin-left:auto;margin-right:auto">
+              Ao gerar, a IA analisa <strong style="color:#cbd5e1">pedidos, RFM scoring, notas dos vendedores e comportamento no site</strong> pra dar Score 0-100, identificar dor/budget/urgência típicos do segmento e sugerir próxima ação concreta.
             </div>
-            <button onclick="c360GerarQualificacao('${escapeHtml(contatoNome)}', '${escapeHtml(empresa)}')" id="c360-qualif-gerar-btn" style="padding:8px 14px;border-radius:7px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:11.5px;font-weight:600">🎯 Gerar Qualificação IA</button>
+            <div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:8px;padding:10px 14px;font-size:11.5px;color:#86efac;line-height:1.5;margin-bottom:16px;max-width:540px;margin-left:auto;margin-right:auto;text-align:left">
+              ✅ <strong>Cliente já existente no Bling</strong> tem mais sinais que lead frio — espere confiança <strong>70-85%</strong>.
+            </div>
+            <button onclick="c360GerarQualificacao('${escapeHtml(contatoNome)}', '${escapeHtml(empresa)}')" id="c360-qualif-gerar-btn" style="padding:10px 22px;border-radius:8px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:13px;font-weight:600">🎯 Gerar Qualificação IA</button>
           </div>`;
         if (actions) actions.innerHTML = '';
         return;
@@ -1061,6 +1050,7 @@
       </button>
       <button id="c360-tab-timeline" onclick="c360SwitchTab('timeline')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">📜 Timeline</button>
       <button id="c360-tab-comportamento" onclick="c360SwitchTab('comportamento')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">🔍 Comportamento</button>
+      <button id="c360-tab-qualificacao" onclick="c360SwitchTab('qualificacao')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">🎯 Qualificação</button>
       <button id="c360-tab-insights" onclick="c360SwitchTab('insights')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">◆ Insights IA</button>
       <button id="c360-tab-notas" onclick="c360SwitchTab('notas')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">💬 Notas</button>
     </div>
@@ -1070,6 +1060,18 @@
     </div>
     <div id="c360-tabpanel-comportamento" style="padding:20px;display:none">
       <div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando jornada...</div>
+    </div>
+    <div id="c360-tabpanel-qualificacao" style="padding:20px;display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap">
+        <div>
+          <div style="font-family:'Playfair Display',serif;font-size:16px;font-weight:600;color:#f1f5f9">🎯 Qualificação IA do Lead</div>
+          <div style="font-size:11.5px;color:#64748b;margin-top:3px">6 pilares clássicos de venda · score 0-100 · ação recomendada · perguntas pra investigar</div>
+        </div>
+        <div id="c360-qualif-actions" style="display:flex;gap:6px"></div>
+      </div>
+      <div id="c360-qualif-conteudo" style="font-size:12.5px;color:#94a3b8">
+        <div style="text-align:center;padding:30px;color:rgba(255,255,255,0.4)">⏳ Carregando…</div>
+      </div>
     </div>
     <div id="c360-tabpanel-insights" style="padding:20px;display:none;color:#64748b">
       <div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando insights...</div>
@@ -1092,7 +1094,7 @@
 
   // Tabs internos
   window.c360SwitchTab = function(tab) {
-    const tabs = ['pedidos','timeline','comportamento','insights','notas'];
+    const tabs = ['pedidos','timeline','comportamento','qualificacao','insights','notas'];
     for (const t of tabs) {
       const btn = document.getElementById('c360-tab-'+t);
       const panel = document.getElementById('c360-tabpanel-'+t);
@@ -1110,6 +1112,14 @@
     }
     if (tab === 'comportamento' && typeof loadComportamento === 'function' && !window._c360ComportamentoLoaded) {
       loadComportamento();
+    }
+    if (tab === 'qualificacao' && typeof c360CarregarQualificacao === 'function' && !window._c360QualifLoaded) {
+      const nome = state.currentContatoNome;
+      const empresa = state.empresa;
+      if (nome) {
+        c360CarregarQualificacao(nome, empresa);
+        window._c360QualifLoaded = true;
+      }
     }
   };
 
