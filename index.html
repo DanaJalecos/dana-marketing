@@ -9204,6 +9204,21 @@ updateDynamicField('foto');
       <div class="rel-kpi"><div class="rel-kpi-label">Ticket Médio</div><div class="rel-kpi-val" id="rel-ticket">--</div><div class="rel-kpi-chg" id="rel-ticket-sub">carregando</div></div>
     </div>
   </div>
+  <!-- 💰 Faturamento por Canal — cards consolidados -->
+  <div class="rel-sec" id="rel-fat-canal-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <span>💰 Faturamento por Canal — <span id="rel-fat-canal-periodo" style="font-weight:500;color:var(--text2);font-size:13px">mês atual</span></span>
+    <select class="input" id="rel-fat-canal-periodo-sel" onchange="loadFaturamentoPorCanal()" style="width:auto;min-width:160px;height:32px;font-size:12px">
+      <option value="atual" selected>Mês atual</option>
+      <option value="anterior">Mês anterior</option>
+      <option value="30">Últimos 30 dias</option>
+      <option value="90">Últimos 90 dias</option>
+      <option value="ytd">Acumulado do ano</option>
+    </select>
+  </div>
+  <div id="rel-fat-canal-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:14px">
+    <div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:12px;padding:20px">⏳ Calculando faturamento por canal...</div>
+  </div>
+
   <div class="rel-sec">Insights Estratégicos</div>
   <div id="rel-insights"><div style="text-align:center;color:var(--text3);padding:20px;font-size:13px">Carregando insights...</div></div>
   <div style="margin-top:20px">
@@ -20699,6 +20714,156 @@ async function loadCanaisVenda(periodo) {
 }
 
 // ── RELATÓRIO EXECUTIVO (dados reais) ──
+// ════════════════════════════════════════════════════════════════════
+// FATURAMENTO POR CANAL — cards consolidados (Bling + Magazord)
+// ════════════════════════════════════════════════════════════════════
+async function loadFaturamentoPorCanal() {
+  const wrap = document.getElementById('rel-fat-canal-cards');
+  const periodoLabel = document.getElementById('rel-fat-canal-periodo');
+  if (!wrap) return;
+
+  const filtro = document.getElementById('rel-fat-canal-periodo-sel')?.value || 'atual';
+  const now = new Date();
+  let inicio, fim, labelPer;
+
+  if (filtro === 'atual') {
+    inicio = new Date(now.getFullYear(), now.getMonth(), 1);
+    fim = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    labelPer = inicio.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  } else if (filtro === 'anterior') {
+    inicio = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    fim = new Date(now.getFullYear(), now.getMonth(), 1);
+    labelPer = inicio.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  } else if (filtro === 'ytd') {
+    inicio = new Date(now.getFullYear(), 0, 1);
+    fim = new Date(now.getFullYear() + 1, 0, 1);
+    labelPer = 'Acumulado ' + now.getFullYear();
+  } else {
+    const dias = parseInt(filtro);
+    inicio = new Date(Date.now() - dias * 86400000);
+    fim = now;
+    labelPer = 'Últimos ' + dias + ' dias';
+  }
+  if (periodoLabel) periodoLabel.textContent = labelPer;
+
+  const inicioISO = inicio.toISOString();
+  const fimISO = fim.toISOString();
+  const inicioDate = inicio.toISOString().slice(0, 10);
+  const fimDate = fim.toISOString().slice(0, 10);
+
+  try {
+    // Paralelo: Bling pedidos por canal + Magazord total
+    const [blingR, magazordR] = await Promise.all([
+      sb.from('pedidos')
+        .select('loja_id, total, total_com_frete, vendedor_id')
+        .gte('data', inicioDate).lt('data', fimDate)
+        .limit(50000),
+      sb.from('magazord_pedidos')
+        .select('valor_total, pedido_situacao_tipo, pedido_situacao_descricao')
+        .gte('data_hora', inicioISO).lt('data_hora', fimISO)
+        .limit(20000),
+    ]);
+
+    if (blingR.error) throw blingR.error;
+
+    // Bling: agrupa por canal
+    const canais = {
+      lojawhats: { nome: '🏪 Loja Física + WhatsApp', cor: '#10b981', total: 0, pedidos: 0, fonte: 'Bling' },
+      ml:        { nome: '🛒 Mercado Livre',          cor: '#fbbf24', total: 0, pedidos: 0, fonte: 'Bling' },
+      shopee:    { nome: '🛍 Shopee',                  cor: '#ee4d2d', total: 0, pedidos: 0, fonte: 'Bling' },
+      tiktok:    { nome: '🎵 TikTok Shop',             cor: '#0ea5e9', total: 0, pedidos: 0, fonte: 'Bling' },
+      magalu:    { nome: '🛒 Magalu',                  cor: '#06aaff', total: 0, pedidos: 0, fonte: 'Bling' },
+      siteBling: { nome: '🌐 Site (Bling - manuais)',  cor: '#94a3b8', total: 0, pedidos: 0, fonte: 'Bling' },
+    };
+    (blingR.data || []).forEach(p => {
+      const lid = String(p.loja_id || '0');
+      const valor = Number(p.total_com_frete || p.total || 0);
+      let key = null;
+      if (lid === '203536978' || lid === '203550865') key = 'lojawhats';
+      else if (lid === '205337834') key = 'ml';
+      else if (lid === '205522474') key = 'shopee';
+      else if (lid === '205430008') key = 'tiktok';
+      else if (lid === '0' || lid === 'null' || lid === 'undefined') key = 'siteBling';
+      else key = 'magalu';
+      canais[key].total += valor;
+      canais[key].pedidos += 1;
+    });
+
+    // Magazord: usa SOMENTE pagos pra evitar contar carrinhos cancelados como receita
+    let magazordPagos = 0, magazordPedPagos = 0, magazordTodos = 0, magazordPedTodos = 0;
+    (magazordR.data || []).forEach(p => {
+      const v = Number(p.valor_total || 0);
+      const tipo = (p.pedido_situacao_tipo || '').toLowerCase();
+      const desc = (p.pedido_situacao_descricao || '').toLowerCase();
+      const isPago = tipo.includes('aprov') || tipo.includes('pago') || tipo.includes('separa') || tipo.includes('envia') || tipo.includes('entreg') || tipo.includes('faturad') || desc.includes('pago') || desc.includes('aprovad');
+      const isCancelado = tipo.includes('cancel') || desc.includes('cancel');
+      magazordTodos += v; magazordPedTodos += 1;
+      if (isPago && !isCancelado) { magazordPagos += v; magazordPedPagos += 1; }
+    });
+
+    const siteCard = {
+      nome: '🌐 Site (Magazord)', cor: '#3b82f6',
+      total: magazordPagos, pedidos: magazordPedPagos,
+      totalBruto: magazordTodos, pedidosBruto: magazordPedTodos,
+      fonte: 'Magazord'
+    };
+
+    // Constrói lista ordenada por total
+    const ordenado = [siteCard, ...Object.values(canais)]
+      .filter(c => c.total > 0 || c.pedidos > 0);
+    ordenado.sort((a, b) => b.total - a.total);
+
+    const totalGeral = ordenado.reduce((s, c) => s + c.total, 0);
+    const fmtR = v => 'R$ ' + Math.round(v).toLocaleString('pt-BR');
+    const fmtN = v => Number(v).toLocaleString('pt-BR');
+
+    if (!ordenado.length) {
+      wrap.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:12.5px;padding:30px">Sem pedidos no período selecionado</div>';
+      return;
+    }
+
+    const cardsHtml = ordenado.map((c, i) => {
+      const pct = totalGeral > 0 ? (c.total / totalGeral * 100) : 0;
+      const ticket = c.pedidos > 0 ? c.total / c.pedidos : 0;
+      const isMagazord = c.fonte === 'Magazord';
+      const isTop = i === 0;
+      return `
+        <div class="card" style="padding:14px;border-left:4px solid ${c.cor};${isTop?'background:linear-gradient(135deg,'+c.cor+'08,transparent)':''}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;gap:6px">
+            <div style="font-size:13px;font-weight:700;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.nome}">${c.nome}</div>
+            ${isTop ? '<span style="background:'+c.cor+';color:#fff;font-size:9px;padding:2px 6px;border-radius:8px;font-weight:700;flex-shrink:0">#1</span>' : ''}
+          </div>
+          <div style="font-size:22px;font-weight:800;color:${c.cor};font-family:'Syne',sans-serif;margin-bottom:2px">${fmtR(c.total)}</div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:8px">${fmtN(c.pedidos)} pedidos · ticket ${fmtR(ticket)}</div>
+          ${isMagazord && c.totalBruto > c.total ? `<div style="font-size:10px;color:var(--text3);margin-bottom:6px">Bruto: ${fmtR(c.totalBruto)} (${fmtN(c.pedidosBruto)}) — só pagos no card</div>` : ''}
+          <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-bottom:4px">
+            <div style="height:100%;background:${c.cor};width:${pct.toFixed(1)}%;transition:width 0.4s"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3)">
+            <span>${pct.toFixed(1)}% do total</span>
+            <span style="font-weight:600">${c.fonte}</span>
+          </div>
+        </div>`;
+    }).join('');
+
+    // Card "TOTAL CONSOLIDADO" no final
+    const totalPedidos = ordenado.reduce((s, c) => s + c.pedidos, 0);
+    const ticketGeral = totalPedidos > 0 ? totalGeral / totalPedidos : 0;
+    const totalCard = `
+      <div class="card" style="padding:14px;background:linear-gradient(135deg,#1f2937,#374151);color:#fff;border-color:#1f2937">
+        <div style="font-size:13px;font-weight:700;margin-bottom:8px">∑ Total Consolidado</div>
+        <div style="font-size:22px;font-weight:800;font-family:'Syne',sans-serif;margin-bottom:2px">${fmtR(totalGeral)}</div>
+        <div style="font-size:11px;color:#9ca3af;margin-bottom:8px">${fmtN(totalPedidos)} pedidos · ticket ${fmtR(ticketGeral)}</div>
+        <div style="font-size:10px;color:#9ca3af;line-height:1.4">${ordenado.length} canais ativos · Magazord (site) + Bling (loja+marketplaces)</div>
+      </div>`;
+
+    wrap.innerHTML = cardsHtml + totalCard;
+  } catch (e) {
+    console.error('[fat canal]', e);
+    wrap.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--red);font-size:12px;padding:20px">Erro: ' + esc(e.message || String(e)) + '</div>';
+  }
+}
+
 function loadRelatorio() {
   const s = liveData.stats;
   const pm = liveData.porMes;
@@ -20736,6 +20901,11 @@ function loadRelatorio() {
   const ticketRef = dRef.pedidos > 0 ? Math.round(dRef.receita / dRef.pedidos) : 0;
   if (el('rel-ticket')) el('rel-ticket').textContent = 'R$' + fmt(ticketRef);
   if (el('rel-ticket-sub')) el('rel-ticket-sub').textContent = getMesNome(mesRef) + ' ' + anoAtual;
+
+  // 💰 Cards de faturamento por canal (Bling + Magazord) — fire-and-forget
+  if (typeof loadFaturamentoPorCanal === 'function') {
+    loadFaturamentoPorCanal().catch(e => console.warn('[fat canal]', e));
+  }
 
   // Insights dinâmicos
   const ticketAtual = dAtual.pedidos > 0 ? Math.round(dAtual.receita / dAtual.pedidos) : 0;
