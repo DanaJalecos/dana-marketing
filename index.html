@@ -20759,6 +20759,7 @@ function prospRenderLista() {
               ? `<button class="btn btn-sm" onclick="prospAbrirWhatsApp('${p.id}')" style="font-size:11px;background:#e5e7eb;color:#6b7280;border:1px solid #d1d5db" title="Já foi contatado em ${p.contatado_em ? new Date(p.contatado_em).toLocaleDateString('pt-BR') : '—'}. Clique para abrir o WhatsApp mesmo assim.">✅ Já contatado</button>`
               : `<button class="btn btn-primary btn-sm" onclick="prospAbrirWhatsApp('${p.id}')" style="font-size:11px;background:#16a34a;border:none">💬 WhatsApp</button>`
           ) : ''}
+          <button class="btn btn-ghost btn-sm" onclick="prospAbrirQualificacao('${p.id}')" style="font-size:11px;background:rgba(124,58,237,0.08);color:#7c3aed;border:1px solid rgba(124,58,237,0.25)" title="Qualificar lead com IA (mock)">🎯 Qualificar IA</button>
           <button class="btn btn-ghost btn-sm" onclick="prospAbrirHistorico('${p.id}')" style="font-size:11px" title="Ver histórico do lead">🕒 Histórico</button>
           ${prospPodeEditar() ? `
             <select class="input" style="font-size:11px;padding:4px 6px;height:auto;flex:1;min-width:120px" onchange="prospMudarStatus('${p.id}', this.value)">
@@ -21152,6 +21153,187 @@ window.askMotivoPerda = function(opts) {
 };
 
 // Modal cronológico de histórico do lead
+// ════════════════════════════════════════════════════════════════════
+// 🎯 QUALIFICAÇÃO IA (MOCK VISUAL — sem backend ainda)
+// ════════════════════════════════════════════════════════════════════
+// Manu pediu uma "seção de qualificação do lead" baseada nos 6 pilares:
+// Dor · Perfil · Budget · Urgência · Timing · Objeção. Score 0-100.
+//
+// ESSE É UM MOCK pra validar layout antes de gastar 9h codando backend.
+// Os dados são gerados deterministicamente a partir do lead atual (sem IA).
+// Quando aprovar a tela, eu ligo edge function `qualificar-lead` reusando
+// pattern do cliente360-insight (cascade Groq→Gemini, kill-switch, quotas).
+
+const _MOCK_DOR = [
+  'Padronizar uniformes da equipe sem precisar trocar a cada 6 meses',
+  'Encontrar jaleco que não amasse e mantenha aparência profissional',
+  'Reduzir custo unitário sem perder qualidade do tecido',
+  'Conjunto que sirva tanto pro consultório quanto pra UTI',
+];
+const _MOCK_PERFIL = [
+  'Profissional liberal · clínica própria · ~5 atendentes',
+  'Estudante de odontologia · final do curso · primeiro jaleco',
+  'Comprador B2B · clínica média (15-30 funcionários)',
+  'Dentista autônoma · atendimento domiciliar',
+];
+const _MOCK_BUDGET = [
+  { faixa: 'R$ 200-400/peça', nivel: 'Médio', cor: '#fbbf24' },
+  { faixa: 'R$ 400-700/peça', nivel: 'Alto', cor: '#16a34a' },
+  { faixa: 'R$ 100-200/peça', nivel: 'Baixo', cor: '#94a3b8' },
+  { faixa: 'Sem limite (premium)', nivel: 'Premium', cor: '#a855f7' },
+];
+const _MOCK_URGENCIA = [
+  { nivel: 'Alta', desc: 'Precisa em 7 dias', cor: '#dc2626' },
+  { nivel: 'Média', desc: 'Próximas 2-4 semanas', cor: '#f59e0b' },
+  { nivel: 'Baixa', desc: 'Sem prazo definido', cor: '#94a3b8' },
+];
+const _MOCK_TIMING = [
+  { etapa: '🔍 Pesquisa', desc: 'Comparando preços e modelos', cor: '#0ea5e9' },
+  { etapa: '🤔 Consideração', desc: 'Decidindo entre 2-3 lojas', cor: '#f59e0b' },
+  { etapa: '✅ Decisão', desc: 'Pronto pra fechar', cor: '#16a34a' },
+];
+const _MOCK_OBJECAO = [
+  ['Frete alto', 'Prazo de entrega'],
+  ['Não conhece a marca', 'Quer ver o tecido pessoalmente'],
+  ['Preço acima do esperado'],
+  ['Política de troca/devolução'],
+  ['Quer testar 1 peça antes do lote'],
+];
+const _MOCK_ACAO = [
+  'Cliente urgente com objeção de frete. Sugestão: oferecer cupom FRETE10 + envio expresso pra fechamento hoje.',
+  'Lead em fase de pesquisa, sem urgência. Não pressionar — enviar catálogo em PDF + foto do tecido em zoom e marcar follow-up em 7 dias.',
+  'Comprador B2B no estágio de decisão. Sugestão: enviar proposta personalizada com desconto progressivo (5pç=5%, 10pç=12%, 20pç+=20%).',
+  'Estudante com budget limitado mas timing de decisão. Oferecer linha básica de scrub + parcelamento em 6x sem juros.',
+];
+
+// Hash determinístico simples pra mock parecer "feito sob medida" pro lead
+function _mockPick(arr, leadId) {
+  let h = 0;
+  for (const c of String(leadId || 'x')) h = ((h << 5) - h + c.charCodeAt(0)) | 0;
+  return arr[Math.abs(h) % arr.length];
+}
+function _mockScore(leadId, status) {
+  // Score depende de status + hash do id pra dar variação consistente
+  let h = 0;
+  for (const c of String(leadId || 'x')) h = ((h << 5) - h + c.charCodeAt(0)) | 0;
+  const base = { novo: 35, contatado: 55, em_negociacao: 75, convertido: 90, descartado: 20 }[status || 'novo'] ?? 50;
+  return Math.max(15, Math.min(95, base + (Math.abs(h) % 21) - 10));
+}
+
+window.prospAbrirQualificacao = function(id) {
+  const p = _prspCache.find(x => x.id === id);
+  if (!p) { showToast('Lead não encontrado'); return; }
+
+  const score = _mockScore(p.id, p.status);
+  const scoreColor = score >= 75 ? '#16a34a' : score >= 50 ? '#f59e0b' : '#dc2626';
+  const scoreLabel = score >= 75 ? 'Quente 🔥' : score >= 50 ? 'Morno' : 'Frio';
+
+  const dor = _mockPick(_MOCK_DOR, p.id);
+  const perfil = _mockPick(_MOCK_PERFIL, p.id);
+  const budget = _mockPick(_MOCK_BUDGET, p.id);
+  const urgencia = _mockPick(_MOCK_URGENCIA, p.id);
+  const timing = _mockPick(_MOCK_TIMING, p.id);
+  const objs = _mockPick(_MOCK_OBJECAO, p.id);
+  const acao = _mockPick(_MOCK_ACAO, p.id);
+
+  const card = (icone, titulo, conteudo, cor) => `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 13px;border-left:3px solid ${cor||'var(--border)'}">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+        <span style="font-size:14px">${icone}</span>
+        <div style="font-size:10.5px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;font-weight:700">${titulo}</div>
+      </div>
+      <div style="font-size:12px;color:var(--text);line-height:1.45">${conteudo}</div>
+    </div>`;
+
+  const fontes = [
+    p.ia_mensagem ? '✍️ Mensagem IA gerada' : null,
+    p.cidade ? '📍 Cidade/Estado' : null,
+    p.segmento ? '🏢 Segmento' : null,
+    p.whatsapp ? '📱 WhatsApp cadastrado' : null,
+    p.criado_por_nome ? '👤 Origem (' + p.criado_por_nome + ')' : null,
+    '🕒 Histórico de status (' + (p.status || 'novo') + ')',
+  ].filter(Boolean);
+
+  const html = `
+    <div class="modal-overlay open" id="prsp-qualif-modal" style="z-index:10100" onclick="if(event.target===this){this.remove()}">
+      <div class="modal" style="max-width:760px;max-height:92vh;display:flex;flex-direction:column;overflow:hidden">
+        <!-- Aviso de mock -->
+        <div style="background:linear-gradient(90deg,#7c3aed,#a855f7);color:white;padding:6px 14px;font-size:10.5px;text-align:center;letter-spacing:0.4px;font-weight:600">
+          🧪 MOCK VISUAL · dados gerados localmente · IA real ainda não foi chamada
+        </div>
+
+        <!-- Header -->
+        <div class="modal-header" style="padding:14px 18px;border-bottom:1px solid var(--border)">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+              <span style="font-size:18px">🎯</span>
+              <div class="modal-title" style="font-size:15px">Qualificação IA</div>
+              <span style="font-size:10.5px;padding:2px 8px;border-radius:10px;background:${scoreColor}22;color:${scoreColor};font-weight:700">${scoreLabel}</span>
+            </div>
+            <div class="card-sub" style="font-size:11.5px">${esc(p.nome)}${p.cidade?' · '+esc(p.cidade):''}${p.estado?'/'+esc(p.estado):''}</div>
+          </div>
+          <button class="modal-close" onclick="document.getElementById('prsp-qualif-modal').remove()">×</button>
+        </div>
+
+        <!-- Termômetro / Score -->
+        <div style="padding:16px 18px 12px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px;font-weight:700">Lead Score</div>
+            <div style="font-size:22px;font-weight:800;color:${scoreColor};font-family:'Syne',sans-serif">${score}<span style="font-size:13px;color:var(--text3);font-weight:500">/100</span></div>
+          </div>
+          <div style="height:10px;background:var(--surface2);border-radius:5px;overflow:hidden;border:1px solid var(--border)">
+            <div style="height:100%;width:${score}%;background:linear-gradient(90deg,#dc2626,#f59e0b ${score>50?'30%':'50%'},#16a34a);border-radius:5px;transition:width 0.4s"></div>
+          </div>
+        </div>
+
+        <!-- 6 Pilares -->
+        <div style="padding:16px 18px;flex:1;overflow-y:auto">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:8px">📋 Os 6 pilares</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:14px">
+            ${card('🩹', 'Dor', esc(dor), '#dc2626')}
+            ${card('👤', 'Perfil', esc(perfil), '#3b82f6')}
+            ${card('💰', 'Budget', `<span style="color:${budget.cor};font-weight:700">${esc(budget.nivel)}</span> · ${esc(budget.faixa)}`, budget.cor)}
+            ${card('🚨', 'Urgência', `<span style="color:${urgencia.cor};font-weight:700">${esc(urgencia.nivel)}</span> · ${esc(urgencia.desc)}`, urgencia.cor)}
+            ${card('🎯', 'Timing', `<span style="color:${timing.cor};font-weight:700">${esc(timing.etapa)}</span><br><span style="color:var(--text3);font-size:11px">${esc(timing.desc)}</span>`, timing.cor)}
+            ${card('🚫', 'Objeções', objs.map(o=>`<span style="display:inline-block;background:#fef2f2;color:#991b1b;padding:2px 7px;border-radius:10px;font-size:10.5px;margin:1px 2px 1px 0">${esc(o)}</span>`).join(''), '#dc2626')}
+          </div>
+
+          <!-- Ação recomendada -->
+          <div style="background:linear-gradient(135deg,rgba(124,58,237,0.08),rgba(168,85,247,0.05));border:1px solid rgba(124,58,237,0.25);border-radius:10px;padding:14px 16px;margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+              <span style="font-size:16px">💡</span>
+              <div style="font-size:11px;color:#7c3aed;text-transform:uppercase;letter-spacing:0.6px;font-weight:700">Ação recomendada</div>
+            </div>
+            <div style="font-size:12.5px;color:var(--text);line-height:1.55">${esc(acao)}</div>
+          </div>
+
+          <!-- Fontes analisadas -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+            <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:6px">📚 Fontes analisadas</div>
+            <div style="display:flex;flex-wrap:wrap;gap:5px">
+              ${fontes.map(f => `<span style="font-size:10.5px;background:var(--surface2);padding:3px 8px;border-radius:10px;color:var(--text2)">${esc(f)}</span>`).join('')}
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="padding:10px 18px;border-top:1px solid var(--border);background:var(--surface);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="font-size:10.5px;color:var(--text3);line-height:1.4">
+            <strong style="color:var(--text2)">Confiança: ${50 + (score % 35)}%</strong> ·
+            Llama 3.3 (Groq) · custo R$ 0,02 · gerado agora <em>(mock)</em>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="prospAbrirQualificacao('${p.id}')" style="font-size:11px" title="Re-qualificar">↻ Regenerar</button>
+            <button class="btn btn-primary btn-sm" onclick="showToast('Em produção: salva na tabela lead_qualificacao + atualiza badge no card');" style="font-size:11px;background:#7c3aed;border:none">💾 Salvar (mock)</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstElementChild);
+};
+
 async function prospAbrirHistorico(id) {
   const p = _prspCache.find(x => x.id === id);
   const nome = p?.nome || 'Lead';
@@ -21354,6 +21536,7 @@ function prospRenderKanbanCard(p, podeEditar) {
             : `<button class="btn btn-sm" onclick="event.stopPropagation();prospAbrirWhatsApp('${p.id}')" style="font-size:10px;padding:3px 7px;background:#16a34a;color:white;border:none">💬 WhatsApp</button>`
         ) : ''}
         ${p.ia_mensagem ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();prospCopiarMsg('${p.id}')" style="font-size:10px;padding:3px 6px" title="Copiar mensagem">📋</button>` : ''}
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();prospAbrirQualificacao('${p.id}')" style="font-size:10px;padding:3px 6px;background:rgba(124,58,237,0.1);color:#7c3aed" title="Qualificar com IA">🎯</button>
         <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();prospAbrirHistorico('${p.id}')" style="font-size:10px;padding:3px 6px" title="Ver histórico">🕒</button>
         ${podeEditar && prospPodeApagar(p) ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();prospApagar('${p.id}')" style="font-size:10px;padding:3px 6px;color:var(--red);margin-left:auto" title="Apagar (você é o criador)">🗑</button>` : ''}
       </div>
