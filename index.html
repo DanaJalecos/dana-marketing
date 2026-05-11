@@ -279,6 +279,11 @@ function aplicarFiltroDashboard() {
   if (filtro !== 'ytd') {
     loadGraficoDiario(filtro);
   }
+
+  // 💰 Cards de faturamento por canal (Bling + Magazord) — fire-and-forget
+  if (typeof loadFaturamentoPorCanal === 'function') {
+    loadFaturamentoPorCanal().catch(e => console.warn('[fat canal]', e));
+  }
 }
 
 // ── GRÁFICO DIÁRIO POR MÊS ──
@@ -2902,6 +2907,27 @@ select.input { cursor: pointer; }
       <div class="meta-bar"><div class="meta-fill" style="width:100%"></div></div>
     </div>
   </div>
+
+  <!-- 💰 Faturamento por Canal — cards consolidados (Bling + Magazord) -->
+  <div class="card mb20" style="padding:16px 18px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+      <div>
+        <div class="card-title" style="margin-bottom:2px">💰 Faturamento por Canal</div>
+        <div class="card-sub">Consolidado Bling (loja + marketplaces) + Magazord (site) · <span id="dash-fat-canal-periodo" style="font-weight:600;color:var(--text2)">mês atual</span></div>
+      </div>
+      <select class="input" id="dash-fat-canal-periodo-sel" onchange="loadFaturamentoPorCanal()" style="width:auto;min-width:160px;height:32px;font-size:12px">
+        <option value="atual" selected>Mês atual</option>
+        <option value="anterior">Mês anterior</option>
+        <option value="30">Últimos 30 dias</option>
+        <option value="90">Últimos 90 dias</option>
+        <option value="ytd">Acumulado do ano</option>
+      </select>
+    </div>
+    <div id="dash-fat-canal-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+      <div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:12px;padding:20px">⏳ Calculando faturamento por canal...</div>
+    </div>
+  </div>
+
   <!-- Previsao de Receita -->
   <div class="card mb20" id="previsao-card" style="background:var(--surface);border-left:4px solid var(--green)">
     <div class="card-header">
@@ -20716,13 +20742,26 @@ async function loadCanaisVenda(periodo) {
 // ── RELATÓRIO EXECUTIVO (dados reais) ──
 // ════════════════════════════════════════════════════════════════════
 // FATURAMENTO POR CANAL — cards consolidados (Bling + Magazord)
+// Renderiza em AMBOS containers se ambos existirem (Dashboard + Relatório).
+// Cada container tem seu próprio filtro de período independente.
 // ════════════════════════════════════════════════════════════════════
 async function loadFaturamentoPorCanal() {
-  const wrap = document.getElementById('rel-fat-canal-cards');
-  const periodoLabel = document.getElementById('rel-fat-canal-periodo');
+  // Detecta qual container está visível (view ativa) pra usar o filtro dele
+  const dashWrap = document.getElementById('dash-fat-canal-cards');
+  const relWrap = document.getElementById('rel-fat-canal-cards');
+  const dashView = document.getElementById('view-home');
+  const relView = document.getElementById('view-relatorio');
+  const dashAtiva = dashView && dashView.classList.contains('active');
+  const relAtiva = relView && relView.classList.contains('active');
+
+  // Decide qual usar como source-of-truth pro filtro: a view ativa, senão Dashboard
+  const usarDash = dashAtiva || (!relAtiva && dashWrap);
+  const prefix = usarDash ? 'dash' : 'rel';
+  const wrap = usarDash ? dashWrap : relWrap;
+  const periodoLabel = document.getElementById(prefix + '-fat-canal-periodo');
   if (!wrap) return;
 
-  const filtro = document.getElementById('rel-fat-canal-periodo-sel')?.value || 'atual';
+  const filtro = document.getElementById(prefix + '-fat-canal-periodo-sel')?.value || 'atual';
   const now = new Date();
   let inicio, fim, labelPer;
 
