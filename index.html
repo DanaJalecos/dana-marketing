@@ -20744,7 +20744,18 @@ async function loadCanaisVenda(periodo) {
 // FATURAMENTO POR CANAL — cards consolidados (Bling + Magazord)
 // Renderiza em AMBOS containers se ambos existirem (Dashboard + Relatório).
 // Cada container tem seu próprio filtro de período independente.
+// Respeita filtro global de empresa (matriz/bc/todas).
 // ════════════════════════════════════════════════════════════════════
+function atualizarBadgeEmpresaFatCanal(prefix, empAtual, isBC) {
+  // Mostra a empresa ativa no subtítulo do bloco
+  const periodoLabel = document.getElementById(prefix + '-fat-canal-periodo');
+  if (!periodoLabel) return;
+  const empLabel = empAtual === 'matriz' ? ' · 🏭 Matriz' : empAtual === 'bc' ? ' · 🏪 BC' : ' · 📊 Consolidado (matriz+BC)';
+  // Se já tem um sufixo de empresa, preserva o início (período) e atualiza o restante
+  const txt = periodoLabel.textContent || '';
+  const limpo = txt.split(' · ')[0];
+  periodoLabel.textContent = limpo + empLabel + (isBC ? ' · Site não aplicável' : '');
+}
 async function loadFaturamentoPorCanal() {
   // Detecta qual container está visível (view ativa) pra usar o filtro dele
   const dashWrap = document.getElementById('dash-fat-canal-cards');
@@ -20791,17 +20802,26 @@ async function loadFaturamentoPorCanal() {
   const fimDate = fim.toISOString().slice(0, 10);
 
   try {
-    // Paralelo: Bling pedidos por canal + Magazord total
-    const [blingR, magazordR] = await Promise.all([
-      sb.from('pedidos')
-        .select('loja_id, total, vendedor_id')
-        .gte('data', inicioDate).lt('data', fimDate)
-        .limit(50000),
-      sb.from('magazord_pedidos')
-        .select('valor_total, pedido_situacao_tipo, pedido_situacao_descricao')
-        .gte('data_hora', inicioISO).lt('data_hora', fimISO)
-        .limit(20000),
-    ]);
+    // Respeita filtro global de empresa (matriz/bc/todas)
+    const empAtual = (typeof empresaAtual === 'function') ? empresaAtual() : 'todas';
+    const isBC = empAtual === 'bc';
+
+    // Bling: aplica .eq('empresa', f) se filtro ativo
+    let blingQuery = sb.from('pedidos')
+      .select('loja_id, total, vendedor_id')
+      .gte('data', inicioDate).lt('data', fimDate)
+      .limit(50000);
+    if (typeof aplicarEmpresa === 'function') blingQuery = aplicarEmpresa(blingQuery);
+
+    // Magazord: site é da matriz. Se empresa = 'bc', pula (não tem split na Magazord)
+    const magazordPromise = isBC
+      ? Promise.resolve({ data: [], error: null })
+      : sb.from('magazord_pedidos')
+          .select('valor_total, pedido_situacao_tipo, pedido_situacao_descricao')
+          .gte('data_hora', inicioISO).lt('data_hora', fimISO)
+          .limit(20000);
+
+    const [blingR, magazordR] = await Promise.all([blingQuery, magazordPromise]);
 
     if (blingR.error) throw blingR.error;
 
@@ -20858,8 +20878,13 @@ async function loadFaturamentoPorCanal() {
 
     if (!ordenado.length) {
       wrap.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:12.5px;padding:30px">Sem pedidos no período selecionado</div>';
+      // Atualiza header com badge de empresa mesmo sem dados
+      atualizarBadgeEmpresaFatCanal(prefix, empAtual, isBC);
       return;
     }
+
+    // Badge da empresa no header
+    atualizarBadgeEmpresaFatCanal(prefix, empAtual, isBC);
 
     const cardsHtml = ordenado.map((c, i) => {
       const pct = totalGeral > 0 ? (c.total / totalGeral * 100) : 0;
@@ -25832,8 +25857,9 @@ async function recarregarTudoPorEmpresa() {
       relatorio:    'loadRelatorio',
       personas:     'loadPersonasStats',
       roi:          'calcROI',
+      // home: re-aplica filtro de empresa nos KPIs + Faturamento por Canal
+      home:         'aplicarFiltroDashboard',
       // cliente360 nao precisa reload: tem filtro proprio internamente
-      // 'home' (dashboard) é atualizado via loadSupabaseData já chamado acima
     };
     const fns = callbacks[viewId];
     const lista = Array.isArray(fns) ? fns : (fns ? [fns] : []);
