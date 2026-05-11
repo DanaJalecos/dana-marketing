@@ -20794,7 +20794,7 @@ async function loadFaturamentoPorCanal() {
     // Paralelo: Bling pedidos por canal + Magazord total
     const [blingR, magazordR] = await Promise.all([
       sb.from('pedidos')
-        .select('loja_id, total, total_com_frete, vendedor_id')
+        .select('loja_id, total, vendedor_id')
         .gte('data', inicioDate).lt('data', fimDate)
         .limit(50000),
       sb.from('magazord_pedidos')
@@ -20816,7 +20816,7 @@ async function loadFaturamentoPorCanal() {
     };
     (blingR.data || []).forEach(p => {
       const lid = String(p.loja_id || '0');
-      const valor = Number(p.total_com_frete || p.total || 0);
+      const valor = Number(p.total || 0);
       let key = null;
       if (lid === '203536978' || lid === '203550865') key = 'lojawhats';
       else if (lid === '205337834') key = 'ml';
