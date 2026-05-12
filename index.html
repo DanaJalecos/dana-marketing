@@ -2723,6 +2723,10 @@ select.input { cursor: pointer; }
     <div class="nav-item" onclick="go(this,'provasocial')">
       <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 1l1.8 3.6L14 5.4l-3 2.9.7 4.1L8 10.4l-3.7 1.9.7-4.1-3-2.9 4.2-.8z"/></svg></div>Prova Social
     </div>
+    <div class="nav-item" onclick="go(this,'trafego')" data-secao="trafego">
+      <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 12V5h12v7"/><path d="M2 8h12"/><circle cx="5" cy="10.5" r="0.8" fill="currentColor"/><circle cx="11" cy="10.5" r="0.8" fill="currentColor"/><path d="M4 5V3h8v2"/></svg></div>Tráfego
+      <span class="nav-badge" id="nav-trafego-badge" style="display:none;background:#7c3aed;color:white">0</span>
+    </div>
   </div>
 
   <div class="nav-section">
@@ -7638,6 +7642,144 @@ updateDynamicField('foto');
 
 </div></div>
 
+<!-- ════════ CENTRAL DO TRÁFEGO ════════ -->
+<div class="view" id="view-trafego"><div style="padding:24px 28px">
+  <style>
+    #view-trafego .traf-card { background:var(--card,#0a0a0a); border:1px solid var(--line); border-radius:12px; padding:16px 18px; cursor:pointer; transition:all 0.18s ease; display:flex; flex-direction:column; gap:8px; }
+    #view-trafego .traf-card:hover { transform:translateY(-2px); border-color:#7c3aed; box-shadow:0 8px 24px rgba(124,58,237,0.2); }
+    #view-trafego .traf-card-icon { font-size:24px; }
+    #view-trafego .traf-card-title { font-family:'Syne',sans-serif; font-weight:700; font-size:15px; color:var(--text1); }
+    #view-trafego .traf-card-desc { font-size:11.5px; color:var(--text3); line-height:1.4; }
+    #view-trafego .traf-card-badge { display:inline-flex; align-items:center; gap:4px; padding:3px 8px; background:rgba(124,58,237,0.15); color:#a78bfa; border-radius:4px; font-size:11px; font-weight:600; align-self:flex-start; }
+    #view-trafego .traf-card-arrow { margin-left:auto; color:var(--text3); transition:transform 0.18s ease; }
+    #view-trafego .traf-card:hover .traf-card-arrow { transform:translateX(3px); color:#a78bfa; }
+  </style>
+
+  <!-- Header -->
+  <div style="margin-bottom:22px">
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3);margin-bottom:6px">
+      <span style="background:#7c3aed;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:0.4px">NOVO</span>
+      <span>Hub central pra equipe de Marketing/Tráfego</span>
+    </div>
+    <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:20px;color:var(--text1)">🚀 Central do Tráfego</div>
+    <div style="font-size:13px;color:var(--text3);margin-top:4px">Tudo que você precisa pra rodar campanhas, num lugar só. Acompanhe criativos, briefings e andamento.</div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px">
+    <div class="kpi-card">
+      <div class="kpi-label">🎨 Criativos prontos</div>
+      <div class="kpi-value" id="traf-kpi-aprovados">–</div>
+      <div class="kpi-sub" style="font-size:11px;color:var(--text3)">Aprovados · esperando publicar</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">⏳ Aguardando aprovação</div>
+      <div class="kpi-value" id="traf-kpi-aguardando">–</div>
+      <div class="kpi-sub" style="font-size:11px;color:var(--text3)">Em revisão · admin/gerente</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">📋 Campanhas ativas</div>
+      <div class="kpi-value" id="traf-kpi-campanhas-ativas">–</div>
+      <div class="kpi-sub" style="font-size:11px;color:var(--text3)">Em produção ou veiculando</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">🌟 Influenciadores ativos</div>
+      <div class="kpi-value" id="traf-kpi-influ">–</div>
+      <div class="kpi-sub" style="font-size:11px;color:var(--text3)">Parcerias rodando</div>
+    </div>
+  </div>
+
+  <!-- Cards atalhos -->
+  <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;padding:0 2px">⚡ Atalhos rápidos</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-bottom:24px">
+
+    <div class="traf-card" onclick="go(document.querySelector('[onclick*=&quot;criativos&quot;]'),'criativos')">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="traf-card-icon">🎨</span>
+        <span class="traf-card-title">Criativos</span>
+        <span class="traf-card-arrow">→</span>
+      </div>
+      <div class="traf-card-desc">Veja artes aprovadas prontas pra anunciar. Acompanhe o pipeline de aprovação.</div>
+      <span class="traf-card-badge" id="traf-badge-criativos">– aprovados</span>
+    </div>
+
+    <div class="traf-card" onclick="go(document.querySelector('[onclick*=&quot;campanhas-internas&quot;]'),'campanhas-internas')">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="traf-card-icon">📋</span>
+        <span class="traf-card-title">Campanhas Internas</span>
+        <span class="traf-card-arrow">→</span>
+      </div>
+      <div class="traf-card-desc">Suas campanhas em andamento. Cronograma, equipe e progresso de cada uma.</div>
+      <span class="traf-card-badge" id="traf-badge-camp">– ativas</span>
+    </div>
+
+    <div class="traf-card" onclick="go(document.querySelector('[onclick*=&quot;briefingvisual&quot;]'),'briefingvisual')">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="traf-card-icon">📝</span>
+        <span class="traf-card-title">Briefings</span>
+        <span class="traf-card-arrow">→</span>
+      </div>
+      <div class="traf-card-desc">Briefings de campanha · materiais por briefing · Brand Kit completo.</div>
+    </div>
+
+    <div class="traf-card" onclick="go(document.querySelector('[onclick*=&quot;construtor&quot;]'),'construtor')">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="traf-card-icon">🧱</span>
+        <span class="traf-card-title">Construtor de Campanha</span>
+        <span class="traf-card-arrow">→</span>
+      </div>
+      <div class="traf-card-desc">Estruture uma nova campanha do zero baseado nos 12 pilares estratégicos.</div>
+    </div>
+
+    <div class="traf-card" onclick="go(document.querySelector('[onclick*=&quot;canaisaquisicao&quot;]'),'canaisaquisicao')">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="traf-card-icon">📡</span>
+        <span class="traf-card-title">Canais de Aquisição</span>
+        <span class="traf-card-arrow">→</span>
+      </div>
+      <div class="traf-card-desc">Fontes de tráfego ativas (Meta, Google, TikTok) · investimento/mês.</div>
+    </div>
+
+    <div class="traf-card" onclick="go(document.querySelector('[onclick*=&quot;influenciadores&quot;]'),'influenciadores')">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="traf-card-icon">🌟</span>
+        <span class="traf-card-title">Influenciadores</span>
+        <span class="traf-card-arrow">→</span>
+      </div>
+      <div class="traf-card-desc">Parcerias, códigos de cupom, performance de cada influenciador.</div>
+    </div>
+
+    <div class="traf-card" onclick="go(document.querySelector('[onclick*=&quot;analytics&quot;]'),'analytics')">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="traf-card-icon">📊</span>
+        <span class="traf-card-title">Analytics</span>
+        <span class="traf-card-arrow">→</span>
+      </div>
+      <div class="traf-card-desc">GA4 · Google Ads · Mercado Livre · métricas pra otimizar campanhas.</div>
+    </div>
+
+    <div class="traf-card" onclick="go(document.querySelector('[onclick*=&quot;branding&quot;]'),'briefingvisual',{subtab:'brandkit'})">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="traf-card-icon">🎨</span>
+        <span class="traf-card-title">Brand Kit</span>
+        <span class="traf-card-arrow">→</span>
+      </div>
+      <div class="traf-card-desc">Logos, cores, tipografia, modelos · tudo pra manter consistência visual.</div>
+    </div>
+
+  </div>
+
+  <!-- Minhas tarefas pendentes (do Kanban) -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:0 2px">
+    <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">📌 Suas tarefas pendentes</div>
+    <button class="btn btn-ghost btn-sm" onclick="go(document.querySelector('[onclick*=&quot;tarefas&quot;]'),'tarefas')" style="font-size:11px">Ver Kanban completo →</button>
+  </div>
+  <div id="traf-minhas-tarefas" style="background:var(--card,#0a0a0a);border:1px solid var(--line);border-radius:10px;padding:14px;min-height:80px">
+    <div style="text-align:center;color:var(--text3);font-size:12.5px;padding:20px">Carregando...</div>
+  </div>
+
+</div></div>
+
 <div class="view" id="view-provasocial"><div style="padding:24px 28px">
   <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:17px;margin-bottom:4px">Prova Social</div>
   <div style="font-size:12.5px;color:var(--text3);margin-bottom:20px">Dados reais de clientes e revendas que validam a marca Dana · <span style="color:var(--green)">Bling ao vivo</span></div>
@@ -10103,6 +10245,7 @@ const VIEW_META = {
   projecoes: { title: 'Projeções', sub: '2025 vs 2026 — real + projetado', action: 'Exportar PDF' },
   canaisvendas: { title: 'Canais e Vendas', sub: 'Clientes, canais de venda, revendas e eventos', action: '' },
   estoque: { title: 'Gestão Inteligente de Estoque', sub: 'Reabasteça antes que falte · agrupado por linha de produto', action: '' },
+  trafego: { title: 'Central do Tráfego', sub: 'Tudo pra rodar campanhas · criativos, briefings, andamento', action: '' },
   perfil: { title: 'Meu Perfil', sub: 'Configuracoes da sua conta', action: '' },
   admin: { title: 'Administrador', sub: 'Usuários, permissões e atividades', action: '' }
 };
@@ -10400,6 +10543,7 @@ function go(el, viewId, opts) {
   if (viewId === 'campanhas') { if (typeof loadCampanhasFromBriefings === 'function') loadCampanhasFromBriefings(); }
   if (viewId === 'prospeccao') { if (typeof prospLoad === 'function') prospLoad(); }
   if (viewId === 'estoque') { if (typeof loadEstoque === 'function') loadEstoque(); }
+  if (viewId === 'trafego') { if (typeof loadTrafego === 'function') loadTrafego(); }
   if (viewId === 'personas') { if (typeof setupPersonaAvatarButtons === 'function') setupPersonaAvatarButtons(); }
 
   // ════ LAZY LOAD com cache (carrega 1x por sessao por view) ════
@@ -24308,6 +24452,7 @@ const PERM_MATRIX = [
       especial: [
         { key: 'provasocial_aprovar', label: '✅ Aprovar conteúdo UGC' },
       ] },
+    { id: 'trafego',        icon: '🚀', label: 'Central do Tráfego (hub)' },
   ]},
   { categoria: '🎯 Inteligência', secoes: [
     { id: 'personas',     icon: '🎭', label: 'Públicos Ideais (Personas)' },
@@ -26321,6 +26466,96 @@ function _estoqueLimparNome(s) {
     .replace(/[;,]\s*$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+// ══════════════════════════════════════════════════════════
+// CENTRAL DO TRÁFEGO — Hub pra equipe de Marketing/Tráfego
+// Mostra KPIs (criativos prontos, aguardando, campanhas ativas,
+// influenciadores), cards de atalho pras telas e tarefas
+// pendentes do user logado.
+// ══════════════════════════════════════════════════════════
+async function loadTrafego() {
+  // 4 KPIs em paralelo
+  try {
+    const empF = empresaFiltro(); // null = todas
+    const baseCri = sb.from('criativos').select('id', { count: 'exact', head: true });
+    const baseCamp = sb.from('campanhas_internas').select('id', { count: 'exact', head: true });
+    const baseInflu = sb.from('influenciadores').select('id', { count: 'exact', head: true });
+
+    const [aprovados, aguardando, campAtivas, influAtivos] = await Promise.all([
+      baseCri.eq('status', 'aprovado'),
+      sb.from('criativos').select('id', { count: 'exact', head: true }).eq('status', 'aguardando'),
+      sb.from('campanhas_internas').select('id', { count: 'exact', head: true }).in('status', ['producao','ativa','veiculando']),
+      baseInflu.eq('status', 'ativo'),
+    ]);
+
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = (v ?? 0); };
+    set('traf-kpi-aprovados', aprovados.count);
+    set('traf-kpi-aguardando', aguardando.count);
+    set('traf-kpi-campanhas-ativas', campAtivas.count);
+    set('traf-kpi-influ', influAtivos.count);
+
+    // Badges dos cards
+    const setBadge = (id, n, label) => { const el = document.getElementById(id); if (el) el.textContent = (n ?? 0) + ' ' + label; };
+    setBadge('traf-badge-criativos', aprovados.count, 'aprovado' + (aprovados.count !== 1 ? 's' : ''));
+    setBadge('traf-badge-camp', campAtivas.count, 'ativa' + (campAtivas.count !== 1 ? 's' : ''));
+
+    // Sidebar badge (criativos aguardando aprovação tem urgência maior)
+    const sidebarBadge = document.getElementById('nav-trafego-badge');
+    if (sidebarBadge) {
+      const total = Number(aguardando.count) || 0;
+      sidebarBadge.textContent = total;
+      sidebarBadge.style.display = total > 0 ? '' : 'none';
+    }
+  } catch (e) { console.warn('loadTrafego KPIs:', e); }
+
+  // Minhas tarefas pendentes (Kanban) — usa cache se já carregou
+  const wrap = document.getElementById('traf-minhas-tarefas');
+  if (!wrap) return;
+  try {
+    if (typeof loadTarefas === 'function' && !(_tarefasCache && _tarefasCache.length)) {
+      await loadTarefas();
+    }
+    const uid = currentUser?.id;
+    const minhas = (_tarefasCache || []).filter(t =>
+      t.responsavel_id === uid &&
+      !t.concluido &&
+      t.coluna !== 'done' &&
+      t.coluna !== 'concluido'
+    ).sort((a, b) => {
+      // Atrasadas primeiro, depois por prazo
+      const pa = a.prazo ? new Date(a.prazo).getTime() : Infinity;
+      const pb = b.prazo ? new Date(b.prazo).getTime() : Infinity;
+      return pa - pb;
+    }).slice(0, 6);
+
+    if (!minhas.length) {
+      wrap.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:12.5px;padding:24px">✅ Nenhuma tarefa pendente atribuída a você.</div>';
+      return;
+    }
+
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    wrap.innerHTML = minhas.map(t => {
+      const prazo = t.prazo ? new Date(t.prazo + 'T12:00:00') : null;
+      let chipPrazo = '';
+      if (prazo) {
+        const diff = Math.floor((prazo - hoje) / 86400000);
+        if (diff < 0)      chipPrazo = `<span style="background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 6px;border-radius:3px;font-size:10.5px;font-weight:600">⚠ Atrasada ${-diff}d</span>`;
+        else if (diff === 0) chipPrazo = `<span style="background:rgba(245,158,11,0.15);color:#f59e0b;padding:2px 6px;border-radius:3px;font-size:10.5px;font-weight:600">🚨 Hoje</span>`;
+        else if (diff <= 3)  chipPrazo = `<span style="background:rgba(96,165,250,0.15);color:#60a5fa;padding:2px 6px;border-radius:3px;font-size:10.5px;font-weight:600">⏰ Em ${diff}d</span>`;
+        else                 chipPrazo = `<span style="background:rgba(148,163,184,0.12);color:var(--text3);padding:2px 6px;border-radius:3px;font-size:10.5px">${prazo.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}</span>`;
+      }
+      const corPrio = t.prioridade === 'alta' ? '#ef4444' : t.prioridade === 'baixa' ? '#10b981' : '#f59e0b';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='transparent'" onclick="typeof openTarefa==='function'&&openTarefa('${t.id}')">
+        <div style="width:3px;height:24px;background:${corPrio};border-radius:2px;flex-shrink:0"></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;color:var(--text1);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(t.titulo || '(sem título)')}</div>
+          ${t.tag ? `<div style="font-size:10.5px;color:var(--text3);margin-top:1px">${escapeHtml(t.tag)}</div>` : ''}
+        </div>
+        ${chipPrazo}
+      </div>`;
+    }).join('');
+  } catch (e) { console.warn('loadTrafego tarefas:', e); }
 }
 
 async function loadEstoque() {
