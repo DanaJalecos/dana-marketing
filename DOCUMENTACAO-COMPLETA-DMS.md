@@ -8387,3 +8387,180 @@ Mega-ciclo. 7 features novas no Cliente 360 entregues em 7 commits sequenciais. 
 ---
 
 **Fim da documentação · Atualizado em 12/05/2026 tarde — Ciclo 7 features C360 (pós-venda + inadimp + search + ciclo + filtro + sugestão + mix) · v12.4**
+
+---
+
+## 85. CICLO 12/05/2026 (NOITE) — FIXES PÓS-DEPLOY + RANKING VENDEDORA + POPUP REALTIME
+
+Sessão de validação real com user. Vários bugs e ajustes UX descobertos com Manu/Juan testando ao vivo. Resolvidos em iterações rápidas.
+
+### 85.1 Bug crítico — `sugerir_produto_proximo` HTTP 500 (timeout 57014)
+
+**Sintoma:** logs do browser mostraram 4× `Failed to load resource: status 500` no RPC. Cliente CENTER NORTE não recebia sugestão de produto.
+
+**Causa raiz:** função SQL fazia cartesian explosion em segmentos grandes (Em Risco com 5680 clientes na matriz × N pedidos × N itens × catálogo). Postgres matava com erro `57014: canceling statement due to statement timeout` quando passava de ~30s via REST API anon (Management API tinha timeout maior, mascarava o problema).
+
+**Fix** (`sql-sugestao-produto-v3.sql`):
+- `SECURITY DEFINER` + `SET search_path = public` (evita RLS double-check + lookup overhead)
+- `LIMIT 300` no scope do segmento (TOP por gasto)
+- `LIMIT 50` no top descrições antes do JOIN final
+- Filtro de descrições garbage (`(sem itens)`, `frete`, `aplicação bordado`, `serviço bordado`)
+- Trocou JOIN com `produto_catalogo_site` (251 curados) por `produtos` (Bling, 2237 SKUs matriz) — match por código exato OU nome normalizado
+- Tempo: **30s timeout → 0.4s** via REST anon ✅
+
+Validado com 3 clientes diferentes: CENTER NORTE retorna Gorro Preto + Scrub Preto + Turbante Preto; Andrei Walentim → Jaleco Bernardo + Jaleco Manuela Verde; DHOM → Jaleco Manoel Chumbo + Calça/Camiseta Scrub.
+
+### 85.2 Filtro produto não achava nada (variações Bling)
+
+**Sintoma:** Manu seleciona "Jaleco Isabel Preto" no autocomplete, chip mostra "(0)". Idem "Scrub Masculino Chumbo". Frustração.
+
+**Causa:** `pedidos_itens.codigo` tem sufixo de variação tipo `400-ZI-112-000-F-G00` (tamanho/cor). `produtos.codigo` pai tem só `400-ZI-112-000-F`. Frontend passava `sku_ref` pra RPC `clientes_que_compraram` → `pi.codigo = '400-ZI-112-000-F'` nunca casava; `pi.descricao ILIKE '%400-ZI-112-000-F%'` também não (código não tá embutido na descrição).
+
+**Fix:** trocar pra **sempre passar o nome** (não código). Helper `_limparNomeProduto(s)` no frontend remove:
+- Sufixos `Tamanho:X;Cor:Y` (Bling formato cor variação)
+- `Manga Longa`, `Manga Curta`, `ITC` (variantes de catálogo)
+- Separadores `-` no final
+- Espaços duplos / vírgulas órfãs
+
+Tabela de validação:
+| Input | Output limpo |
+|---|---|
+| `Scrub Masculino Chumbo Manga Longa  ITC` | `Scrub Masculino Chumbo` |
+| `Scrub Masculino Chumbo Manga Curta - ITC` | `Scrub Masculino Chumbo` |
+| `Jaleco Chloe Branco Tamanho:M;Cor:Branco` | `Jaleco Chloe Branco` |
+| `Gorro Unissex D. Preto Cor:Preto;Tamanho:Unico` | `Gorro Unissex D. Preto` |
+
+**Resultado:** "Jaleco Isabel Preto" → 90 clientes; "Scrub Masculino Chumbo" → 104; "Jaleco Chloe" → 647; "Jaleco Manuela" → 2535.
+
+### 85.3 Autocomplete trocado pra Bling (catálogo amplo)
+
+**Sintoma reportado pelo user:** "buscar por produtos deve ser os mesmos produtos do Bling, pois não tá achando pelo produtos do site".
+
+**Fix:** `_buscarProdutosAutocomplete(q)` migrou de `produto_catalogo_site` (251 curados) → `produtos` (Bling, 2237 SKUs matriz). Match por nome OR código, com filtro de empresa. Resultado: pesquisa cobre TODO o catálogo de venda, não só os curados do site.
+
+### 85.4 Filtro produto agora também em "Meus Clientes"
+
+**Sintoma:** filtro só existia na aba Clientes original. Vendedora na aba Meus Clientes não tinha como filtrar.
+
+**Fix:** botão "🛒 Filtrar por produto" adicionado ao `mcRenderFiltrosBar` (compartilhado vendedora/admin). Helper `aplicarFiltroProdutoMC(produto)` reusa a mesma RPC + Set. Modal autocomplete reusado via flag `window._modalFiltroSelecionarHandler` (handler custom). Integração com `mcLoadClientes` via `.in('contato_nome', Array.from(set))`.
+
+### 85.5 Chip do filtro com contagem ambígua
+
+**Sintoma reportado:** chip mostrava "Turbante Chumbo (95 clientes)" mas a tabela só mostrava 2 (que eram da carteira da vendedora). Confundia.
+
+**Fix:** lógica de contagem dual:
+- **Vendedora**: chip mostra `"X na sua carteira · Y compraram"` (X = interseção com a carteira dela, Y = total geral)
+- **Admin/gerente**: chip mostra `"Y clientes"` (sem interseção, vê tudo)
+
+Variável `state._mcProdutoContagemEfetiva` setada após `mcLoadClientes` retornar lista filtrada.
+
+### 85.6 Ranking 3-tabs também pra vendedora
+
+**Sintoma reportado:** "entrei em uma conta de vendedor, não aparece os rankings". User esperava ver mesmo bloco do admin.
+
+**Fix:** `renderMcVendedorView` agora popula `state.mcRankingGeralCache` + `state.mcRankingTotalFatCache` e chama o mesmo `mcRenderRankingsBloco(ranking, totalFat)` que o admin usa. Vendedora vê as 3 tabs (Geral / Desempenho / Mensal) com sua linha destacada em "VOCÊ".
+
+**Permissões preservadas:**
+- Export PDF: visível na tab Mensal pra vendedora (próprio acompanhamento); admin/gerente_comercial nas 3 tabs
+- Edit Meta: vendedora edita só a própria; admin/gerente_comercial editam qualquer
+
+Inicial `Promise.all` pega `mcLoadRanking` + `mcLoadTotais` em paralelo. Lazy load das tabs Desempenho/Mensal continua via `mcSwitchRankingTab` window-scoped.
+
+### 85.7 Ícone 🛒 universal (sem imagens quebradas Bling)
+
+**Sintoma:** `produtos.imagem_url` do Bling é URL S3 pré-assinada que expira em ~1h. Cards de produto mostravam ícone feio de "imagem quebrada" frequentemente. User: "deixa o ícone de carrinho em tudo, é melhor".
+
+**Fix:** removido `<img>` em 3 lugares + substituído por div com 🛒 em fundo roxo translúcido:
+- Modal autocomplete do filtro produto
+- Card "Próxima oferta sugerida" no Acompanhamento Comercial
+- Aba "🛒 Mix" de produtos vendidos juntos
+
+Visual consistente, zero flicker. Quando tiver `imagem_storage_url` persistido (campo já existe, falta rodar sync), podemos voltar a mostrar.
+
+### 85.8 ⭐ Popup grande 15s pra alertas pessoais (realtime)
+
+**Pedido literal do user:** "seria aparecer um popup na tela tambem, se a pessoa tiver logada no sistema. Aparece um popup, fica uns 15 segundos e fica no sininho para o vendedor ver, caso não esteja com o site aberto."
+
+**Implementação:**
+- Wrapper fixo `#alerta-popup-wrap` no DOM (top:80px right:20px, z-index 9998, pointer-events:none — não bloqueia cliques fora)
+- Função `mostrarPopupAlertaPessoal(alerta)` cria card:
+  - Borda colorida por `nivel`: vermelho (`urgent`), amber (`warn`), azul (`info`)
+  - Gradient de fundo sutil na cor do nível
+  - Mostra título (700 weight) + mensagem (truncada 200 chars) + link_label
+  - Slide-in da direita via `requestAnimationFrame` (350ms cubic-bezier)
+  - Auto-fecha em 15000ms
+  - Click no card chama `abrirLinkAlerta(link_ref, id, dados)` → deep-link pro recurso
+  - Botão × dentro do card pra fechar manualmente
+
+**Integração no realtime channel `realtime-alertas`** (`index.html` ~13493):
+```javascript
+// Antes: showToast genérico (2.5s) pra todos
+// Agora:
+if (aud === 'pessoal' && a?.destinatario_id === currentUser?.id) {
+  mostrarPopupAlertaPessoal(a);  // popup 15s clicável
+} else if (a?.titulo) {
+  showToast('🔔 ' + a.titulo);   // toast curto pra global/dados_empresa
+}
+```
+
+**Empilhamento:** múltiplos popups aparecem em flex-column gap 10px no wrapper. Cada um anima independente, fecha independente.
+
+**Deep-link confirmado funcionando:** click no popup com `link_ref='cliente360'` + `dados.contato_nome` + `dados.empresa` abre o C360 direto no cliente específico (não na lista). Mesmo se user já tava dentro de outro cliente, troca pro alvo.
+
+### 85.9 Smoke tests E2E (validação real com user)
+
+| Teste | Resultado |
+|---|---|
+| Insert alerta `posvenda_30d` audiencia=pessoal pra Juan | Bolinha vermelha aparece em ~1s no sininho ✅ |
+| Popup grande clicável aparece | ✅ |
+| 3 popups empilhados (info/warn/urgent) com cores diferentes | ✅ |
+| Click no popup abre Cliente 360 direto no cliente alvo | ✅ |
+| User dentro de outro cliente → recebe popup → troca pro novo cliente | ✅ |
+| Auto-close 15s | ✅ (validado por inferência — user fechou clicando antes) |
+| Filtro "Jaleco Isabel Preto" retorna clientes | ✅ (90 matriz) |
+| Filtro "Scrub Masculino Chumbo" retorna clientes | ✅ (104 matriz) |
+| Sugestão produto carrega em <1s | ✅ |
+| Vendedora vê 3 tabs do ranking | ✅ |
+| Chip "X na sua carteira · Y compraram" | ✅ |
+
+### 85.10 Arquivos modificados nesse ciclo
+
+| Arquivo | Mudanças |
+|---|---|
+| `cliente-360-boot.js` | `_limparNomeProduto` (novo) · autocomplete usa `produtos` Bling · filtro produto em mcRenderFiltrosBar · 3 tabs ranking pra vendedora · chip carteira/total · ícone 🛒 universal |
+| `index.html` | Realtime alertas: separa pessoal (popup 15s) de global (toast curto) · `mostrarPopupAlertaPessoal` |
+| `sql-scripts/sql-sugestao-produto-v3.sql` | RPC v3 reescrita SECURITY DEFINER + LIMITs + filtros garbage |
+
+### 85.11 Versões finais
+
+| Componente | Versão |
+|---|---|
+| `cliente-360-boot.js` cache-bust | `?v=56` |
+| Edge `cliente360-insight` | v25 (sem mudança nesse ciclo) |
+| Commits worktree DanaComercial | 6 commits (f03d7cc → f861f94) |
+| Commits staging DanaJalecos | 6 commits espelho |
+
+### 85.12 Pendências (próximas sessões)
+
+- **Sync imagens Bling pro Storage** (campo `produtos.imagem_storage_url` já existe, falta rodar `sync-imagens-produtos` em ~95 batches de 50). Quando feito, ícone 🛒 pode voltar a mostrar foto real persistente.
+- **Filtro inadimplência no topbar da lista de clientes** (badge no header e card já estão; falta o select no filtro)
+- **Refresh do mix `produtos_mix`** automático: cron domingo 04:30 já agendado (jobid 33)
+- **Som de notificação opcional** quando popup pessoal chega (atualmente só visual)
+
+### 85.13 🧭 Padrão pro próximo Claude — como mexer no popup de alerta
+
+**Adicionar novo tipo de alerta pessoal:**
+1. SQL: `INSERT INTO alertas (tipo, nivel, titulo, mensagem, audiencia='pessoal', destinatario_id=UUID, link_ref, link_label, dados=jsonb)` — popup aparece automático via realtime
+2. Pra deep-link em sub-aba do C360, adicionar em `dados`: `{contato_nome, empresa, subtab: 'mix'}` (subtab opcional, abre direto na aba)
+3. Pra abrir tarefa: `link_ref='tarefas'` + `dados.tarefa_id`
+4. Pra abrir criativo: `link_ref='criativos'` + `dados.criativo_id`
+
+**Mudar duração do popup** (`index.html`):
+- Buscar `setTimeout(fechar, 15000)` e ajustar valor
+
+**Mudar cor por nível:**
+- Buscar `corBorda = nivel === 'urgent' ? '#ef4444'` e adicionar/trocar cores
+
+---
+
+**Fim da documentação · Atualizado em 12/05/2026 noite — Section 85 (fixes pós-deploy + popup realtime pra alertas pessoais) · v12.5**
