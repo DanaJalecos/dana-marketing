@@ -9861,7 +9861,7 @@ updateDynamicField('foto');
       <span style="font-size:16px;margin-right:8px">🔒</span>
       <div style="display:inline-block;vertical-align:top;width:calc(100% - 36px)">
         <strong style="color:#9a3412">Gerenciada pelo Cliente 360</strong>
-        <div style="margin-top:2px;font-size:11.5px;color:#7c2d12">Pra editar ou apagar esta campanha, use a seção Cliente 360 → Campanhas.</div>
+        <div id="ve-c360-lock-desc" style="margin-top:2px;font-size:11.5px;color:#7c2d12">Pra editar ou apagar esta campanha, use a seção Cliente 360 → Campanhas.</div>
       </div>
     </div>
     <div style="display:flex;gap:8px" id="ve-actions">
@@ -18163,6 +18163,12 @@ function renderCalendario() {
     return campId === filtroCamp;
   };
 
+  // Permissão: usuário sem `calendario_ver_todos` (ex: vendedor) só vê eventos
+  // do tipo campanha_interna. Tarefas continuam visíveis normalmente.
+  const soVeInternas = (userPermissoes['calendario_ver_todos'] === false)
+    && currentProfile?.cargo !== 'admin';
+  const matchTipo = (tipo) => !soVeInternas || tipo === 'campanha_interna';
+
   // Coletar tarefas com prazo (respeita filtro de campanha)
   const tarefasPorDia = {};
   (_tarefasCache || []).filter(t => matchCampanha(t.campanha_id)).forEach(t => {
@@ -18184,7 +18190,7 @@ function renderCalendario() {
   for(let d = 1; d <= diasNoMes; d++) {
     const dateStr = calAno + '-' + String(calMes).padStart(2,'0') + '-' + String(d).padStart(2,'0');
     const isToday = hoje.getFullYear()===calAno && hoje.getMonth()+1===calMes && hoje.getDate()===d;
-    const eventos = _eventosCache.filter(e => e.data_inicio <= dateStr && (e.data_fim ? e.data_fim >= dateStr : e.data_inicio === dateStr) && matchCampanha(e.campanha_id));
+    const eventos = _eventosCache.filter(e => e.data_inicio <= dateStr && (e.data_fim ? e.data_fim >= dateStr : e.data_inicio === dateStr) && matchCampanha(e.campanha_id) && matchTipo(e.tipo));
     const tarefas = tarefasPorDia[dateStr] || [];
     const todayStyle = isToday ? 'font-weight:800;color:var(--green)' : '';
     const tiposCor = { campanha:'var(--black)', campanha_c360:'#f97316', campanha_interna:'#a855f7', promocao:'var(--green)', lancamento:'var(--blue)', evento:'var(--amber)', deadline:'var(--red)', feriado:'#999' };
@@ -18224,10 +18230,16 @@ function mostrarTodosItensDoDia(dateStr) {
     if (filtroCamp === '__sem__') return !campId;
     return campId === filtroCamp;
   };
+  // Mesmo filtro de permissão do renderCalendario
+  const soVeInternas = (userPermissoes['calendario_ver_todos'] === false)
+    && currentProfile?.cargo !== 'admin';
+  const matchTipo = (tipo) => !soVeInternas || tipo === 'campanha_interna';
+
   const eventos = (_eventosCache || []).filter(e =>
     e.data_inicio <= dateStr &&
     (e.data_fim ? e.data_fim >= dateStr : e.data_inicio === dateStr) &&
-    matchCampanha(e.campanha_id)
+    matchCampanha(e.campanha_id) &&
+    matchTipo(e.tipo)
   );
   const tarefas = (_tarefasCache || []).filter(t => {
     const data = (t.prazo || t.data_fim || '').substring(0, 10);
@@ -18375,8 +18387,14 @@ function editarEvento(id) {
   if (lockBanner) {
     lockBanner.style.display = isGerenciada ? 'block' : 'none';
     const lockText = lockBanner.querySelector('strong') || lockBanner;
-    if (isC360) lockText.textContent = '🔒 Gerenciada pelo Cliente 360';
-    else if (isCI) lockText.textContent = '🔒 Gerenciada pelo módulo Campanhas Internas';
+    const lockDesc = document.getElementById('ve-c360-lock-desc');
+    if (isC360) {
+      lockText.textContent = 'Gerenciada pelo Cliente 360';
+      if (lockDesc) lockDesc.textContent = 'Pra editar ou apagar esta campanha, use a seção Cliente 360 → Campanhas.';
+    } else if (isCI) {
+      lockText.textContent = 'Gerenciada pelo módulo Campanhas Internas';
+      if (lockDesc) lockDesc.textContent = 'Pra editar ou apagar esta campanha, use a seção Marketing → Campanhas Internas.';
+    }
   }
 
   const c360Btn = document.getElementById('ve-c360-open-btn');
@@ -24236,7 +24254,7 @@ const PERM_GROUPS = [
   ]],
   ['⚙️ Sistema',      ['apis']],
   ['⚡ Ações Específicas', [
-    'calendario_criar','calendario_excluir',
+    'calendario_criar','calendario_excluir','calendario_ver_todos',
     'tarefas_criar','tarefas_excluir',
     'briefing_criar','briefing_editar','briefing_excluir',
     'brandkit_criar','brandkit_excluir',
@@ -24262,6 +24280,7 @@ async function loadAdminPermissoes() {
     home: 'Dashboard',
     calendario_criar: '✏️ Criar Eventos',
     calendario_excluir: '🗑 Excluir Eventos',
+    calendario_ver_todos: '👁 Ver todos os tipos de campanha (desmarcar = só Campanhas Internas)',
     tarefas_criar: '✏️ Criar Tarefas',
     tarefas_excluir: '🗑 Excluir Tarefas',
     briefing_criar: '✏️ Criar Briefing',
