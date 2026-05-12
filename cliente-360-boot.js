@@ -5488,6 +5488,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     if (filtros.gastoMin != null) manuais = manuais.filter(c => Number(c.total_gasto||0) >= filtros.gastoMin);
     if (filtros.gastoMax != null) manuais = manuais.filter(c => Number(c.total_gasto||0) <= filtros.gastoMax);
     const meus = [...manuais, ...meusBling];
+    // FASE 5 expansão: contagem efetiva pra chip do filtro produto (interseção carteira × compraram)
+    state._mcProdutoContagemEfetiva = state.mcProdutoFiltro ? meus.length : null;
     // KPIs gerais (da carteira inteira, nao filtrada) — chamada separada sem filtros
     const todos = (filtros.busca || filtros.segmento || filtros.pedidosMin != null || filtros.pedidosMax != null || filtros.gastoMin != null || filtros.gastoMax != null)
       ? await mcLoadClientes(state.empresa, perms.profileId, null, 1000, null)
@@ -5740,8 +5742,17 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       return `<div style="margin-top:10px"><button onclick="window.abrirModalFiltroProdutoMC()" style="padding:7px 14px;border-radius:8px;border:1px solid rgba(168,139,250,0.4);background:rgba(168,139,250,0.1);color:#c4b5fd;cursor:pointer;font-size:12.5px;font-weight:600">🛒 Filtrar por produto</button></div>`;
     }
     const set = state._mcClientesQueCompraram;
-    const qtd = set ? set.size : 0;
-    return `<div style="margin-top:10px"><span style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;background:rgba(168,139,250,0.15);color:#c4b5fd;border:1px solid rgba(168,139,250,0.4);border-radius:20px;font-size:12px;font-weight:600">🛒 ${escapeHtml(p.nome)} (${qtd} clientes) <button onclick="window.aplicarFiltroProdutoMC(null)" style="background:transparent;border:none;color:#c4b5fd;cursor:pointer;font-size:14px;font-weight:700;line-height:1" title="Remover filtro">×</button></span></div>`;
+    const totalGeral = set ? set.size : 0;
+    // Contagem efetiva (interseção carteira da vendedora × quem comprou)
+    // Setada em renderMcVendedorView após mcLoadClientes retornar
+    const efetivo = state._mcProdutoContagemEfetiva;
+    const cargo = state.profile?.cargo || '';
+    const ehVendedora = !['admin','gerente_comercial','gerente_marketing'].includes(cargo);
+    // Pra vendedora: "X na sua carteira · Y compraram total"; pra admin: só total
+    const label = ehVendedora && efetivo != null
+      ? `${efetivo} na sua carteira · ${totalGeral} compraram`
+      : `${totalGeral} clientes`;
+    return `<div style="margin-top:10px"><span style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;background:rgba(168,139,250,0.15);color:#c4b5fd;border:1px solid rgba(168,139,250,0.4);border-radius:20px;font-size:12px;font-weight:600">🛒 ${escapeHtml(p.nome)} · ${label} <button onclick="window.aplicarFiltroProdutoMC(null)" style="background:transparent;border:none;color:#c4b5fd;cursor:pointer;font-size:14px;font-weight:700;line-height:1" title="Remover filtro">×</button></span></div>`;
   }
 
   // Le filtros do DOM
