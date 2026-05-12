@@ -1051,6 +1051,23 @@
     const barRecColor = pRec >= 70 ? '#22c55e' : pRec >= 40 ? '#eab308' : '#ef4444';
     const recLabel = pRec >= 70 ? 'Alta chance de recompra' : pRec >= 40 ? 'Média chance de recompra' : 'Baixa chance — reativar';
 
+    // ─── FASE 1: badge "Pós-venda em Xd" se tem pedido entre 27-30 dias atrás ───
+    // Heurística client-side antes do cron disparar — vendedora vê a janela aproximada
+    let posvendaPendenteHtml = '';
+    try {
+      const hoje = Date.now();
+      const posvendaPed = (pedidos || []).find(p => {
+        if (!p.data || p.situacao_id === 12) return false;
+        const diff = Math.floor((hoje - new Date(p.data + 'T00:00:00').getTime()) / 86400000);
+        return diff >= 27 && diff <= 33;
+      });
+      if (posvendaPed) {
+        const diff = Math.floor((hoje - new Date(posvendaPed.data + 'T00:00:00').getTime()) / 86400000);
+        const dLabel = diff === 30 ? 'hoje' : diff < 30 ? `em ${30 - diff}d` : `há ${diff - 30}d`;
+        posvendaPendenteHtml = `<span style="background:rgba(96,165,250,0.15);color:#60a5fa;border:1px solid rgba(96,165,250,0.4);padding:4px 10px;border-radius:12px;font-size:11px;font-weight:600" title="Pedido #${escapeHtml(String(posvendaPed.numero||''))} fechado há ${diff}d — janela de pós-venda">📞 Pós-venda ${escapeHtml(dLabel)}</span>`;
+      }
+    } catch (e) { /* silencioso */ }
+
     const fmtStatus = (sitId) => {
       const lbl = SITUACAO_LABELS[sitId] || 'Situação ' + sitId;
       const col = SITUACAO_COLORS[lbl] || SITUACAO_COLORS['Em aberto'];
@@ -1102,6 +1119,7 @@
             <h2 style="margin:0;font-size:22px;font-weight:700;color:#f1f5f9">${escapeHtml(nome)}</h2>
             <span class="inline-flex items-center rounded-full font-medium text-xs px-2.5 py-1 ${segStyle.bg} ${segStyle.fg} border ${segStyle.border}">${seg}</span>
             <span class="inline-flex items-center rounded-full font-medium text-xs px-2.5 py-1 ${risco.cls} border">Risco: ${risco.label}</span>
+            ${posvendaPendenteHtml}
           </div>
           <div style="font-size:13px;color:#94a3b8;margin-bottom:4px">${fone ? escapeHtml(fone) : '<span style="color:#475569">sem telefone</span>'}${c.uf ? ' · '+c.uf : ''}${doc ? ' · '+escapeHtml(doc) : ''}</div>
           <div style="font-size:12px;color:#64748b">${EMPRESA_LABELS[c.empresa] || c.empresa}${tipo ? ' · '+tipo : ''}</div>
