@@ -2669,6 +2669,10 @@ select.input { cursor: pointer; }
     <div class="nav-item" onclick="go(this,'prospeccao')" data-secao="prospeccao">
       <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5"/><path d="M11 11l3 3"/><path d="M5 7h4M7 5v4"/></svg></div>Prospecção
     </div>
+    <div class="nav-item" onclick="go(this,'estoque')" data-secao="estoque">
+      <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="5" width="12" height="9" rx="1"/><path d="M5 5V3a3 3 0 016 0v2"/><path d="M2 9h12"/></svg></div>Gestão de Estoque
+      <span class="nav-badge alert" id="nav-estoque-badge" style="display:none" title="Produtos críticos">0</span>
+    </div>
   </div>
 
   <div class="nav-section">
@@ -7583,6 +7587,57 @@ updateDynamicField('foto');
           loading="lazy"></iframe>
 </div>
 
+<!-- ════════ GESTÃO INTELIGENTE DE ESTOQUE ════════ -->
+<div class="view" id="view-estoque"><div style="padding:24px 28px">
+  <style>
+    #view-estoque .chip { cursor:pointer; user-select:none; background:rgba(255,255,255,0.05); color:var(--text2); border:1px solid var(--line); transition:all 0.15s ease; }
+    #view-estoque .chip::before { display:none; }
+    #view-estoque .chip:hover { background:rgba(255,255,255,0.08); color:var(--text1); }
+    #view-estoque .chip.chip-active { background:rgba(124,58,237,0.18); color:#a78bfa; border-color:rgba(124,58,237,0.4); }
+  </style>
+
+  <!-- Sub-abas -->
+  <div style="display:flex;gap:6px;margin-bottom:18px;border-bottom:1px solid var(--line);padding-bottom:0">
+    <button class="tab active" data-estoque-tab="ativos" onclick="estoqueSwitchTab(this,'ativos')">🔔 Ativos <span id="estoque-tab-count-ativos" style="opacity:0.65;font-size:11px;margin-left:4px">(–)</span></button>
+    <button class="tab" data-estoque-tab="resolvidos" onclick="estoqueSwitchTab(this,'resolvidos')">✅ Resolvidos <span style="opacity:0.65;font-size:11px;margin-left:4px">(30d)</span></button>
+    <button class="tab" data-estoque-tab="ignorados" onclick="estoqueSwitchTab(this,'ignorados')">🙈 Ignorados</button>
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+      <button class="btn btn-ghost btn-sm" onclick="estoqueExportarCSV()" title="Pedido de compra em CSV">⬇ Exportar CSV</button>
+      <button class="btn btn-ghost btn-sm" onclick="loadEstoque()" title="Atualizar">↻</button>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div id="estoque-kpis" class="kpi-grid" style="grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px">
+    <div class="kpi-card"><div class="kpi-label">🔴 Críticos</div><div class="kpi-value" id="estoque-kpi-criticos">–</div><div class="kpi-sub" style="font-size:11px;color:var(--text3)">0-2 unidades</div></div>
+    <div class="kpi-card"><div class="kpi-label">🟡 Baixo</div><div class="kpi-value" id="estoque-kpi-baixos">–</div><div class="kpi-sub" style="font-size:11px;color:var(--text3)">3-5 unidades</div></div>
+    <div class="kpi-card"><div class="kpi-label">📅 Detectados hoje</div><div class="kpi-value" id="estoque-kpi-hoje">–</div><div class="kpi-sub" style="font-size:11px;color:var(--text3)">novos alertas</div></div>
+    <div class="kpi-card"><div class="kpi-label">✅ Resolvidos</div><div class="kpi-value" id="estoque-kpi-resolvidos">–</div><div class="kpi-sub" style="font-size:11px;color:var(--text3)">esta semana</div></div>
+  </div>
+
+  <!-- Filtros chip -->
+  <div id="estoque-filtros-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+    <span style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Filtrar:</span>
+    <button class="chip chip-active" data-estoque-urgencia="todos" onclick="estoqueSetUrgencia(this,'todos')">Todos</button>
+    <button class="chip" data-estoque-urgencia="criticos" onclick="estoqueSetUrgencia(this,'criticos')">🔴 Críticos</button>
+    <button class="chip" data-estoque-urgencia="baixos" onclick="estoqueSetUrgencia(this,'baixos')">🟡 Baixo</button>
+    <span style="width:1px;height:18px;background:var(--line);margin:0 4px"></span>
+    <button class="chip chip-active" data-estoque-velocidade="todos" onclick="estoqueSetVelocidade(this,'todos')">Todos</button>
+    <button class="chip" data-estoque-velocidade="movimentando" onclick="estoqueSetVelocidade(this,'movimentando')">📈 Movimentando</button>
+    <button class="chip" data-estoque-velocidade="parado" onclick="estoqueSetVelocidade(this,'parado')">📉 Parado 30d</button>
+    <span style="width:1px;height:18px;background:var(--line);margin:0 4px"></span>
+    <select id="estoque-filtro-linha" class="input" style="font-size:12px;padding:5px 8px;min-width:200px" onchange="renderEstoqueGrupos()">
+      <option value="todas">Todas as linhas</option>
+    </select>
+  </div>
+
+  <!-- Container dos grupos -->
+  <div id="estoque-grupos-container" style="display:flex;flex-direction:column;gap:12px">
+    <div style="text-align:center;color:var(--text3);font-size:13px;padding:40px">Carregando...</div>
+  </div>
+
+</div></div>
+
 <div class="view" id="view-provasocial"><div style="padding:24px 28px">
   <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:17px;margin-bottom:4px">Prova Social</div>
   <div style="font-size:12.5px;color:var(--text3);margin-bottom:20px">Dados reais de clientes e revendas que validam a marca Dana · <span style="color:var(--green)">Bling ao vivo</span></div>
@@ -10047,6 +10102,7 @@ const VIEW_META = {
   financeiro: { title: 'Financeiro', sub: 'Contas a pagar/receber, DRE e fluxo · Bling', action: 'Exportar PDF' },
   projecoes: { title: 'Projeções', sub: '2025 vs 2026 — real + projetado', action: 'Exportar PDF' },
   canaisvendas: { title: 'Canais e Vendas', sub: 'Clientes, canais de venda, revendas e eventos', action: '' },
+  estoque: { title: 'Gestão Inteligente de Estoque', sub: 'Reabasteça antes que falte · agrupado por linha de produto', action: '' },
   perfil: { title: 'Meu Perfil', sub: 'Configuracoes da sua conta', action: '' },
   admin: { title: 'Administrador', sub: 'Usuários, permissões e atividades', action: '' }
 };
@@ -10171,6 +10227,10 @@ function toggleMobileSidebar(forceState) {
 // 'estudio' saiu daqui — agora controlado via cargo_permissoes pro Juan liberar manualmente
 const ADMIN_ONLY_VIEWS = ['admin'];
 
+// Seções restritas a cargos específicos (admin + gerente_financeiro pra Gestão de Estoque).
+// Decisão da sessão: só quem decide reabastecer tem acesso ao painel.
+const ESTOQUE_VIEWS = ['admin','gerente_financeiro'];
+
 // Views completamente ocultas do menu — ninguém vê (nem admin).
 // applyNavPermissions respeita isso (sobrescreve o reset de display); go() bloqueia
 // acesso direto via URL e redireciona pra firstAllowedView.
@@ -10228,6 +10288,16 @@ function go(el, viewId, opts) {
   // 1. Bloqueio hard-coded: seções admin-only
   if (ADMIN_ONLY_VIEWS.includes(viewId) && currentProfile?.cargo !== 'admin') {
     if (typeof showToast === 'function') showToast('🚫 Acesso negado — apenas administradores');
+    const fb = firstAllowedView();
+    if (fb && fb !== viewId) {
+      const navEl = document.querySelector('[onclick*="\''+fb+'\'"]');
+      return go(navEl, fb);
+    }
+    return;
+  }
+  // 1b. Bloqueio: Gestão de Estoque é só pra admin + gerente_financeiro
+  if (viewId === 'estoque' && !ESTOQUE_VIEWS.includes(currentProfile?.cargo)) {
+    if (typeof showToast === 'function') showToast('🚫 Acesso negado — Gestão de Estoque é restrita');
     const fb = firstAllowedView();
     if (fb && fb !== viewId) {
       const navEl = document.querySelector('[onclick*="\''+fb+'\'"]');
@@ -10329,6 +10399,7 @@ function go(el, viewId, opts) {
   if (viewId === 'campanhas-internas') { if (typeof loadCampanhasInternas === 'function') loadCampanhasInternas(); }
   if (viewId === 'campanhas') { if (typeof loadCampanhasFromBriefings === 'function') loadCampanhasFromBriefings(); }
   if (viewId === 'prospeccao') { if (typeof prospLoad === 'function') prospLoad(); }
+  if (viewId === 'estoque') { if (typeof loadEstoque === 'function') loadEstoque(); }
   if (viewId === 'personas') { if (typeof setupPersonaAvatarButtons === 'function') setupPersonaAvatarButtons(); }
 
   // ════ LAZY LOAD com cache (carrega 1x por sessao por view) ════
@@ -13445,7 +13516,8 @@ window.addEventListener('load', async () => {
     // 4. Se targetView é null OU o usuário não tem permissão → primeira view permitida
     const naoTem = (v) => v && v !== 'perfil' && userPermissoes[v] === false;
     const adminBloq = (v) => v && ADMIN_ONLY_VIEWS.includes(v) && currentProfile?.cargo !== 'admin';
-    if (!targetView || naoTem(targetView) || adminBloq(targetView)) {
+    const estoqueBloq = (v) => v === 'estoque' && !ESTOQUE_VIEWS.includes(currentProfile?.cargo);
+    if (!targetView || naoTem(targetView) || adminBloq(targetView) || estoqueBloq(targetView)) {
       targetView = firstAllowedView();
       targetSubtab = null; // se caiu no fallback, ignora subtab da URL antiga
     }
@@ -13701,6 +13773,8 @@ async function loadAlertas() {
     const verDadosEmpresa = podeVerDadosEmpresa();
     _alertasCache = (data || []).filter(a => {
       const aud = a.audiencia || 'pessoal'; // fallback pra alertas antigos sem audiencia
+      // Estoque vive na seção dedicada Gestão de Estoque — nunca aparece no sino
+      if (aud === 'estoque_silencioso' || a.tipo === 'estoque_baixo') return false;
       if (aud === 'dados_empresa') return verDadosEmpresa;
       return true; // workflow e pessoal todo mundo vê (com filtro destinatario acima)
     });
@@ -22842,6 +22916,11 @@ function applyNavPermissions() {
     if (HIDDEN_NAV_VIEWS.includes(secao)) { item.style.display = 'none'; return; }
     // Views só-admin ficam ocultas pra outros cargos
     if (!ehAdmin && ADMIN_ONLY_VIEWS.includes(secao)) { item.style.display = 'none'; return; }
+    // Gestão de Estoque: só admin + gerente_financeiro
+    if (secao === 'estoque' && !ESTOQUE_VIEWS.includes(currentProfile?.cargo)) {
+      item.style.display = 'none';
+      return;
+    }
     if (userPermissoes[secao] === false) {
       item.style.display = 'none';
     } else {
@@ -25920,6 +25999,7 @@ async function recarregarTudoPorEmpresa() {
       // home: re-aplica filtro de empresa nos KPIs + Faturamento por Canal
       home:         'aplicarFiltroDashboard',
       // cliente360 nao precisa reload: tem filtro proprio internamente
+      estoque:      'loadEstoque',
     };
     const fns = callbacks[viewId];
     const lista = Array.isArray(fns) ? fns : (fns ? [fns] : []);
@@ -25931,6 +26011,346 @@ async function recarregarTudoPorEmpresa() {
   } catch (e) { console.warn('reload by empresa:', e); }
   showToast(`🏢 Filtro: ${EMPRESA_LABELS[empresaAtual()]}`);
 }
+
+// ══════════════════════════════════════════════════════════
+// GESTÃO INTELIGENTE DE ESTOQUE — Ciclo 86
+// Alertas tipo='estoque_baixo' (audiencia='estoque_silencioso')
+// não aparecem mais no sino — vivem aqui com agrupamento por
+// linha de produto (regex _limparNomeProduto do cliente-360-boot.js),
+// velocidade de venda 30d, sugestão de qty e ações de resolução.
+// Permissão: admin + gerente_financeiro (ESTOQUE_VIEWS).
+// ══════════════════════════════════════════════════════════
+window._estoqueState = {
+  tab: 'ativos',              // 'ativos' | 'resolvidos' | 'ignorados'
+  urgencia: 'todos',           // 'todos' | 'criticos' | 'baixos'
+  velocidade: 'todos',         // 'todos' | 'movimentando' | 'parado'
+  linha: 'todas',              // filtro de linha de produto (select)
+  itens: [],                   // lista raw da RPC ativa
+  grupos: {},                  // agrupado por nome limpo
+};
+
+// Fallback caso cliente-360-boot.js não esteja carregado nesta view
+function _estoqueLimparNome(s) {
+  if (typeof _limparNomeProduto === 'function') return _limparNomeProduto(s);
+  if (!s) return '';
+  return String(s)
+    .replace(/\s*Tamanho\s*:\s*[^;,]+/gi, '')
+    .replace(/\s*Cor\s*:\s*[^;,]+/gi, '')
+    .replace(/\s+ITC\b/gi, '')
+    .replace(/\s+Manga\s+(Longa|Curta)\b/gi, '')
+    .replace(/\s+[-–]\s+/g, ' ')
+    .replace(/\s+[-–]\s*$/g, '')
+    .replace(/[;,]\s*$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function loadEstoque() {
+  const emp = empresaAtual() || 'todas';
+  const tab = window._estoqueState.tab;
+  const container = document.getElementById('estoque-grupos-container');
+  if (container) container.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:13px;padding:40px">Carregando...</div>';
+
+  // KPIs sempre dos ATIVOS (independente da tab)
+  try {
+    const { data: kpiData } = await sb.rpc('estoque_kpis', { empresa_filter: emp });
+    const k = kpiData?.[0]?.estoque_kpis || kpiData || {};
+    // Compat: alguns drivers retornam objeto direto, outros dentro de array
+    const kpi = k.estoque_kpis || k;
+    document.getElementById('estoque-kpi-criticos').textContent = (kpi.criticos ?? '–');
+    document.getElementById('estoque-kpi-baixos').textContent = (kpi.baixos ?? '–');
+    document.getElementById('estoque-kpi-hoje').textContent = (kpi.detectados_hoje ?? '–');
+    document.getElementById('estoque-kpi-resolvidos').textContent = (kpi.resolvidos_semana ?? '–');
+    // Badge sidebar
+    const badge = document.getElementById('nav-estoque-badge');
+    const totalAtivo = (Number(kpi.criticos)||0) + (Number(kpi.baixos)||0);
+    if (badge) {
+      badge.textContent = totalAtivo;
+      badge.style.display = totalAtivo > 0 ? '' : 'none';
+    }
+  } catch (e) { console.warn('estoque kpis:', e); }
+
+  // Lista do tab ativo
+  const rpcName = tab === 'resolvidos' ? 'listar_estoque_resolvidos'
+                : tab === 'ignorados'  ? 'listar_estoque_ignorados'
+                :                         'listar_estoque_baixo';
+  try {
+    const { data, error } = await sb.rpc(rpcName, { empresa_filter: emp });
+    if (error) throw error;
+    window._estoqueState.itens = data || [];
+    // Contador na tab Ativos
+    if (tab === 'ativos') {
+      const c = document.getElementById('estoque-tab-count-ativos');
+      if (c) c.textContent = '(' + (data?.length || 0) + ')';
+    }
+    // Agrupa client-side por nome limpo
+    const grupos = {};
+    for (const it of (data || [])) {
+      const key = _estoqueLimparNome(it.nome) || it.nome || '—';
+      (grupos[key] = grupos[key] || []).push(it);
+    }
+    window._estoqueState.grupos = grupos;
+    estoqueAtualizarFiltroLinhaSelect(grupos);
+    renderEstoqueGrupos();
+  } catch (e) {
+    console.warn('loadEstoque:', e);
+    if (container) container.innerHTML = '<div style="text-align:center;color:#ef4444;padding:30px;font-size:13px">Erro ao carregar: ' + (e.message || e) + '</div>';
+  }
+}
+
+function estoqueAtualizarFiltroLinhaSelect(grupos) {
+  const sel = document.getElementById('estoque-filtro-linha');
+  if (!sel) return;
+  const linhas = Object.keys(grupos).sort();
+  const atual = sel.value;
+  sel.innerHTML = '<option value="todas">Todas as linhas (' + linhas.length + ')</option>' +
+    linhas.map(l => '<option value="' + l.replace(/"/g,'&quot;') + '">' + escapeHtml(l) + ' (' + grupos[l].length + ')</option>').join('');
+  if (atual && (atual === 'todas' || linhas.includes(atual))) sel.value = atual;
+}
+
+function renderEstoqueGrupos() {
+  const container = document.getElementById('estoque-grupos-container');
+  if (!container) return;
+  const st = window._estoqueState;
+  const tab = st.tab;
+  const linhaFiltro = document.getElementById('estoque-filtro-linha')?.value || 'todas';
+
+  let entradas = Object.entries(st.grupos);
+  if (linhaFiltro !== 'todas') entradas = entradas.filter(([k]) => k === linhaFiltro);
+
+  // Filtros urgência/velocidade só fazem sentido na tab Ativos
+  if (tab === 'ativos') {
+    if (st.urgencia === 'criticos') {
+      entradas = entradas.map(([k,arr]) => [k, arr.filter(i => Number(i.estoque_virtual) < 3)]).filter(([,arr])=>arr.length);
+    } else if (st.urgencia === 'baixos') {
+      entradas = entradas.map(([k,arr]) => [k, arr.filter(i => Number(i.estoque_virtual) >= 3 && Number(i.estoque_virtual) <= 5)]).filter(([,arr])=>arr.length);
+    }
+    if (st.velocidade === 'movimentando') {
+      entradas = entradas.map(([k,arr]) => [k, arr.filter(i => Number(i.qtd_vendida_30d) > 0)]).filter(([,arr])=>arr.length);
+    } else if (st.velocidade === 'parado') {
+      entradas = entradas.map(([k,arr]) => [k, arr.filter(i => !Number(i.qtd_vendida_30d))]).filter(([,arr])=>arr.length);
+    }
+  }
+
+  if (!entradas.length) {
+    const msg = tab === 'ativos' ? '✅ Sem alertas ativos — estoque sob controle.'
+              : tab === 'resolvidos' ? 'Nenhum alerta resolvido nos últimos 30 dias.'
+              : 'Nenhum alerta ignorado no momento.';
+    container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:40px;font-size:13.5px">' + msg + '</div>';
+    return;
+  }
+
+  // Ordena por menor estoque dentro do grupo (mais urgente primeiro), depois grupos por urgência
+  entradas.sort((a,b) => {
+    const minA = Math.min(...a[1].map(i => Number(i.estoque_virtual)||999));
+    const minB = Math.min(...b[1].map(i => Number(i.estoque_virtual)||999));
+    return minA - minB;
+  });
+
+  container.innerHTML = entradas.map(([linha, itens]) => renderEstoqueGrupoCard(linha, itens, tab)).join('');
+}
+
+function renderEstoqueGrupoCard(linha, itens, tab) {
+  const empColor = (e) => e === 'matriz' ? '#3b82f6' : '#10b981';
+  const empLabel = (e) => e === 'matriz' ? 'Matriz' : 'BC';
+
+  // Resumo
+  const totalEstoque = itens.reduce((s,i)=>s+(Number(i.estoque_virtual)||0),0);
+  const empresas = [...new Set(itens.map(i => i.empresa))];
+  const sumSugerida = itens.reduce((s,i)=>s+(Number(i.qtd_sugerida)||0),0);
+  const algumCritico = itens.some(i => Number(i.estoque_virtual) < 3);
+
+  const linhasHtml = itens.map(it => {
+    if (tab === 'resolvidos') {
+      const data = it.resolvido_em ? new Date(it.resolvido_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '–';
+      const acao = it.acao_tomada === 'reabastecido' ? '✅ Reabastecido'
+                 : it.acao_tomada === 'tarefa_criada' ? '🛒 Tarefa criada'
+                 : it.acao_tomada;
+      return `<div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:6px;font-size:12px;align-items:center">
+        <div style="color:var(--text2)"><span style="font-family:monospace;font-size:10.5px;color:var(--text3)">${escapeHtml(it.codigo||'')}</span> · ${escapeHtml(it.nome||'')}</div>
+        <div style="color:var(--text3);font-size:11px">${data}</div>
+        <div style="font-size:11px;color:#10b981;font-weight:600">${acao}</div>
+      </div>`;
+    }
+    if (tab === 'ignorados') {
+      const ate = it.ignorado_ate ? new Date(it.ignorado_ate).toLocaleDateString('pt-BR') : '–';
+      return `<div style="display:grid;grid-template-columns:1fr auto auto auto;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:6px;font-size:12px;align-items:center">
+        <div style="color:var(--text2)"><span style="font-family:monospace;font-size:10.5px;color:var(--text3)">${escapeHtml(it.codigo||'')}</span> · ${escapeHtml(it.nome||'')}</div>
+        <div style="font-size:11px;color:var(--text3)">${Number(it.estoque_virtual)||0} un</div>
+        <div style="font-size:11px;color:var(--text3)">até ${ate}</div>
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:4px 8px" onclick="estoqueDesfazerIgnorar(${it.alerta_id})">↩ Voltar</button>
+      </div>`;
+    }
+    // tab ativos
+    const dias = it.dias_de_estoque;
+    const vendas = Number(it.qtd_vendida_30d) || 0;
+    const sug = Number(it.qtd_sugerida) || 0;
+    const corEstoque = Number(it.estoque_virtual) < 3 ? '#ef4444' : '#f59e0b';
+    const detalheVelo = vendas > 0
+      ? `vende ${Number(it.vendas_dia).toFixed(2)}/dia${dias?` · ${dias} dia${dias>1?'s':''} restante${dias>1?'s':''}`:''}`
+      : 'sem giro 30d';
+    return `<div style="display:grid;grid-template-columns:auto 1fr auto auto auto;gap:10px;padding:9px 10px;background:rgba(255,255,255,0.02);border-radius:6px;font-size:12px;align-items:center">
+      <div style="background:${empColor(it.empresa)};color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:0.3px">${empLabel(it.empresa)}</div>
+      <div style="color:var(--text2)">
+        <div><span style="font-family:monospace;font-size:10.5px;color:var(--text3)">${escapeHtml(it.codigo||'')}</span> · ${escapeHtml(it.nome||'')}</div>
+        <div style="font-size:10.5px;color:var(--text3);margin-top:2px">${detalheVelo}</div>
+      </div>
+      <div style="font-weight:700;color:${corEstoque};font-size:13px">${Number(it.estoque_virtual)||0} un</div>
+      <div title="Sugestão de compra (cobrir 30d + 7 margem)" style="background:rgba(124,58,237,0.15);color:#a78bfa;font-size:10.5px;padding:3px 8px;border-radius:4px;font-weight:600">+${sug}</div>
+      <div style="display:flex;gap:4px">
+        <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 7px" title="Marcar como reabastecido" onclick="estoqueResolver(${it.alerta_id},'reabastecido')">✅</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 7px" title="Criar tarefa no Kanban" onclick="estoqueCriarTarefa(${it.alerta_id})">🛒</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 7px" title="Ignorar por 30 dias" onclick="estoqueResolver(${it.alerta_id},'ignorado',30)">🙈</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  const headerAcao = (tab === 'ativos' && sumSugerida > 0)
+    ? `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:12px;color:var(--text2)">
+        💡 Sugestão total: <strong style="color:#a78bfa">${sumSugerida} un</strong> pra linha completa
+        <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:11px" onclick="estoqueResolverGrupo('${linha.replace(/'/g,"\\'")}','reabastecido')">✅ Linha toda</button>
+      </div>` : '';
+
+  return `<div style="border:1px solid ${algumCritico?'rgba(239,68,68,0.4)':'var(--line)'};border-radius:10px;padding:14px 16px;background:var(--card)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap">
+      <div>
+        <div style="font-weight:700;font-size:14px;color:var(--text1)">👕 ${escapeHtml(linha)}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">${itens.length} variaç${itens.length>1?'ões':'ão'} · total ${totalEstoque} un ${empresas.length>1?'· '+empresas.length+' empresas':''}</div>
+      </div>
+      ${algumCritico && tab==='ativos' ? '<div style="font-size:10.5px;color:#ef4444;font-weight:700;background:rgba(239,68,68,0.1);padding:3px 8px;border-radius:4px">⚠ TEM CRÍTICO</div>' : ''}
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px">${linhasHtml}</div>
+    ${headerAcao}
+  </div>`;
+}
+
+// ── Tab switcher ──
+function estoqueSwitchTab(btn, tab) {
+  document.querySelectorAll('[data-estoque-tab]').forEach(b => b.classList.toggle('active', b === btn));
+  window._estoqueState.tab = tab;
+  // esconde barra de filtros urgência/velocidade fora da tab ativos
+  const filtros = document.getElementById('estoque-filtros-bar');
+  if (filtros) filtros.style.display = (tab === 'ativos') ? '' : 'none';
+  loadEstoque();
+}
+
+function estoqueSetUrgencia(btn, val) {
+  document.querySelectorAll('[data-estoque-urgencia]').forEach(b => b.classList.toggle('chip-active', b === btn));
+  window._estoqueState.urgencia = val;
+  renderEstoqueGrupos();
+}
+function estoqueSetVelocidade(btn, val) {
+  document.querySelectorAll('[data-estoque-velocidade]').forEach(b => b.classList.toggle('chip-active', b === btn));
+  window._estoqueState.velocidade = val;
+  renderEstoqueGrupos();
+}
+
+// ── Ações ──
+async function estoqueResolver(alertaId, acao, ignorarDias) {
+  try {
+    const { error } = await sb.rpc('resolver_alerta_estoque', {
+      p_alerta_id: alertaId,
+      p_acao: acao,
+      p_ignorar_dias: ignorarDias || 30
+    });
+    if (error) throw error;
+    const msg = acao === 'reabastecido' ? '✅ Marcado como reabastecido'
+              : acao === 'ignorado'    ? '🙈 Ignorado por ' + (ignorarDias||30) + ' dias'
+              : '🛒 Tarefa registrada';
+    if (typeof showToast === 'function') showToast(msg);
+    loadEstoque();
+  } catch (e) {
+    console.warn('estoqueResolver:', e);
+    if (typeof showToast === 'function') showToast('Erro: ' + (e.message || e));
+  }
+}
+
+async function estoqueDesfazerIgnorar(alertaId) {
+  // Reseta ignorado_ate pra trazer de volta pra Ativos
+  try {
+    const { error } = await sb.from('alertas').update({ ignorado_ate: null, acao_tomada: null })
+      .eq('id', alertaId).eq('tipo', 'estoque_baixo');
+    if (error) throw error;
+    if (typeof showToast === 'function') showToast('↩ Voltou pra Ativos');
+    loadEstoque();
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Erro: ' + (e.message || e));
+  }
+}
+
+async function estoqueResolverGrupo(linha, acao) {
+  const grupo = window._estoqueState.grupos[linha];
+  if (!grupo || !grupo.length) return;
+  if (!confirm('Marcar ' + grupo.length + ' variações como ' + acao + '?')) return;
+  let ok = 0, fail = 0;
+  for (const it of grupo) {
+    try {
+      await sb.rpc('resolver_alerta_estoque', { p_alerta_id: it.alerta_id, p_acao: acao });
+      ok++;
+    } catch { fail++; }
+  }
+  if (typeof showToast === 'function') showToast('✅ ' + ok + ' resolvido' + (ok!==1?'s':'') + (fail?' · '+fail+' falhou':''));
+  loadEstoque();
+}
+
+async function estoqueCriarTarefa(alertaId) {
+  const it = window._estoqueState.itens.find(x => x.alerta_id === alertaId);
+  if (!it) return;
+  const qtd = Number(it.qtd_sugerida) || 5;
+  const titulo = 'Comprar: ' + (it.nome || it.codigo) + ' · ~' + qtd + ' un';
+  const desc = 'SKU: ' + (it.codigo||'') + '\nEmpresa: ' + (it.empresa||'') + '\nEstoque atual: ' + (it.estoque_virtual||0) + ' un\nVendas 30d: ' + (Number(it.qtd_vendida_30d)||0) + ' un\nSugestão: ' + qtd + ' un (cobrir 30d + 7 margem)';
+  try {
+    const prazo = new Date(); prazo.setDate(prazo.getDate() + 3);
+    const { error: insErr } = await sb.from('tarefas').insert({
+      titulo,
+      descricao: desc,
+      coluna: 'todo',
+      prioridade: Number(it.estoque_virtual) < 3 ? 'alta' : 'media',
+      tag: 'Compras',
+      prazo: prazo.toISOString().slice(0,10)
+    });
+    if (insErr) throw insErr;
+    // Marca o alerta como tarefa_criada
+    await sb.rpc('resolver_alerta_estoque', { p_alerta_id: alertaId, p_acao: 'tarefa_criada' });
+    if (typeof showToast === 'function') showToast('🛒 Tarefa criada no Kanban');
+    loadEstoque();
+  } catch (e) {
+    console.warn('criarTarefa:', e);
+    if (typeof showToast === 'function') showToast('Erro: ' + (e.message || e));
+  }
+}
+
+function estoqueExportarCSV() {
+  const itens = window._estoqueState.itens || [];
+  if (!itens.length) { if (typeof showToast === 'function') showToast('Sem dados pra exportar'); return; }
+  const linhas = [['Codigo','Nome','Empresa','Estoque','Vendas 30d','Vendas/dia','Sugestao','Preco']];
+  for (const it of itens) {
+    linhas.push([
+      it.codigo || '',
+      (it.nome || '').replace(/[\n;"]/g, ' '),
+      it.empresa || '',
+      it.estoque_virtual ?? '',
+      it.qtd_vendida_30d ?? '',
+      it.vendas_dia ?? '',
+      it.qtd_sugerida ?? '',
+      it.preco ?? ''
+    ]);
+  }
+  const csv = linhas.map(l => l.map(c => `"${String(c).replace(/"/g,'""')}"`).join(';')).join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'pedido-compra-' + new Date().toISOString().slice(0,10) + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+// Realtime: só recarrega se a view estiver aberta (evita over-fetch)
+sb.channel('realtime-estoque')
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'alertas', filter: 'tipo=eq.estoque_baixo' }, () => {
+    const active = document.querySelector('.view.active');
+    if (active?.id === 'view-estoque') loadEstoque();
+  })
+  .subscribe();
 
 // Fecha menu ao clicar fora
 document.addEventListener('click', (e) => {

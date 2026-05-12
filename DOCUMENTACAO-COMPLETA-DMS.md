@@ -8563,4 +8563,142 @@ if (aud === 'pessoal' && a?.destinatario_id === currentUser?.id) {
 
 ---
 
-**Fim da documentação · Atualizado em 12/05/2026 noite — Section 85 (fixes pós-deploy + popup realtime pra alertas pessoais) · v12.5**
+## 86. CICLO 12/05/2026 (NOITE-2) — GESTÃO INTELIGENTE DE ESTOQUE (nova seção em VENDAS)
+
+### 86.1 Motivação
+Manu pediu que os alertas `tipo='estoque_baixo'` (gerados pelo cron `gerar-alertas-30min`) saíssem do sininho 🔔 e fossem pra uma **seção dedicada** com agrupamento e ações. Catálogo tem ~2237 SKUs com variações (Tamanho:M, Cor:Preto, Manga Curta, ITC) → sino acumulava 50+ entradas semelhantes, abafando alertas operacionais importantes (pós-venda 30d, tarefas atribuídas, comentários).
+
+### 86.2 Decisões de design
+- **Localização:** seção Vendas (entre Prospecção e Financeiro). Manu sugeriu Produtividade, mas Vendas é mais semântico ("estoque = operação de vendas").
+- **Permissões:** restrito a **admin + gerente_financeiro** via constante `ESTOQUE_VIEWS` em [index.html:10175](index.html). Vendedor, gerente_comercial, designer, etc. NÃO veem nav-item nem acessam `/estoque`.
+- **Escopo:** versão completa — inclui velocidade de venda 30d + sugestão de quantidade.
+- **Multi-empresa:** respeita filtro do topbar (matriz/bc/todas) — registrado em `recarregarTudoPorEmpresa` callbacks.
+- **Não polui o sino:** nova audiência `estoque_silencioso` (CHECK constraint atualizado) + filtro defesa-em-profundidade em `loadAlertas` ([index.html:13702](index.html)).
+
+### 86.3 SQL — arquivo `sql-scripts/sql-gestao-estoque.sql`
+Idempotente. Aplica via Management API (`/v1/projects/{ref}/database/query`) em ~3s. Operações:
+
+**Schema (alertas):**
+```sql
+ALTER TABLE alertas
+  ADD COLUMN IF NOT EXISTS resolvido_em timestamptz,
+  ADD COLUMN IF NOT EXISTS resolvido_por uuid,
+  ADD COLUMN IF NOT EXISTS acao_tomada text
+    CHECK (acao_tomada IN ('reabastecido','ignorado','tarefa_criada')),
+  ADD COLUMN IF NOT EXISTS ignorado_ate date;
+```
+- CHECK `alertas_audiencia_check` recriado pra incluir `'estoque_silencioso'`.
+- Índice partial `idx_alertas_estoque_ativo` em (tipo, resolvido_em) WHERE not-resolved.
+
+**Função `gerar_alertas()` atualizada:**
+- Bloco de estoque agora insere com `audiencia='estoque_silencioso'` (não cai no sino).
+- LIMIT subiu de 5 → 20 (com seção dedicada podemos emitir mais).
+- `nivel`: dynamic — `'urgent'` se estoque<3, senão `'warn'`.
+- `dados` agora inclui `empresa` (matriz/bc) além de produto_id + estoque.
+- Dedup considera só alertas NÃO resolvidos: depois que admin marca "reabastecido", sistema pode emitir novo alerta se voltar a estar baixo.
+
+**Migração imediata:**
+```sql
+UPDATE alertas SET audiencia = 'estoque_silencioso'
+ WHERE tipo = 'estoque_baixo' AND audiencia = 'dados_empresa';
+```
+→ 25 alertas históricos sumiram do sino na hora.
+
+**View `produtos_velocidade_30d`:**
+- Cálculo: `qtd_vendida_30d`, `vendas_dia`, `dias_de_estoque`, `qtd_sugerida` (cobrir 30d + 7 margem).
+- LEFT JOIN LATERAL com `pedidos_itens` matchando por `codigo` exato (variação) + empresa + data 30d + situação != 12 (cancelados).
+- Match por código exato (com sufixo `-G00` de variação) — cada SKU tem sua própria velocidade.
+
+**4 RPCs SECURITY DEFINER:**
+- `listar_estoque_baixo(empresa_filter)` — alertas ativos + velocidade (JOIN view)
+- `listar_estoque_resolvidos(empresa_filter)` — histórico 30d (sub-aba Resolvidos)
+- `listar_estoque_ignorados(empresa_filter)` — itens com `ignorado_ate >= CURRENT_DATE`
+- `resolver_alerta_estoque(alerta_id, acao, ignorar_dias)` — UPDATE atomic
+- `estoque_kpis(empresa_filter)` — JSON com {criticos, baixos, detectados_hoje, resolvidos_semana}
+
+### 86.4 Frontend — `index.html`
+
+**Wire-up básico:**
+- `VIEW_META.estoque` ([index.html:10050](index.html))
+- Nav-item em Vendas após Prospecção ([index.html:2672](index.html)) com badge `#nav-estoque-badge`
+- `ESTOQUE_VIEWS = ['admin','gerente_financeiro']` ([index.html:10175](index.html))
+- Bloqueio em `go()` ([index.html:10241](index.html))
+- Bloqueio em `restoreView` ([index.html:13450](index.html))
+- Esconder nav-item em `applyNavPermissions` ([index.html:22847](index.html))
+- Filtro defesa-em-profundidade em `loadAlertas` ([index.html:13703](index.html)) — bloqueia `aud === 'estoque_silencioso'` OR `tipo === 'estoque_baixo'`
+
+**View HTML** ([index.html:~7589](index.html)):
+- 3 sub-abas: 🔔 Ativos · ✅ Resolvidos · 🙈 Ignorados
+- 4 KPIs (Críticos / Baixo / Detectados hoje / Resolvidos semana)
+- Filtros chip: Urgência (Todos/Críticos/Baixo) + Velocidade (Todos/Movimentando/Parado 30d) + Linha de produto (select dinâmico)
+- Botão "⬇ Exportar CSV" — pedido de compra em CSV (semicolon, BOM UTF-8)
+- Container `#estoque-grupos-container` com cards agrupados
+- CSS escopado `#view-estoque .chip.chip-active` (cor roxa)
+
+**Lógica JS** (bloco ~290 linhas perto da seção empresa-selector):
+- `window._estoqueState`: tab/urgencia/velocidade/linha/itens/grupos
+- `_estoqueLimparNome(s)` — fallback se `_limparNomeProduto` do cliente-360-boot.js não carregou
+- `loadEstoque()` — chama `estoque_kpis` + RPC do tab ativo + agrupa client-side por nome limpo + atualiza select de linha + render
+- `renderEstoqueGrupos()` — filtra por linha/urgência/velocidade, ordena por menor estoque, gera cards
+- `renderEstoqueGrupoCard(linha, itens, tab)` — 3 layouts diferentes por tab:
+  - **Ativos:** badge empresa (matriz=azul, bc=verde), código + nome + velocidade, estoque colorido (vermelho<3, amber 3-5), chip sugestão roxo, 3 botões (Reabastecer/Tarefa/Ignorar)
+  - **Resolvidos:** linha + data formatada + ação tomada
+  - **Ignorados:** linha + estoque + data limite + botão "↩ Voltar"
+- `estoqueResolver(id, acao, ignorarDias)` → RPC
+- `estoqueResolverGrupo(linha, acao)` → bulk pra linha toda
+- `estoqueCriarTarefa(id)` → INSERT em `tarefas` (coluna='todo', tag='Compras', prazo +3d, prioridade=alta se estoque<3) + marca alerta como `tarefa_criada`
+- `estoqueDesfazerIgnorar(id)` → UPDATE direto setando `ignorado_ate=null`
+- `estoqueExportarCSV()` → blob CSV com codigo, nome, empresa, estoque, vendas 30d, vendas/dia, sugestão, preço
+- Realtime channel `realtime-estoque` filtrado `tipo=eq.estoque_baixo` — só recarrega se view tá ativa (evita over-fetch)
+- Callback `estoque: 'loadEstoque'` em `recarregarTudoPorEmpresa` ([index.html:25997](index.html)) — recarrega ao trocar matriz/bc/todas no topbar
+- Dispatch em `go()` ([index.html:10396](index.html)): `if (viewId === 'estoque') loadEstoque()`
+
+### 86.5 Smoke tests SQL (validação aplicação)
+
+| Teste | Resultado |
+|---|---|
+| `SELECT estoque_kpis('todas')` | `{criticos:22, baixos:3, detectados_hoje:25, resolvidos_semana:0}` ✅ |
+| `SELECT estoque_kpis('matriz')` | `{criticos:1, baixos:0, ...}` (24 são BC) ✅ |
+| `listar_estoque_baixo('todas') LIMIT 3` | retorna `alerta_id`, `qtd_vendida_30d`, `qtd_sugerida`, `empresa` ✅ |
+| Migração audiência | 25 ativos passaram pra `estoque_silencioso` (sumiram do sino) ✅ |
+
+### 86.6 Versões finais
+
+| Componente | Versão |
+|---|---|
+| SQL aplicado em produção | `sql-gestao-estoque.sql` v1 |
+| Frontend `index.html` | +1 view + ~7 trechos editados |
+| Cache-bust | n/a (tudo inline, sem script externo) |
+
+### 86.7 Pendências menores
+- **Imagens de produto:** ícone 🛒 universal (decisão do Ciclo 85.7) — pode futuramente puxar `imagem_storage_url` quando sync rodar
+- **Notificação push do popup pra admin** quando atinge X críticos — fora do escopo dessa entrega
+- **Histórico de quem reabasteceu** (`resolvido_por` salvo, mas UI não mostra ainda)
+- **Exportar pedido de compra como PDF formatado** (CSV existe; PDF seria nice-to-have)
+
+### 86.8 🧭 Guia pro próximo Claude — como mexer em Gestão de Estoque
+
+**Adicionar nova ação além de reabastecido/ignorado/tarefa_criada:**
+1. SQL: alterar CHECK `alertas_acao_tomada_check` em `sql-gestao-estoque.sql` Passo 1
+2. SQL: validar nova ação dentro de `resolver_alerta_estoque` (raise se não estiver na lista)
+3. Frontend: adicionar botão no `renderEstoqueGrupoCard` chamando `estoqueResolver(id, 'novaAcao')`
+4. Frontend: adicionar tradução no tab Resolvidos (`it.acao_tomada === 'novaAcao' ? '🎯 Label'`)
+
+**Mudar critério de "crítico":**
+- SQL: ajustar `WHEN estoque_virtual < 3 THEN 'urgent'` em `gerar_alertas()` (Passo 2 do SQL)
+- SQL: ajustar thresholds nos KPIs (`estoque_kpis`) — `< 3` (criticos) e `BETWEEN 3 AND 5` (baixos)
+- Frontend: ajustar `i.estoque_virtual < 3` em `renderEstoqueGrupos` (filtro urgência)
+
+**Adicionar nova sub-aba (ex: "Em compra"):**
+1. SQL: criar novo RPC `listar_estoque_em_compra` (filtro por `acao_tomada='tarefa_criada'`)
+2. Frontend: adicionar `<button data-estoque-tab="emcompra">` no template
+3. Frontend: estender switch no `loadEstoque` (`rpcName = tab === 'emcompra' ? 'listar_estoque_em_compra' : ...`)
+4. Frontend: estender `renderEstoqueGrupoCard` com layout específico se necessário
+
+**Reativar alertas no sino temporariamente** (rollback de emergência):
+- SQL: `UPDATE alertas SET audiencia='dados_empresa' WHERE tipo='estoque_baixo' AND resolvido_em IS NULL;`
+- E reverter `gerar_alertas` pra usar `'dados_empresa'` nessa linha
+
+---
+
+**Fim da documentação · Atualizado em 12/05/2026 noite-2 — Section 86 (Gestão Inteligente de Estoque) · v12.6**
