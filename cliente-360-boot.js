@@ -1189,6 +1189,104 @@
     </div>
   </div>
 </div>`;
+
+    // Após o DOM ser montado, esconde abas Site/Comportamento se cliente não tem dados.
+    // Fire-and-forget pra não atrasar o render — fica visível durante 1-2 frames se sem dados,
+    // depois esconde. Aceitável.
+    if (typeof c360AutoHideTabs === 'function') {
+      c360AutoHideTabs(nome, c.empresa).catch(e => console.warn('[autoHideTabs]', e));
+    }
+  }
+
+  // ─── Auto-hide abas Site (Magazord) e Comportamento (Lead Tracker) ───
+  // Lazy + cache: roda 1× por (nome, empresa) e mantém na memória.
+  // Tolerante a tabelas faltantes (cliente_tem_magazord pode não existir até Fase B aplicar).
+  window._c360TabsAvailable = window._c360TabsAvailable || {};
+  async function c360AutoHideTabs(contatoNome, empresa) {
+    if (!contatoNome) return;
+    const sb = state.sb;
+    if (!sb) return;
+    const cacheKey = (contatoNome || '').toLowerCase().trim() + '|' + (empresa || '');
+    const cached = window._c360TabsAvailable[cacheKey];
+
+    const tabSite = document.getElementById('c360-tab-site');
+    const tabComp = document.getElementById('c360-tab-comportamento');
+
+    // Usa cache se disponível
+    if (cached) {
+      if (tabSite && !cached.site) tabSite.style.display = 'none';
+      if (tabComp && !cached.comportamento) tabComp.style.display = 'none';
+      return;
+    }
+
+    // Helpers
+    const limparPJ = s => (s || '')
+      .replace(/\s*[-–]\s*(eireli|ltda|s\.?\s*a\.?|s\/a|me|epp|mei|cia|s\.?\s*c\.?|empresa\s+individual)\b.*$/gi, '')
+      .replace(/\b(eireli|ltda|s\.?\s*a\.?|s\/a|me|epp|mei|cia|s\.?\s*c\.?)\.?\s*$/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const nomeNorm = (contatoNome || '').toLowerCase().trim();
+    const nomeNucleo = limparPJ(contatoNome).toLowerCase().trim();
+
+    let temSite = false;
+    let temComportamento = false;
+
+    // 1) Magazord — primeiro tenta cache pré-computado (cliente_tem_magazord)
+    try {
+      const { data: cacheRow, error: cacheErr } = await sb
+        .from('cliente_tem_magazord')
+        .select('qtd_pedidos')
+        .or(`contato_nome_normalizado.eq.${nomeNorm},contato_nome_normalizado.eq.${nomeNucleo}`)
+        .limit(1)
+        .maybeSingle();
+      if (!cacheErr && cacheRow && cacheRow.qtd_pedidos > 0) {
+        temSite = true;
+      } else if (cacheErr && !String(cacheErr.message || '').includes('does not exist')) {
+        // erro real (não "tabela não existe") — pula fallback
+        console.warn('[autoHideTabs cache]', cacheErr);
+      } else {
+        // Cache vazio ou tabela não criada ainda — fallback: query direta em magazord_pedido_completo
+        const { data: direct } = await sb
+          .from('magazord_pedido_completo')
+          .select('id', { count: 'exact', head: true })
+          .or(`pessoa_nome.ilike.%${contatoNome}%,pessoa_nome.ilike.%${limparPJ(contatoNome)}%`)
+          .limit(1);
+        temSite = !!(direct && direct.length > 0);
+        // Se nem o fallback retornou nada, ainda mantém temSite=false
+      }
+    } catch (e) {
+      // Falha completa — mantém aba visível por segurança (não esconde)
+      console.warn('[autoHideTabs magazord]', e);
+      temSite = true;
+    }
+
+    // 2) Comportamento — checa analytics_lead_identity (tem row → tem eventos)
+    try {
+      const { data: identity, error: identErr } = await sb
+        .from('analytics_lead_identity')
+        .select('cookie_id', { count: 'exact', head: false })
+        .eq('contato_nome', contatoNome)
+        .limit(1);
+      if (!identErr) {
+        temComportamento = !!(identity && identity.length > 0);
+      } else if (String(identErr.message || '').includes('does not exist')) {
+        // Schema lead_tracking não aplicado — esconde aba (sem sistema, sem dados)
+        temComportamento = false;
+      } else {
+        // Outro erro — mantém visível por segurança
+        temComportamento = true;
+      }
+    } catch (e) {
+      console.warn('[autoHideTabs comportamento]', e);
+      temComportamento = true;
+    }
+
+    // Cache resultado
+    window._c360TabsAvailable[cacheKey] = { site: temSite, comportamento: temComportamento };
+
+    // Aplica visibilidade
+    if (tabSite && !temSite) tabSite.style.display = 'none';
+    if (tabComp && !temComportamento) tabComp.style.display = 'none';
   }
 
   function kpiCard(label, valor, sub, fontSize) {
@@ -5061,7 +5159,6 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
           </div>
         </div>
         ${temFiltro ? `<button onclick="window.${fnClear}()" style="padding:7px 14px;border-radius:6px;border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.1);color:#f87171;cursor:pointer;font-size:12px">Limpar filtros</button>` : ''}
-        <button onclick="window.c360McNovoCliente()" style="padding:7px 14px;border-radius:6px;border:1px solid rgba(167,139,250,0.4);background:rgba(167,139,250,0.12);color:#c4b5fd;cursor:pointer;font-size:12px;font-weight:600">+ Novo cliente</button>
       </div>
     `;
   }
