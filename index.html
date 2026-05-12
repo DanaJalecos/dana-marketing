@@ -24244,29 +24244,119 @@ let _permData = [];
 // grupos certos, mas mantive os nomes ORIGINAIS — toggle continua fazendo
 // exatamente o que fazia antes, so ficou organizado e com label legivel
 // (ver `secaoLabels` mais abaixo).
-const PERM_GROUPS = [
-  ['📊 Visão Geral', ['home','analytics','relatorio']],
-  ['💰 Vendas',      ['ecommerce','lojafisica','marketplaces','canaisvendas','cliente360','comunidade','prospeccao','prospeccao_buscar','prospeccao_editar']],
-  ['🏦 Financeiro',  ['financeiro','projecoes','roi']],
-  ['📣 Marketing',   ['canaisaquisicao','campanhas','campanhas-internas','campanhas_internas','construtor','criativos','briefingvisual','branding','influenciadores','provasocial','provasocial_aprovar','provasocial_criar','provasocial_excluir']],
-  ['🎯 Inteligência',['personas','keywords','mercado','referencias','performance']],
-  ['🤖 IA Gerativa', ['estudio','avatares_ia_gerar']],
-  ['✅ Produtividade',['tarefas','calendario']],
-  ['👤 Cliente 360 · Abas', [
-    'c360_dashboard','c360_clientes','meus_clientes','c360_segmentacao',
-    'c360_campanhas','c360_sincronizacao','c360_configuracoes','c360_logs'
-  ]],
-  ['⚙️ Sistema',      ['apis']],
-  ['⚡ Ações Específicas', [
-    'calendario_criar','calendario_excluir','calendario_ver_todos',
-    'tarefas_criar','tarefas_excluir',
-    'briefing_criar','briefing_editar','briefing_excluir',
-    'brandkit_criar','brandkit_excluir',
-    'canal_aquisicao_criar','canal_aquisicao_editar','canal_aquisicao_excluir',
-    'criativo_criar','criativo_aprovar','criativo_publicar','criativo_excluir',
-    'campanha_interna_criar','campanha_interna_editar','campanha_interna_excluir',
-  ]],
+// ══════════════════════════════════════════════════════════
+// PERM_MATRIX — Painel de permissões por seção (Ciclo 87)
+// Cada seção vira uma LINHA com colunas: Ver / Criar / Editar / Excluir /
+// Aprovar / Publicar / Especial. Quando a chave não existe pra seção,
+// a célula mostra "—" cinza. Estrutura no banco (cargo_permissoes) NÃO
+// muda — só a UI. PERM_GROUPS é mantido pra back-compat de outras funções.
+//
+// Cada secao tem:
+//   id      → chave principal "Ver" (acessar a tela) — sempre existe
+//   label   → nome legível (curto, sem prefixo de verbo)
+//   icon    → emoji da seção (opcional)
+//   acoes   → { criar?, editar?, excluir?, aprovar?, publicar? } — chaves
+//             de cargo_permissoes pra cada coluna
+//   especial → [{ key, label }] — chaves únicas (calendario_ver_todos,
+//              prospeccao_buscar, etc) renderizadas como sub-toggles
+// ══════════════════════════════════════════════════════════
+const PERM_MATRIX = [
+  { categoria: '📊 Visão Geral', secoes: [
+    { id: 'home',       icon: '🏠', label: 'Dashboard' },
+    { id: 'analytics',  icon: '📊', label: 'Analytics' },
+    { id: 'relatorio',  icon: '📄', label: 'Relatório Executivo' },
+  ]},
+  { categoria: '💰 Vendas', secoes: [
+    { id: 'ecommerce',    icon: '🛒', label: 'E-commerce' },
+    { id: 'lojafisica',   icon: '🏪', label: 'Loja Física' },
+    { id: 'marketplaces', icon: '📦', label: 'Marketplaces' },
+    { id: 'canaisvendas', icon: '🔗', label: 'Canais e Vendas' },
+    { id: 'cliente360',   icon: '👤', label: 'Cliente 360' },
+    { id: 'comunidade',   icon: '🤝', label: 'Comunidade · Revendas/parceiros' },
+    { id: 'prospeccao',   icon: '🔎', label: 'Prospecção IA',
+      especial: [
+        { key: 'prospeccao_buscar', label: '🚀 Buscar leads (Google + Gemini)' },
+        { key: 'prospeccao_editar', label: '✏️ Editar/excluir leads salvos' },
+      ] },
+    { id: 'estoque',      icon: '📦', label: 'Gestão de Estoque' },
+  ]},
+  { categoria: '🏦 Financeiro', secoes: [
+    { id: 'financeiro', icon: '💵', label: 'Financeiro' },
+    { id: 'projecoes',  icon: '📈', label: 'Projeções' },
+    { id: 'roi',        icon: '🧮', label: 'Calculadora ROI' },
+  ]},
+  { categoria: '📣 Marketing', secoes: [
+    { id: 'canaisaquisicao', icon: '📡', label: 'Canais de Aquisição',
+      acoes: { criar: 'canal_aquisicao_criar', editar: 'canal_aquisicao_editar', excluir: 'canal_aquisicao_excluir' } },
+    { id: 'campanhas',         icon: '📣', label: 'Campanhas (Meta/Google Ads)' },
+    { id: 'campanhas-internas', icon: '📋', label: 'Campanhas Internas',
+      acoes: { criar: 'campanha_interna_criar', editar: 'campanha_interna_editar', excluir: 'campanha_interna_excluir' } },
+    { id: 'construtor',     icon: '🧱', label: 'Construtor de Campanha' },
+    { id: 'criativos',      icon: '🎨', label: 'Criativos',
+      acoes: { criar: 'criativo_criar', excluir: 'criativo_excluir' },
+      especial: [
+        { key: 'criativo_aprovar',  label: '✅ Aprovar/Reprovar arte' },
+        { key: 'criativo_publicar', label: '🚀 Marcar como publicado' },
+      ] },
+    { id: 'briefingvisual', icon: '📝', label: 'Briefing Visual',
+      acoes: { criar: 'briefing_criar', editar: 'briefing_editar', excluir: 'briefing_excluir' } },
+    { id: 'branding',       icon: '🎨', label: 'Brand Kit',
+      acoes: { criar: 'brandkit_criar', excluir: 'brandkit_excluir' } },
+    { id: 'influenciadores', icon: '🌟', label: 'Influenciadores' },
+    { id: 'provasocial',    icon: '⭐', label: 'Prova Social (UGC)',
+      acoes: { criar: 'provasocial_criar', excluir: 'provasocial_excluir' },
+      especial: [
+        { key: 'provasocial_aprovar', label: '✅ Aprovar conteúdo UGC' },
+      ] },
+  ]},
+  { categoria: '🎯 Inteligência', secoes: [
+    { id: 'personas',     icon: '🎭', label: 'Públicos Ideais (Personas)' },
+    { id: 'keywords',     icon: '🔑', label: 'Palavras-Chave' },
+    { id: 'mercado',      icon: '📈', label: 'Mercado e Tendências' },
+    { id: 'referencias',  icon: '💡', label: 'Referências' },
+    { id: 'performance',  icon: '🎯', label: 'Performance' },
+  ]},
+  { categoria: '🤖 IA Gerativa', secoes: [
+    { id: 'estudio', icon: '🎬', label: 'Estúdio IA (Banner/Post/Story/Anúncio)',
+      especial: [
+        { key: 'avatares_ia_gerar', label: '🖼 Gerar imagem (mockup/persona)' },
+      ] },
+  ]},
+  { categoria: '✅ Produtividade', secoes: [
+    { id: 'tarefas',    icon: '✓', label: 'Tarefas e Kanban',
+      acoes: { criar: 'tarefas_criar', excluir: 'tarefas_excluir' } },
+    { id: 'calendario', icon: '📅', label: 'Calendário',
+      acoes: { criar: 'calendario_criar', excluir: 'calendario_excluir' },
+      especial: [
+        { key: 'calendario_ver_todos', label: '👁 Ver todos os eventos/tarefas (desmarcar = só Campanhas Internas)' },
+      ] },
+  ]},
+  { categoria: '👤 Cliente 360 · Abas internas', secoes: [
+    { id: 'c360_dashboard',     icon: '🏠', label: 'Dashboard (C360)' },
+    { id: 'c360_clientes',      icon: '👥', label: 'Lista de Clientes' },
+    { id: 'meus_clientes',      icon: '👤', label: 'Meus Clientes (carteira do vendedor)' },
+    { id: 'c360_segmentacao',   icon: '🎯', label: 'Segmentação' },
+    { id: 'c360_campanhas',     icon: '📢', label: 'Campanhas C360' },
+    { id: 'c360_sincronizacao', icon: '🔄', label: 'Sincronização' },
+    { id: 'c360_configuracoes', icon: '⚙', label: 'Configurações' },
+    { id: 'c360_logs',          icon: '📋', label: 'Logs' },
+  ]},
+  { categoria: '⚙️ Sistema', secoes: [
+    { id: 'apis', icon: '🔌', label: 'Conectar APIs' },
+  ]},
 ];
+
+// Back-compat: mantém PERM_GROUPS sintetizado a partir de PERM_MATRIX
+// pra funções existentes (savePermissoes, etc) continuarem funcionando.
+const PERM_GROUPS = PERM_MATRIX.map(cat => {
+  const chaves = [];
+  for (const s of cat.secoes) {
+    chaves.push(s.id);
+    if (s.acoes) Object.values(s.acoes).forEach(k => chaves.push(k));
+    if (s.especial) s.especial.forEach(e => chaves.push(e.key));
+  }
+  return [cat.categoria, chaves];
+});
 
 async function loadAdminPermissoes() {
   const container = document.getElementById('admin-perm-grid');
@@ -24358,6 +24448,19 @@ async function loadAdminPermissoes() {
   window._permSecoesExtra = secoesExtra;
   window._permSecaoLabels = secaoLabels;
 
+  // Renderiza um toggle pequeno. Se a chave existe na matriz, mostra switch;
+  // senão mostra "—" cinza pra indicar "não se aplica".
+  function permCell(cargo, key, title) {
+    if (!key) return '<div style="text-align:center;color:var(--text4);font-size:14px;opacity:0.35" title="Não se aplica">—</div>';
+    const checked = window._permState[cargo+'||'+key] !== false;
+    return `<label title="${title || key}" style="display:flex;align-items:center;justify-content:center;cursor:pointer;margin:0;padding:0">
+      <input type="checkbox" ${checked?'checked':''} data-cargo="${cargo}" data-secao="${key}"
+        style="cursor:pointer;width:36px;height:20px;appearance:none;-webkit-appearance:none;background:${checked?'var(--black)':'var(--surface3)'};border-radius:20px;position:relative;transition:background .18s ease;outline:none;border:1px solid var(--border);margin:0;flex-shrink:0"
+        class="perm-switch"
+        onchange="window._permState['${cargo}||${key}']=this.checked;this.style.background=this.checked?'var(--black)':'var(--surface3)';updatePermDirtyBadge()">
+    </label>`;
+  }
+
   window.renderPermsForCargo = function(cargo) {
     // Guarda mudanças do cargo visível anterior antes de trocar
     document.querySelectorAll('#perm-cargo-groups input[type="checkbox"][data-cargo]').forEach(ch => {
@@ -24367,38 +24470,94 @@ async function loadAdminPermissoes() {
     window._permLastCargo = cargo;
     const host = document.getElementById('perm-cargo-groups');
     if (!host) return;
-    const toggleRow = (s) => {
-      const checked = window._permState[cargo+'||'+s] !== false;
-      const label = window._permSecaoLabels[s] || s;
-      return `
-        <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--white);cursor:pointer;font-size:13px;line-height:1.3">
+
+    // Legenda no topo (some-se depois de scrollar)
+    const legenda = `
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:11.5px;color:var(--text2)">
+        <strong style="color:var(--text1)">Legenda:</strong>
+        <span>👁 <strong>Ver</strong> — acessar a tela</span>
+        <span>✏️ <strong>Criar</strong> — adicionar novo</span>
+        <span>🔧 <strong>Editar</strong> — alterar existente</span>
+        <span>🗑 <strong>Excluir</strong> — apagar</span>
+        <span style="color:var(--text3)">— = não se aplica a essa seção</span>
+      </div>
+    `;
+
+    let html = legenda;
+
+    // Renderiza cada CATEGORIA como um card grande
+    for (const cat of PERM_MATRIX) {
+      // Quantas linhas têm "especial"? Pra mostrar contador no header
+      const hasEsp = cat.secoes.some(s => s.especial && s.especial.length);
+
+      const headerCols = `
+        <div style="display:grid;grid-template-columns:1fr 50px 50px 50px 50px;gap:6px;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--surface3);font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px">
+          <div></div>
+          <div style="text-align:center" title="Ver / Acessar">👁 Ver</div>
+          <div style="text-align:center" title="Criar">✏️ Criar</div>
+          <div style="text-align:center" title="Editar">🔧 Editar</div>
+          <div style="text-align:center" title="Excluir">🗑 Excluir</div>
+        </div>`;
+
+      const linhas = cat.secoes.map(s => {
+        const especialHtml = (s.especial || []).map(e => {
+          const checked = window._permState[cargo+'||'+e.key] !== false;
+          return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;margin-top:4px;background:var(--surface3);border-radius:6px;font-size:11.5px;color:var(--text2)">
+            <span>${e.label}</span>
+            <label style="display:flex;align-items:center;cursor:pointer;margin:0">
+              <input type="checkbox" ${checked?'checked':''} data-cargo="${cargo}" data-secao="${e.key}"
+                style="cursor:pointer;width:32px;height:18px;appearance:none;-webkit-appearance:none;background:${checked?'var(--black)':'var(--surface3)'};border-radius:18px;transition:background .18s ease;outline:none;border:1px solid var(--border);margin:0"
+                onchange="window._permState['${cargo}||${e.key}']=this.checked;this.style.background=this.checked?'var(--black)':'var(--surface3)';updatePermDirtyBadge()">
+            </label>
+          </div>`;
+        }).join('');
+
+        const acoes = s.acoes || {};
+
+        return `<div style="border-bottom:1px solid var(--border);padding:10px 12px;background:var(--white)">
+          <div style="display:grid;grid-template-columns:1fr 50px 50px 50px 50px;gap:6px;align-items:center">
+            <div style="font-size:12.5px;color:var(--text1)">
+              <span style="margin-right:6px">${s.icon || ''}</span>${s.label}
+            </div>
+            <div>${permCell(cargo, s.id, 'Ver / Acessar ' + s.label)}</div>
+            <div>${permCell(cargo, acoes.criar, 'Criar em ' + s.label)}</div>
+            <div>${permCell(cargo, acoes.editar, 'Editar em ' + s.label)}</div>
+            <div>${permCell(cargo, acoes.excluir, 'Excluir em ' + s.label)}</div>
+          </div>
+          ${especialHtml ? `<div style="margin-top:6px;padding-left:20px">${especialHtml}</div>` : ''}
+        </div>`;
+      }).join('');
+
+      html += `
+        <div style="background:var(--white);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--border)">
+            <div style="font-weight:700;font-size:13.5px">${cat.categoria}</div>
+            <div style="display:flex;gap:6px">
+              <button type="button" class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="toggleGroupPerms('${cat.categoria.replace(/'/g,"\\'")}',true)" title="Marcar tudo dessa categoria">✓</button>
+              <button type="button" class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="toggleGroupPerms('${cat.categoria.replace(/'/g,"\\'")}',false)" title="Desmarcar tudo dessa categoria">✕</button>
+            </div>
+          </div>
+          ${headerCols}
+          ${linhas}
+        </div>`;
+    }
+
+    // Seções extras (chaves no banco que NÃO estão na matriz — legado/futuro)
+    if (window._permSecoesExtra.length) {
+      const toggleRowSimples = (s) => {
+        const checked = window._permState[cargo+'||'+s] !== false;
+        const label = window._permSecaoLabels[s] || s;
+        return `<label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--white);cursor:pointer;font-size:13px;line-height:1.3">
           <span>${label}</span>
           <input type="checkbox" ${checked?'checked':''} data-cargo="${cargo}" data-secao="${s}"
-            style="cursor:pointer;width:42px;height:22px;appearance:none;-webkit-appearance:none;background:${checked?'var(--black)':'var(--surface3)'};border-radius:22px;position:relative;transition:background .18s ease;outline:none;flex-shrink:0;border:1px solid var(--border)"
+            style="cursor:pointer;width:42px;height:22px;appearance:none;-webkit-appearance:none;background:${checked?'var(--black)':'var(--surface3)'};border-radius:22px;transition:background .18s ease;outline:none;border:1px solid var(--border);flex-shrink:0"
             class="perm-switch"
             onchange="window._permState['${cargo}||${s}']=this.checked;this.style.background=this.checked?'var(--black)':'var(--surface3)';updatePermDirtyBadge()">
         </label>`;
-    };
-    let html = '';
-    for (const [titulo, lista] of window._permGroups) {
-      const rowsHtml = lista.map(toggleRow).join('');
-      html += `
-        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:0 4px">
-            <div style="font-weight:700;font-size:13px">${titulo}</div>
-            <div style="display:flex;gap:6px">
-              <button type="button" class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="toggleGroupPerms('${titulo.replace(/'/g,"\\'")}',true)">✓</button>
-              <button type="button" class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="toggleGroupPerms('${titulo.replace(/'/g,"\\'")}',false)">✕</button>
-            </div>
-          </div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px">${rowsHtml}</div>
-        </div>`;
-    }
-    // Seções extras (não mapeadas em PERM_GROUPS)
-    if (window._permSecoesExtra.length) {
-      const rowsHtml = window._permSecoesExtra.map(toggleRow).join('');
-      html += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px">
-        <div style="font-weight:700;font-size:13px;margin-bottom:10px;padding:0 4px">📌 Outros</div>
+      };
+      const rowsHtml = window._permSecoesExtra.map(toggleRowSimples).join('');
+      html += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:14px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:10px;padding:0 4px">📌 Outras chaves (legado/extras)</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px">${rowsHtml}</div>
       </div>`;
     }
