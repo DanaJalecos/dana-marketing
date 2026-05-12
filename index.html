@@ -4904,6 +4904,21 @@ async function criarAlertaParaId(destinatarioId, titulo, mensagem, nivel, linkRe
   } catch (e) { console.warn('🔔 criarAlertaParaId erro:', e.message); }
 }
 
+// ─── Envia email de notificação via Edge Function send-email ───
+// Não bloqueia o fluxo principal — qualquer erro é logado e ignorado.
+// Beatriz Magnus (gerente_comercial) entra em CC automaticamente na Edge Function.
+async function enviarEmailNotificacao(evento, paraId, recursoId, dados) {
+  if (!paraId) return;
+  if (paraId === currentUser?.id) return;  // não envia pra si mesmo
+  try {
+    const r = await sb.functions.invoke('send-email', {
+      body: { evento, para_id: paraId, recurso_id: recursoId || null, dados: dados || {} }
+    });
+    if (r?.error) console.warn('📧 send-email erro:', r.error.message || r.error);
+    else console.log('📧 Email disparado:', evento, '→', paraId);
+  } catch (e) { console.warn('📧 enviarEmailNotificacao erro:', e?.message || e); }
+}
+
 // Fallback: por nome (só use quando não tem ID disponível — legado)
 async function criarAlertaPara(userNome, titulo, mensagem, nivel, linkRef, linkLabel, dados) {
   if (!userNome || !userNome.trim()) {
@@ -5362,6 +5377,15 @@ async function confirmarAprovarArte() {
     } else if (c.designer_nome) {
       await criarAlertaPara(c.designer_nome, tituloAlerta, msgAlerta, 'ok', 'criativos', 'Ver criativo', { criativo_id: c.id, tipo: 'criativo_aprovado' });
     }
+    // Email pro designer (CC Beatriz, automático na Edge Function)
+    if (c.designer_id) {
+      enviarEmailNotificacao('criativo_aprovado', c.designer_id, c.id, {
+        titulo: c.titulo,
+        comentario,
+        aprovador: currentProfile?.nome || 'Equipe Dana',
+        link: location.origin + '/#criativos',
+      });
+    }
 
     closeCriModal('aprovar');
     showToast('✓ Arte aprovada');
@@ -5419,6 +5443,15 @@ async function confirmarReprovarArte() {
       await criarAlertaParaId(c.designer_id, tituloRep, msgRep, 'warn', 'criativos', 'Ver feedback', { criativo_id: c.id, tipo: 'criativo_reprovado' });
     } else if (c?.designer_nome) {
       await criarAlertaPara(c.designer_nome, tituloRep, msgRep, 'warn', 'criativos', 'Ver feedback', { criativo_id: c.id, tipo: 'criativo_reprovado' });
+    }
+    // Email pro designer (CC Beatriz, automático na Edge Function)
+    if (c?.designer_id) {
+      enviarEmailNotificacao('criativo_reprovado', c.designer_id, c.id, {
+        titulo: c.titulo,
+        feedback,
+        aprovador: currentProfile?.nome || 'Equipe Dana',
+        link: location.origin + '/#criativos',
+      });
     }
 
     closeCriModal('reprovar');
@@ -14983,6 +15016,15 @@ async function createTask() {
       'tarefas-e-kanban', 'Ver tarefa',
       { tarefa_id: inserted?.id, tipo: 'tarefa_atribuida' }
     );
+    // Email pro responsável (CC Beatriz na Edge Function)
+    enviarEmailNotificacao('tarefa_atribuida', responsavelId, inserted?.id, {
+      titulo,
+      descricao: desc,
+      prioridade: prio,
+      prazo,
+      atribuido_por: quem,
+      link: location.origin + '/#tarefas-e-kanban',
+    });
   }
 
   closeModal('nova-tarefa');
@@ -15417,6 +15459,15 @@ async function salvarTarefaEdit() {
         'tarefas-e-kanban', 'Ver tarefa',
         { tarefa_id: _editingTaskId, tipo: 'tarefa_atribuida' }
       );
+      // Email pro responsável (CC Beatriz na Edge Function)
+      enviarEmailNotificacao('tarefa_atribuida', respId, _editingTaskId, {
+        titulo: tarefaAntes?.titulo || 'Tarefa',
+        descricao: updates.descricao,
+        prioridade: updates.prioridade,
+        prazo: updates.prazo,
+        atribuido_por: quem,
+        link: location.origin + '/#tarefas-e-kanban',
+      });
     }
   }
 
