@@ -7701,4 +7701,194 @@ Workflow de deploy a cada fase:
 
 ---
 
-**Fim da documentação · Atualizado em 08/05/2026 tarde — Magazord Sync Fase 1 COMPLETA + relatório pra Magazord pronto · v12.0**
+
+## 79. CICLO 09/05/2026 — RANKINGS VENDEDORAS + INSIGHTS MELHORADOS + C360 CLEANUPS
+
+User pediu 4 melhorias interligadas. Tudo entregue em 4 fases (~6h totais).
+
+### 79.1 Fase A — C360 Cleanups (commit `1389fa9` / `f9f84fe`)
+
+**Removido botão `+ Novo Cliente`** da listagem "Meus Clientes" (linha 5064 do `cliente-360-boot.js`). Ninguém cadastra cliente manualmente pelo C360 — vem do Bling/Magazord. Handlers `c360McNovoCliente` / `c360McSalvarCliente` mantidos por compat.
+
+**Auto-hide das abas "🛍 Site" e "🔍 Comportamento"** quando o cliente não tem dados correspondentes:
+- Função `c360AutoHideTabs(nome, empresa)` chamada após `renderClientDetail`
+- Cache em `window._c360TabsAvailable[cacheKey]` (1× por cliente)
+- Site: consulta `cliente_tem_magazord` (cache, Fase B) com fallback direto em `magazord_pedido_completo` (ILIKE + núcleo PJ)
+- Comportamento: consulta `analytics_lead_identity`
+- Tolerante a tabelas faltantes (gracioso degradation) — se erro real, mantém aba visível (segurança > silêncio)
+
+### 79.2 Fase B — Schema `cliente_tem_magazord` + cron (commit `2b658a4`)
+
+Cache pré-computado pra match Bling × Magazord. Evita ILIKE custoso a cada abertura do C360 (5720 pessoas × N contatos).
+
+**Tabela** `cliente_tem_magazord` (PK `contato_nome_normalizado`):
+- `contato_nome`, `contato_nome_normalizado` (LOWER+TRIM ou núcleo PJ)
+- `qtd_pedidos`, `total_gasto`, `primeiro_pedido`, `ultimo_pedido`
+- `match_strategy` ('nome' | 'nucleo_pj' | 'cpf')
+- `cpf_cnpj` (preparado pra quando Magazord liberar `/v2/site/cliente`)
+- 3 índices + RLS pros 6 cargos
+
+**Função `_ctm_normalizar(TEXT)`**: regex SQL que remove sufixos PJ (EIRELI/LTDA/SA/ME/EPP/MEI/CIA). Espelha `limparPJ` do JS.
+
+**RPC `refresh_cliente_tem_magazord()` → INT**: TRUNCATE + INSERT em 2 níveis de match (nome exato | núcleo PJ).
+
+**Cron jobid 31**: `50 9 * * *` UTC (06:50 BRT, 15min após sync-magazord).
+
+**Resultado inicial**: **2.269 clientes Bling têm pedidos no Magazord** (2.219 match exato + 50 núcleo PJ — Dhom EIRELI↔Ltda, Orlando Paredes Costa ME etc).
+
+### 79.3 Fase C — Insight IA Cliente 360 (commit `9bd8cda`)
+
+3 fixes na edge function `cliente360-insight.ts` (v22 ACTIVE):
+
+**C1. Gemini 2.5-flash → 2.5-pro**: maior precisão analítica. Custo ~5× (R$ 0,02 → R$ 0,10 por insight). Kill-switch existente (R$30/mês) protege.
+
+**C2. Quota vendedora 5 → 10/dia**: `UPDATE cliente_insights_config SET limite_diario_vendedor=10, custo_por_insight_reais=0.10 WHERE id=1`. Já era por user_id (compartilhada entre clientes do mesmo vendedor).
+
+**C3. Fix bug canal preferido divergente da UI**: `.limit(30)` → `.limit(100)` na busca de pedidos. Sincroniza com `computeFavoritos` da UI (boot.js:551) que usa 100. Antes a IA via 30 pedidos podia chegar a "canal=Site" enquanto a UI mostrava "Loja/WhatsApp Piçarras" (caso IOA Campina Grande reportado pelo user).
+
+**C4. Campo explícito `Canal preferido: X`** no contexto enviado pra IA. Computado de `topCanal[0][0]` (top 1 por frequência). Prompt reforça: *"USE LITERALMENTE o que estiver no contexto, NUNCA infira"*.
+
+**Prompt enriquecido com REGRAS DE AÇÃO COMERCIAL POR SEGMENTO** (crítico — IA seguia padrão de oferecer desconto pra todos):
+- **VIP**: NUNCA desconto. Oferecer BRINDE (broche bordado, bolsa porta-jaleco, chaveiro com marca, caneta) ou CONDIÇÃO ESPECIAL (frete grátis, brinde na próxima compra, acesso antecipado a coleções).
+- **Frequente**: 5-8% desconto OU brinde.
+- **Ocasional**: 10-15% desconto promocional.
+- **Em Risco**: 15-20% desconto + WhatsApp pessoal.
+- **Inativo**: 20-25% desconto + frete grátis + ligação direta.
+
+### 79.4 Fase D — 3 Rankings em "Meus Clientes" (commit `11b522a` / `0ae98c4`)
+
+**SQL `sql-vendedor-rankings.sql`**:
+
+Tabela `vendedor_metas_mensais` (PK `(ano, mes, vendedor_profile_id)`):
+- `meta_reais`, `setado_por`, `setado_por_cargo`, `setado_em`
+- `historico JSONB` (array de `{quando, quem, cargo, de, para}`)
+- Não precisa "resetar mensalmente" — nova row no novo mês
+
+View `vendedor_ranking_desempenho`:
+- Reativações 90+ dias do mês corrente
+- `MIN(data_primeira_mes)` por (vendedor, contato) > 90 dias do último pedido antes do mês
+- +50 pontos por reativação
+
+View `vendedor_ranking_mensal`:
+- Faturamento × meta do mês corrente
+- LEFT JOIN com `vendedor_metas_mensais` por (ano, mes, vendedor)
+- `pct_meta` calculado
+
+RPC `setar_meta_mensal(ano, mes, vendedor, meta, empresa)`:
+- Check de cargo: vendedora só a própria, admin/gerente_comercial qualquer
+- Acumula histórico em JSONB com auditoria completa
+- ON CONFLICT UPDATE preservando histórico
+
+RLS: SELECT pros 4 cargos (admin/gerente_*/vendedora). INSERT/UPDATE vendedora=própria, admin/gerente_comercial=qualquer.
+
+**UI 3 tabs em Meus Clientes** (substitui o título + botão único antigo):
+- `[🏆 Geral]` `[🔥 Desempenho]` `[📅 Mensal]` com sub-labels
+- Lazy load: Desempenho e Mensal só carregam ao clicar
+- Linha do user logado destacada com badge "VOCÊ"
+- Aviso amarelo explicando lógica de cada ranking
+- Estado vazio com call-to-action
+
+**Permissões PDF condicional por cargo × tab**:
+| Tab | admin / gerente_comercial | vendedora |
+|---|---|---|
+| Geral | ✅ Export PDF | ❌ Esconde botão |
+| Desempenho | ✅ Export PDF | ❌ Esconde botão |
+| Mensal | ✅ Export PDF | ✅ Export PDF (sua meta) |
+
+PDFs específicos pra cada tab (KPIs/colunas/cores próprios). Bloqueio servidor-side adicional (toast se vendedora tentar).
+
+**Modal Editar Meta**:
+- Vendedora: edita própria meta (sem aviso)
+- Admin/gerente_comercial: edita qualquer (com aviso amarelo "override de gerência registrado no histórico")
+- Salva via RPC, invalida cache, reload do Ranking 3
+
+### 79.5 Estado final do ciclo
+
+| Componente | Estado |
+|---|---|
+| C360 +Novo Cliente removido | ✅ |
+| Auto-hide abas Site/Comportamento | ✅ (com fallback) |
+| Cache `cliente_tem_magazord` populado | ✅ 2.269 matches |
+| Cron diário `cron-cliente-tem-magazord` | ✅ jobid 31 |
+| Insight IA — Gemini Pro + canal fix + VIP brinde | ✅ edge v22 |
+| Insight IA — quota 10/dia vendedora | ✅ config atualizada |
+| Ranking 1 (Geral) | ✅ reusa vendedor_performance |
+| Ranking 2 (Desempenho) | ✅ vendedor_ranking_desempenho · 7 vendedores |
+| Ranking 3 (Mensal) | ✅ vendedor_ranking_mensal · 9 vendedores |
+| Modal Editar Meta + RPC | ✅ com histórico JSONB |
+| Permissões PDF condicional | ✅ admin/gerente=tudo, vendedora=só Mensal |
+
+### 79.6 Arquivos novos
+
+- `sql-scripts/sql-cliente-magazord-match.sql` (188 linhas)
+- `sql-scripts/sql-vendedor-rankings.sql` (~190 linhas)
+
+### 79.7 Arquivos modificados
+
+- `cliente-360-boot.js`: +600 linhas (autoHideTabs, 3 rankings UI, mcSwitchRankingTab, mcAbrirModalMeta, mcSalvarMeta, mcExportarDesempenhoPDF, mcExportarMensalPDF)
+- `edge-functions/cliente360-insight.ts`: prompt + limit 100 + gemini-pro + canal_preferido explícito
+
+### 79.8 Pendência futura: match Magazord exato por CPF
+
+Quando Magazord liberar `/v2/site/cliente` (segunda, conforme Jaqueline):
+1. Adicionar campo `cpf_cnpj` no RPC `refresh_cliente_tem_magazord` populando direto de `magazord_pedidos.pessoa_cpf_cnpj`
+2. Adicionar 3º nível de match: CPF exato (mais preciso que nome)
+3. Schema já preparado (coluna existe + índice criado)
+
+---
+
+## 80. PRÓXIMOS PASSOS — POSSÍVEIS
+
+### 80.1 Quando Magazord liberar endpoints (segunda)
+- Re-teste endpoints `/v2/site/cliente`, `/v2/site/cupom`, `/v2/erp/*`
+- Adicionar tabelas: `magazord_clientes`, `magazord_cupons`, `magazord_erp_*`
+- Estender edge `sync-magazord` com novas funções
+- Adicionar 3º nível de match (CPF) no `refresh_cliente_tem_magazord`
+- Re-popular cache com `match_strategy='cpf'` quando possível
+
+### 80.2 Roadmap geral
+- Meta Ads Manager API (~5-6h)
+- TikTok Ads Marketing API (~5-6h)
+- Shopee Open API (~6-8h)
+- Google Search Console (~3-4h)
+- Lead Tracker ativado no Magazord (5 min manual)
+
+---
+
+## 81. PROMPT PARA RETOMAR
+
+Use no próximo chat:
+
+```
+Estou continuando o DMS (Dana Marketing System) da Dana Jalecos.
+
+Por favor leia antes de tudo:
+C:\Users\Juan - Dana Jalecos\Documents\Sistema Marketing\DOCUMENTACAO-COMPLETA-DMS.md
+
+ATENÇÃO Sections 79-81 documentam o último ciclo (09/05/2026):
+- Fase A: C360 cleanups (esconder +Novo + auto-hide abas Site/Comportamento)
+- Fase B: cache cliente_tem_magazord (2.269 clientes Bling com pedidos site)
+- Fase C: Insight IA com Gemini Pro + quota 10/dia + fix canal + VIP brinde
+- Fase D: 3 Rankings (Geral/Desempenho/Mensal) + Metas editáveis
+
+Estado atual (09/05/2026 noite):
+- Tudo da Section 79 está em produção (2 repos)
+- Magazord ainda devendo liberar /v2/site/cliente, /v2/site/cupom, /v2/erp/* (Jaqueline disse segunda)
+
+REGRAS PERMANENTES (READ-ONLY):
+🔒 Conta ML = SOMENTE LEITURA (Section 67.6)
+🔒 Conta Kommo = SOMENTE LEITURA (Section 70.5)
+🔒 Conta Magazord = SOMENTE LEITURA (Section 73.7)
+
+Repos:
+- DanaComercial: github.com/DanaComercial/dana-marketing (GH Pages)
+- DanaJalecos: github.com/DanaJalecos/dana-marketing (Vercel)
+- Worktree: .claude/worktrees/vibrant-davinci
+- Staging: _staging-dana-marketing
+
+Tokens em TOKENS ANALYTICS/.
+```
+
+---
+
+**Fim da documentação · Atualizado em 09/05/2026 noite — Rankings vendedoras + Insights melhorados + C360 cleanups · v12.2**
