@@ -81,6 +81,18 @@
   const fmtDate = (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : '-';
   const escapeHtml = (s) => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+  // Modelo bonito pra exibição (não cru "llama-3.3-70b-versatile")
+  function prettyModel(modelo, provider) {
+    const m = String(modelo || '').toLowerCase();
+    if (m.includes('llama-3.3') || m.includes('llama3.3') || (provider === 'groq' && m.includes('llama'))) return 'Llama 3.3 70B (Groq)';
+    if (m === 'gemini-2.5-pro') return 'Gemini 2.5 Pro';
+    if (m === 'gemini-2.5-flash') return 'Gemini 2.5 Flash';
+    if (m.startsWith('gemini')) return 'Gemini ' + m.replace(/^gemini-?/, '');
+    if (m.startsWith('llama')) return 'Llama ' + m.replace(/^llama-?/, '').replace(/-versatile$/, '');
+    if (!m) return provider === 'groq' ? 'Groq' : provider === 'gemini' ? 'Gemini' : 'IA';
+    return modelo;
+  }
+
   // Empresa label
   const EMPRESA_LABELS = { matriz: 'Matriz (Piçarras)', bc: 'Balneário Camboriú' };
 
@@ -1998,7 +2010,7 @@
             <div style="width:32px;height:32px;border-radius:8px;background:oklch(88% 0.018 80 / 0.15);display:flex;align-items:center;justify-content:center;color:oklch(88% 0.018 80);font-size:16px;flex-shrink:0">◉</div>
             <div style="min-width:0">
               <div style="font-size:15px;font-weight:700;color:oklch(88% 0.018 80);text-align:left">Análise de Comportamento</div>
-              <div style="font-size:11px;color:#64748b;margin-top:2px;text-align:left">${ins.modelo || 'IA'} · por ${escapeHtml(ins.user_nome || '—')}${isNewest ? ' · <span style="color:#22c55e;font-weight:600">◉ mais recente</span>' : ''}</div>
+              <div style="font-size:11px;color:#64748b;margin-top:2px;text-align:left">${prettyModel(ins.modelo, ins.modelo_provider)} · por ${escapeHtml(ins.user_nome || '—')}${isNewest ? ' · <span style="color:#22c55e;font-weight:600">◉ mais recente</span>' : ''}</div>
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
@@ -2062,7 +2074,7 @@
       <div style="padding:20px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
           <div style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:10px">
-            <span>Análises geradas por IA (Groq Llama 3.3 · fallback Gemini 2.5)</span>
+            <span>Análises geradas por IA (Groq Llama 3.3 70B · fallback Gemini 2.5 Pro)</span>
             ${quotaBadge}
           </div>
           <button onclick="c360InsightIA()" ${desabilitado?'disabled':''} style="padding:8px 16px;border-radius:8px;border:1px solid oklch(88% 0.018 80 / 0.5);background:oklch(88% 0.018 80 / 0.12);color:oklch(88% 0.018 80);cursor:${desabilitado?'not-allowed':'pointer'};font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;opacity:${desabilitado?0.4:1}">
