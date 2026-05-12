@@ -7891,4 +7891,499 @@ Tokens em TOKENS ANALYTICS/.
 
 ---
 
-**Fim da documentação · Atualizado em 09/05/2026 noite — Rankings vendedoras + Insights melhorados + C360 cleanups · v12.2**
+
+## 82. CICLO 12/05/2026 — REESCRITA EDGES SEM @supabase/supabase-js + 4ª SEÇÃO INSIGHT + BUG FIXES
+
+User pediu pra melhorar Insight IA e tentar qualificar lead. Resultou em **5 commits seguidos** corrigindo problemas que apareceram em cascata. Esta seção documenta tudo + dá manual de manutenção pra próximo Claude.
+
+### 82.1 Cronologia dos problemas e fixes
+
+| # | Sintoma | Causa raiz | Commit |
+|---|---|---|---|
+| 1 | Insight IA quebrou com CORS / BOOT_ERROR após Fase C (deploy v22) | CDN do Deno passou a falhar resolução de `https://esm.sh/@supabase/supabase-js@2` em **deploys novos** após eu fazer PATCH. Outras edges cacheadas continuaram OK. User fez upgrade Nano→Micro tentando resolver — não resolveu, era problema de CDN | `f91b577` |
+| 2 | Mesma coisa em `qualificar-lead` (re-deployei sem querer) | Idem #1 | `f91b577` |
+| 3 | UI mostrava `llama-3.3-70b-versatile` no card + "Gemini 2.5" sem "Pro" | Strings hardcoded antigas | `003fb47` |
+| 4 | Faltou 4ª seção MENSAGEM WHATSAPP PRONTA no insight | Prompt antigo só pedia 3 seções, mas UI esperava 4 | `003fb47` |
+| 5 | Qualificar lead Bling (IOA Campina Grande) → HTTP 400 erro 42703 "undefined column" | Bug antigo herdado: select de `cliente_scoring_full` pedia `score_rfm,segmento_rfm,score_recompra,categoria_preferida,canal_preferido_label,recencia_dias` — colunas que **não existem** na view. supabase-js antigamente engolia o erro, fetch direto retorna 400 cru | `e1f4d6f` |
+| 6 | Após fix #5 → HTTP 500 | Outro bug herdado: tentava `select=contato_id` de `pedidos`, mas a tabela `pedidos` **não tem `contato_id`** (só `id, contato_nome, contato_tipo`) | `fc456ae` |
+
+### 82.2 Mudança arquitetural: edges com fetch direto (sem `@supabase/supabase-js`)
+
+**Antes**:
+```typescript
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+const admin = createClient(SUPABASE_URL, SR, {...})
+const { data } = await admin.from('profiles').select('*').eq('id', uid).single()
+```
+
+**Depois** (cliente360-insight + qualificar-lead):
+```typescript
+// Helpers internos — sem dependência externa
+async function supaGet(path): Promise<any[]>           // GET com query string PostgREST
+async function supaSingle(path): Promise<any|null>     // GET + retorna [0] ou null
+async function supaCount(path): Promise<number>        // HEAD + Content-Range parsing
+async function supaRpc(fn, args): Promise<any>         // POST /rpc/{fn}
+async function supaInsertReturning(table, row): Promise<any> // POST + Prefer return=representation
+async function supaUpdate(table, where, patch): Promise<void> // PATCH com query string
+async function getUserFromJwt(jwt): Promise<{id, email}|null> // GET /auth/v1/user
+
+// Uso:
+const profile = (await supaGet(`profiles?id=eq.${user.id}&select=cargo,nome&limit=1`))[0]
+const usados = await supaRpc('cliente_insights_count_hoje', { uid: user.id })
+const inserted = await supaInsertReturning('cliente_insights', { ... })
+```
+
+**Vantagens**:
+- ✅ Resiliente a problemas de CDN do Deno (não usa import externo)
+- ✅ Mesmo pattern do `sync-magazord` (que nunca teve esse problema)
+- ✅ Erros HTTP cru aparecem (não engolidos) — facilita debug
+- ✅ Performance idêntica (mesmo número de round-trips)
+
+**Custo**: erros que `@supabase/supabase-js` engolia agora aparecem. Foram isso que descobriu bugs #5 e #6 antigos.
+
+### 82.3 🛡 Quais edges usam qual padrão (estado em 12/05/2026)
+
+| Edge | Padrão | Por quê |
+|---|---|---|
+| `cliente360-insight` | ✅ **fetch direto** | Reescrita 12/05 — patient zero do bug CDN |
+| `qualificar-lead` | ✅ **fetch direto** | Reescrita 12/05 — bug colateral |
+| `sync-magazord` | ✅ **fetch direto** | Sempre foi assim (Section 73) |
+| `dms-tracker-ingest` | ✅ **fetch direto** | Sempre foi assim |
+| `analytics-insight` | ⚠️ usa `@supabase/supabase-js` | Não toquei — cache funciona. Se der BOOT_ERROR no futuro, aplicar mesma reescrita |
+| `ai-chat` | ⚠️ usa `@supabase/supabase-js` | Idem |
+| `cliente360-insight-bk` (antigo) | ⚠️ usa `@supabase/supabase-js` | Backup pre-reescrita não existe mais (deletei .bak após confirmar fetch direto OK) |
+| Outras 17 edges sync-* | ⚠️ usa `@supabase/supabase-js` | Idem — só converter se voltar a ter problema |
+
+**REGRA DE MANUTENÇÃO**: Próximo Claude — se for FAZER PATCH em alguma edge com `@supabase/supabase-js` e ela quebrar com BOOT_ERROR, é o mesmo bug. Solução: reescrever com helpers fetch direto (template em `cliente360-insight.ts`).
+
+### 82.4 Atualização do prompt do insight (4 seções)
+
+Edge `cliente360-insight` — `SYSTEM_PROMPT` agora exige **4 seções obrigatórias** (não 3):
+
+1. **ANÁLISE DO COMPORTAMENTO ATUAL** — perfil de compra (frequência, ticket, canal preferido [LITERAL], categorias, tempo ativo, segmento RFM)
+2. **RISCO OU OPORTUNIDADE PRINCIPAL** — o principal risco OU oportunidade com números e datas
+3. **AÇÃO COMERCIAL RECOMENDADA** — 1-2 ações concretas que SEGUEM as regras por segmento (VIP=brinde, Frequente=5-8% ou brinde, etc)
+4. **MENSAGEM WHATSAPP PRONTA** ← *adicionada em 12/05* — texto curto pra vendedora COPIAR e enviar
+
+**Regras críticas da mensagem WhatsApp** (no prompt):
+- Tom cordial direto, primeira pessoa do plural
+- **REFLETE A AÇÃO**:
+  - VIP: NUNCA mencionar desconto — oferecer BRINDE explicitamente
+  - Frequente: desconto 5-8% OU brinde
+  - Ocasional / Em Risco / Inativo: desconto progressivo (10-25%)
+- Personaliza com nome cliente + categoria preferida
+- Assinatura "— Equipe Dana Jalecos"
+
+### 82.5 Bugs antigos descobertos pela reescrita
+
+**Bug A** — `cliente_scoring_full` (view): colunas que **não existem**:
+- ❌ `score_rfm`, `segmento_rfm`, `score_recompra`
+- ❌ `categoria_preferida`, `canal_preferido_label`, `recencia_dias`
+
+**Colunas REAIS da view** `cliente_scoring_full`:
+```
+empresa, contato_nome, total_pedidos, total_gasto, ticket_medio,
+ultima_compra, dias_sem_compra, meses_ativos, score, segmento,
+telefone, celular, tipo_pessoa, numero_documento, contato_id
+```
+
+**Bug B** — `pedidos` (tabela) **não tem `contato_id`**. Colunas relacionadas a contato:
+```
+id, contato_nome, contato_tipo  (NÃO tem contato_id)
+```
+
+Pra obter `contato_id` a partir de `contato_nome`:
+- Opção 1: `cliente_scoring_full?contato_nome=eq.X&select=contato_id` ← USADO (1 query)
+- Opção 2: `contatos?nome=eq.X&select=id` ← alternativa direta
+
+### 82.6 UI improvements (cliente-360-boot.js)
+
+**Helper `prettyModel(modelo, provider)`** adicionado (linha ~83) pra mostrar nome bonito do modelo IA:
+- `llama-3.3-70b-versatile` → `Llama 3.3 70B (Groq)`
+- `gemini-2.5-pro` → `Gemini 2.5 Pro`
+- `gemini-2.5-flash` → `Gemini 2.5 Flash`
+
+**Strings atualizadas**:
+- Header "Análises geradas por IA" → agora cita versão correta: `Groq Llama 3.3 70B · fallback Gemini 2.5 Pro`
+- Card de cada insight usa `prettyModel(ins.modelo, ins.modelo_provider)`
+
+### 82.7 🚨 RUNBOOK pra próximo Claude — debug de edge function quebrada
+
+**Sintoma 1**: Frontend recebe CORS error / 503 / "Function failed to start"
+
+**Diagnóstico em 3 passos**:
+
+```bash
+# 1) Testa OPTIONS direto (não passa pelo browser):
+curl -i -X OPTIONS https://wltmiqbhziefusnzmmkt.supabase.co/functions/v1/<slug>
+
+# Se retornar 503 BOOT_ERROR → edge não consegue iniciar
+# Se retornar 200 → CORS OK, problema é runtime
+```
+
+**Se BOOT_ERROR**:
+1. Verifica se outras edges (não tocadas hoje) funcionam: `curl OPTIONS .../analytics-insight` etc
+2. Se SÓ a que você tocou está com BOOT_ERROR → bug do CDN do Deno
+3. Solução: reescrever sem `import @supabase/supabase-js@2` usando os helpers fetch (template em `cliente360-insight.ts`)
+4. Como FALLBACK rápido: deployar STUB que retorna 503 amigável (mantém CORS OK):
+```typescript
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
+Deno.serve((req) => {
+  if (req.method === 'OPTIONS') return new Response(null, { headers: CORS })
+  return new Response(JSON.stringify({ error: 'manutencao', code: 'temp_unavailable' }), { status: 503, headers: { ...CORS, 'Content-Type': 'application/json' } })
+})
+```
+
+**Se 500 runtime**:
+1. Pega logs: `GET /v1/projects/{ref}/analytics/endpoints/logs.all?sql=SELECT event_message FROM function_edge_logs ORDER BY timestamp DESC LIMIT 30`
+2. Suspeito #1: coluna que não existe (erro PG 42703)
+3. Suspeito #2: tabela que não existe
+4. Validar colunas reais: `SELECT column_name FROM information_schema.columns WHERE table_name='X'`
+
+### 82.8 Workflow de deploy de edge function (via Management API)
+
+```python
+import urllib.request, json
+TOKEN = '<carregar de TOKENS ANALYTICS/Token novo supabase.txt>'
+REF = 'wltmiqbhziefusnzmmkt'
+
+# Re-deploy (PATCH) — preserva versão antiga rastreável
+with open('edge-functions/X.ts', 'r', encoding='utf-8') as f:
+    code = f.read()
+req = urllib.request.Request(
+    f'https://api.supabase.com/v1/projects/{REF}/functions/<slug>',
+    data=json.dumps({'slug': '<slug>', 'name': '<slug>', 'verify_jwt': True, 'body': code}).encode(),
+    headers={'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json', 'User-Agent': 'supabase-cli/1.0.0'},
+    method='PATCH'
+)
+r = urllib.request.urlopen(req, timeout=120)
+print(r.status)  # 200 = OK
+
+# Teste OPTIONS após 5-8s:
+import time; time.sleep(8)
+req2 = urllib.request.Request(f'https://{REF}.supabase.co/functions/v1/<slug>', method='OPTIONS')
+print(urllib.request.urlopen(req2, timeout=15).status)  # 200 = boot OK
+```
+
+### 82.9 Estado final do ciclo
+
+| Componente | Status |
+|---|---|
+| `cliente360-insight` edge (fetch-only) | ✅ ACTIVE |
+| `qualificar-lead` edge (fetch-only) | ✅ ACTIVE |
+| Prompt insight com 4 seções (MENSAGEM WHATSAPP) | ✅ deployada |
+| Prompt segue regras VIP=brinde / desconto progressivo | ✅ ativa |
+| UI prettyModel (Llama 3.3 70B, Gemini 2.5 Pro) | ✅ commitado |
+| Header "Groq Llama 3.3 70B · fallback Gemini 2.5 Pro" | ✅ corrigido |
+| Bugs antigos do `cliente_scoring_full` corrigidos | ✅ |
+| Bug antigo do `pedidos.contato_id` corrigido | ✅ |
+
+### 82.10 Commits do ciclo (DanaComercial)
+
+| Commit | Descrição |
+|---|---|
+| `f91b577` | Reescrita fetch-only cliente360-insight + qualificar-lead |
+| `003fb47` | 4ª seção MENSAGEM WHATSAPP PRONTA + prettyModel + labels |
+| `e1f4d6f` | Fix colunas reais de cliente_scoring_full |
+| `fc456ae` | Fix contato_id vem de cliente_scoring_full (não de pedidos) |
+
+DanaJalecos: `56675f5` (apenas mudanças de UI).
+
+---
+
+## 83. 🧭 GUIA RÁPIDO PRO PRÓXIMO CLAUDE — onde mexer em quê
+
+### 83.1 Quero MUDAR O PROMPT do Insight IA do Cliente 360
+
+**Arquivo**: `edge-functions/cliente360-insight.ts` (linha ~108-150 — `const SYSTEM_PROMPT = ...`)
+
+Após editar:
+1. Deploy via Management API (PATCH `/v1/projects/{ref}/functions/cliente360-insight`)
+2. Teste OPTIONS pra confirmar boot OK
+3. F5 no DMS + gera novo insight pra ver
+
+Se quiser **adicionar nova seção** ao output, lembrar de:
+- Aumentar contador "exatamente N seções"
+- Adicionar parser em `cliente-360-boot.js` → `parseInsightSecoes()` (linha ~1247)
+- Adicionar render no `secBlock(...)` (linha ~1875+)
+
+### 83.2 Quero MUDAR O PROMPT da Qualificação IA
+
+**Arquivo**: `edge-functions/qualificar-lead.ts` (linha ~109-160 — `const SYSTEM_PROMPT = ...`)
+
+Output é JSON estruturado: `dor, perfil, budget, urgencia, timing, objecoes[], lead_score, acao_recomendada, descobrir[]`. Se adicionar campo novo, lembrar:
+- Frontend Prospecção: `index.html` função `_qualifRenderModal` (linha ~21769)
+- Frontend C360: `cliente-360-boot.js` função `c360CarregarQualificacao` (linha ~742)
+- Schema: `lead_qualificacao` table (talvez ALTER TABLE pra coluna nova)
+
+### 83.3 Quero AJUSTAR QUOTAS
+
+**Insight C360**: tabela `cliente_insights_config` (singleton id=1):
+```sql
+UPDATE cliente_insights_config SET
+  limite_diario_vendedor = 10,  -- atual
+  limite_diario_gerente = 20,
+  limite_mensal_reais = 30,
+  custo_por_insight_reais = 0.10
+WHERE id = 1;
+```
+
+**Qualificação**: hardcoded na edge (linha ~33 do `qualificar-lead.ts`):
+```typescript
+const QUOTAS = { vendedor: 3, vendedora: 3, gerente_comercial: 10, ... }
+```
+
+### 83.4 Quero TROCAR MODELO DA IA
+
+`edge-functions/cliente360-insight.ts` linha 19:
+```typescript
+const GROQ_MODEL = 'llama-3.3-70b-versatile'  // primário (gratuito)
+const GEMINI_MODEL = 'gemini-2.5-pro'         // fallback (R$ 0.10/insight)
+```
+
+Trocar pra `gemini-2.5-flash` reduz custo 5× mas perde qualidade. Cascade: tenta Groq primeiro, se falhar usa Gemini.
+
+### 83.5 Quero ADICIONAR campo no contexto enviado pra IA
+
+**Cliente360-insight** edge — função handler, monta `contexto` (linha ~280):
+```typescript
+const contexto = `DADOS DO CLIENTE (...):
+
+Nome: ${cs.contato_nome}
+...
+Canal preferido: ${topCanal[0]?.[0] || '—'}
+NOVO_CAMPO: ${valor}              // ← adicione aqui
+...`
+```
+
+Adicione também regra no SYSTEM_PROMPT ensinando a IA a usar o campo. Senão ela ignora.
+
+### 83.6 Quero RE-EXECUTAR uma RPC ou SQL
+
+Pattern via Management API (não precisa abrir Studio):
+```python
+import urllib.request, json
+sql = "SELECT ... ;"
+req = urllib.request.Request(
+    f'https://api.supabase.com/v1/projects/{REF}/database/query',
+    data=json.dumps({'query': sql}).encode(),
+    headers={'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json', 'User-Agent': 'supabase-cli/1.0.0'},
+    method='POST'
+)
+print(urllib.request.urlopen(req).read().decode())
+```
+
+### 83.7 Quero VALIDAR COLUNAS de uma tabela/view antes de usar no select
+
+```sql
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_name = 'X'
+ORDER BY ordinal_position;
+```
+
+Aplicar via Management API (pattern em 83.6). **Faz isso SEMPRE antes de adicionar select novo** — evita os bugs #5 e #6 do ciclo 82.
+
+### 83.8 Quero ADICIONAR uma seção nova ao DMS (frontend)
+
+Pattern do projeto:
+1. HTML: nova `<div class="view" id="view-X">` no `index.html`
+2. Função `loadX()` no JS
+3. Dispatcher: linha ~10269 `if (viewId === 'X') loadX()`
+4. Sidebar: link com `onclick="go(this,'X')"`
+5. `VIEW_META`, `VIEW_SLUG_TO_ID` se precisar
+6. RLS no Supabase se acessar tabela nova
+7. Sync staging + commit nos 2 repos
+
+### 83.9 Repositórios e workflow
+
+- **DanaComercial** (GH Pages — espelho): `github.com/DanaComercial/dana-marketing`
+- **DanaJalecos** (Vercel — oficial): `github.com/DanaJalecos/dana-marketing`
+- **Worktree**: `.claude/worktrees/vibrant-davinci/`
+- **Staging**: `_staging-dana-marketing/`
+
+A cada mudança:
+1. Edita no worktree
+2. `cp index.html cliente-360-boot.js → _staging-dana-marketing/`
+3. `git commit + git push origin HEAD:main` (worktree → DanaComercial)
+4. `cd _staging-dana-marketing && git commit + git push origin main` (DanaJalecos)
+5. Edge functions: deploy via Management API (PATCH)
+6. SQL: aplicar via Management API direto (ou Studio)
+
+### 83.10 Tokens em uso
+
+- **Supabase Management API**: `TOKENS ANALYTICS/Token novo supabase.txt`
+- **Magazord**: `TOKENS ANALYTICS/Token Magazord.txt`
+- **Anon key Supabase**: hardcoded em `index.html` linha 22
+- **Service role key**: pego via Management API quando preciso (`/api-keys?reveal=true`)
+- **Project ref**: `wltmiqbhziefusnzmmkt`
+
+### 83.11 Regras permanentes (LEMBRAR sempre)
+
+🔒 **READ-ONLY** em contas externas — nunca POST/PUT/PATCH/DELETE:
+- Conta Mercado Livre (Section 67.6)
+- Conta Kommo (Section 70.5)
+- Conta Magazord (Section 73.7)
+
+🔒 **Não amend commits** — sempre commit novo
+
+🔒 **Não force push** em main
+
+🔒 **Sempre validar colunas** antes de adicionar a select (`information_schema.columns`)
+
+---
+
+**Fim da documentação · Atualizado em 12/05/2026 noite — Edges fetch-only + 4ª seção insight + bugs herdados corrigidos · v12.3**
+
+---
+
+## 84. CICLO 12/05/2026 (TARDE) — 7 FEATURES C360: PÓS-VENDA + INADIMP + SEARCH + CICLO + FILTRO + SUGESTÃO + MIX
+
+Mega-ciclo. 7 features novas no Cliente 360 entregues em 7 commits sequenciais. Plano detalhado em `.claude/plans/witty-growing-shell.md`.
+
+### 84.1 Decisões de UX (via AskUserQuestion)
+
+| Pergunta | Resposta |
+|---|---|
+| Filtro produto→cliente (#5) | **Filtro no topbar da lista** |
+| Esteira de produtos (#7) | **Aba nova no detalhe do cliente** |
+| Sugestão próximo produto (#6) | **Card fixo no Acompanhamento Comercial + reforço no insight** |
+
+### 84.2 Fase 1 — Pós-venda 30d ✅ commit `e59f67a` / `f64ab7f`
+
+**SQL** `sql-scripts/sql-posvenda-30d.sql`:
+- Coluna nova `pedidos.posvenda_alertado_em TIMESTAMPTZ` (flag idempotência)
+- Índice parcial `idx_pedidos_posvenda_pendente`
+- Função `gerar_alertas_posvenda_30d()` — pedidos com data = D-30, vendedor mapeado ativo (excluir_ranking=false), não cancelado. Insere alerta `audiencia=pessoal` com `destinatario_id=profile_id` + link_ref=cliente360. Update flag em batch.
+- Cron `cron-posvenda-30d` (jobid 32, schedule `0 11 * * *` UTC = 08:00 BRT)
+
+**Frontend**: badge azul "📞 Pós-venda em Xd" no header quando cliente tem pedido entre 27-33d sem follow-up.
+
+**Filtro vendedor_mapping.excluir_ranking**: exclui Site/Mercado Livre fake (não são vendedores reais).
+
+### 84.3 Fase 2 — Inadimplência ✅ commit `43b2e0f` / `8d0c12e`
+
+**SQL** `sql-scripts/sql-inadimplencia.sql`:
+- View `cliente_inadimplencia`: agrega `contas_receber WHERE situacao=3` por contato+empresa. Calcula total, qtd, max_dias_atraso, pedidos_origem.
+- Índice parcial `idx_contas_receber_inadimplencia`
+- 3 devedores reais detectados (smoke test): Camila Nardelli BC R$9k, sheila BC R$722, Andrei Walentim matriz R$52.
+
+**Frontend**:
+- Badge vermelho "💳 Devendo R$X · Yd atraso" no header
+- Card vermelho "Inadimplência ativa" no painel Acompanhamento Comercial
+
+**Edge** `cliente360-insight` v23: contexto inclui campo "Inadimplência" + regra **PRIORIDADE MÁXIMA** no SYSTEM_PROMPT:
+> "Se cliente devedor: ZERO oferta nova. Ação = cobrança cordial. WhatsApp menciona valor pendente. Sobrepõe TODAS as regras de segmento."
+
+### 84.4 Fase 3 — Pesquisar Timeline ✅ commit `b2c5861` / `f52d536`
+
+100% frontend (sem SQL/edge):
+- Input search no topo da aba Timeline com debounce 250ms
+- Filtra `_c360TimelineCache` por título + descrição + JSON.stringify(dados)
+- Botão "✕ limpar" quando search ativo
+- Reset ao trocar cliente
+- Mensagem dedicada quando 0 resultados: "🔎 Nenhum evento encontrado pra X"
+
+### 84.5 Fase 4 — Ciclo de compra + IA ✅ commit `33ab4b8` / `9add0b2`
+
+**SQL** `sql-scripts/sql-ciclo-compra.sql`:
+- View `cliente_ciclo_compra`: (última - primeira) / (pedidos_validos - 1)
+- RPC `benchmark_ciclo_por_segmento(empresa)` retorna média + mediana + n_clientes por segmento
+
+**Benchmarks reais (Matriz, mediana)**:
+- VIP: 29d (n=59)
+- Frequente: 101d (n=100)
+- Ocasional: 159d
+- Em Risco: 167d
+- Inativo: 250d
+
+**Frontend**: KPI "Ciclo Médio" mostra sub-label "Xd no segmento · ±Y%" colorido (🔴 >50%, 🟡 >30%, 🟢 <-30%). Cache benchmark 30min/empresa.
+
+**Edge** `cliente360-insight` v24: contexto inclui ciclo + benchmark + desvio + regra:
+> "Se desvio >30% → IA sugere oferta urgente ('essa semana') + senso de urgência sutil no WhatsApp. Inadimplência prioritária sobre ciclo."
+
+### 84.6 Fase 5 — Filtro produtos→clientes ✅ commit `9667ae6` / `28a09be`
+
+**SQL** `sql-scripts/sql-filtro-produto-clientes.sql`:
+- Extensão `pg_trgm` + índice GIN trigram `idx_pedidos_itens_descricao_trgm`
+- RPC `clientes_que_compraram(query, empresa, limite)` — aceita SKU exato ou ILIKE descrição. Smoke test "Chloe" matriz: 647 clientes.
+
+**Frontend**:
+- Botão "🛒 Filtrar por produto" injetado dinamicamente ao lado dos filtros UF/Segmento
+- Modal autocomplete busca `produto_catalogo_site` (251 produtos curados) por nome ou sku_ref
+- Click no produto → RPC retorna lista contato_nome → Set filtra `applyFilters`
+- Chip removível "🛒 Nome (X clientes)" mostra qtd e botão "×" pra limpar
+
+### 84.7 Fase 6 — Sugestão próximo produto ✅ commit `40bab25` / `5e70bf8`
+
+**SQL** `sql-scripts/sql-sugestao-produto.sql`:
+- RPC `sugerir_produto_proximo(contato, empresa, limite)`: usa `cliente_scoring_full` + `produto_catalogo_site`. Filtra produtos do mesmo segmento + categoria preferida (heurística via descrição) que cliente ainda NÃO comprou. Últimos 180d.
+
+**Frontend**: card "🎁 Próxima oferta sugerida" sempre visível no painel Acompanhamento Comercial com top 3 mini-cards (imagem + nome + categoria + preço + qtd clientes parecidos). **Skip se devedor** (mostra aviso de cobrança).
+
+**Edge** `cliente360-insight` v25: contexto inclui lista de sugestões + regra:
+> "Cite PRIMEIRO produto LITERALMENTE na ação + WhatsApp. VIP recebe como brinde personalizado."
+
+### 84.8 Fase 7 — Esteira de produtos (mix vendidos juntos) ✅ commit `ecaf0e4` / `ec35c53`
+
+**SQL** `sql-scripts/sql-produtos-mix.sql`:
+- Tabela `produtos_mix` (codigo_a, codigo_b, co_ocorrencias, total_a, total_b, lift, confidence_a_to_b)
+- RPC `refresh_produtos_mix(min_co)` — TRUNCATE + recalcula matriz O(n²) usando pedidos_itens. LEFT JOIN com `produto_catalogo_site` enriquece com imagens.
+- RPC `mix_para_cliente(contato, empresa, limite)` — dado produtos do cliente, retorna top sugestões via tabela mix.
+- Cron `cron-produtos-mix-semanal` (jobid 33, domingo 04:30 UTC)
+
+**Cálculo inicial**: 30.895 pares com co-ocorrência ≥5 em 41s. Top pares fazem sentido:
+- Jaleco Manuela M ↔ P (137×, lift 17.86)
+- Camiseta Scrub feminina ↔ Calça Scrub feminina (113×, confidence 66%, lift 284!)
+
+**Frontend**: aba nova "🛒 Mix" no detalhe do cliente (entre Qualificação e Insights IA). Lazy load + cache. Agrupa por produto comprado, mostra top 5 sugestões em mini-cards (imagem + nome + co-ocorrências + % chance).
+
+### 84.9 Estado das edges + crons após ciclo
+
+| Edge | Versão | Status |
+|---|---|---|
+| `cliente360-insight` | **v25** | ACTIVE (contexto enriquecido com inadimplência + ciclo + sugestões + regras IA) |
+
+| Cron | Jobid | Schedule | Função |
+|---|---|---|---|
+| `cron-posvenda-30d` | **32** | `0 11 * * *` (08:00 BRT) | Gera alertas pós-venda |
+| `cron-produtos-mix-semanal` | **33** | `30 4 * * 0` (domingo 01:30 BRT) | Recalcula matriz mix |
+
+### 84.10 Tabelas/views/RPCs novas
+
+| Item | Tipo | Função |
+|---|---|---|
+| `pedidos.posvenda_alertado_em` | Coluna | Flag idempotência (Fase 1) |
+| `cliente_inadimplencia` | View | Agrega contas atrasadas (Fase 2) |
+| `cliente_ciclo_compra` | View | Ciclo médio por cliente (Fase 4) |
+| `produtos_mix` | Tabela | Matriz co-ocorrência (Fase 7) |
+| `gerar_alertas_posvenda_30d()` | RPC | Cron Fase 1 |
+| `benchmark_ciclo_por_segmento(empresa)` | RPC | Benchmark Fase 4 |
+| `clientes_que_compraram(query, empresa)` | RPC | Filtro Fase 5 |
+| `sugerir_produto_proximo(contato, empresa)` | RPC | Sugestão Fase 6 |
+| `refresh_produtos_mix(min_co)` | RPC | Recalcula matriz Fase 7 |
+| `mix_para_cliente(contato, empresa)` | RPC | Sugestões mix Fase 7 |
+
+### 84.11 SYSTEM_PROMPT da IA — regras finais (em ordem de prioridade)
+
+1. **INADIMPLÊNCIA** (prioridade máxima): cliente devedor → ZERO oferta, só cobrança cordial
+2. **CICLO**: desvio >30% → oferta urgente + senso de urgência sutil
+3. **PRODUTOS SUGERIDOS**: cite literalmente o primeiro do array; VIP recebe como brinde
+4. **CANAL PREFERIDO**: usar literal do contexto (não inferir)
+5. **REGRAS POR SEGMENTO**: VIP=brinde, Frequente=5-8%/brinde, Ocasional=10-15%, Em Risco=15-20%, Inativo=20-25%
+6. **MENSAGEM WHATSAPP**: ação reflete regra de segmento, sempre termina com "— Equipe Dana Jalecos"
+
+### 84.12 Pontos abertos pra próximas sessões
+
+- **Filtro inadimplência no topbar** (Fase 2 — só backend+badge+card+IA entregues; filtro lista pendente)
+- **Lift threshold configurável** pro Mix (hoje hardcoded p_min_co=5)
+- **Pós-venda janela configurável** (hoje 30d fixo)
+- **Sugestão fallback "produtos populares"** quando cliente novo sem dados de segmento
+
+### 84.13 Cache busting
+
+`cliente-360-boot.js?v=44 → v=51` (incremento por fase pra forçar reload).
+
+---
+
+**Fim da documentação · Atualizado em 12/05/2026 tarde — Ciclo 7 features C360 (pós-venda + inadimp + search + ciclo + filtro + sugestão + mix) · v12.4**
