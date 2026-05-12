@@ -26423,6 +26423,7 @@ async function recarregarTudoPorEmpresa() {
       home:         'aplicarFiltroDashboard',
       // cliente360 nao precisa reload: tem filtro proprio internamente
       estoque:      'loadEstoque',
+      trafego:      'loadTrafego',
     };
     const fns = callbacks[viewId];
     const lista = Array.isArray(fns) ? fns : (fns ? [fns] : []);
@@ -26516,12 +26517,26 @@ async function loadTrafego() {
     if (typeof loadTarefas === 'function' && !(_tarefasCache && _tarefasCache.length)) {
       await loadTarefas();
     }
-    const uid = currentUser?.id;
+    // tarefas.responsavel é TEXT (nome curto, ex: "Hadassah"). Match por
+    // primeiro nome do profile OU nome completo OU email-prefix.
+    const meuNome = (currentProfile?.nome || '').trim();
+    const meuPrimeiro = meuNome.split(/\s+/)[0]?.toLowerCase() || '';
+    const meuEmail = currentUser?.email?.split('@')[0]?.toLowerCase() || '';
+    const matchResponsavel = (r) => {
+      if (!r) return false;
+      const rl = String(r).trim().toLowerCase();
+      if (!rl) return false;
+      return rl === meuNome.toLowerCase() ||
+             rl === meuPrimeiro ||
+             rl.startsWith(meuPrimeiro + ' ') ||
+             rl === meuEmail;
+    };
     const minhas = (_tarefasCache || []).filter(t =>
-      t.responsavel_id === uid &&
+      matchResponsavel(t.responsavel) &&
       !t.concluido &&
       t.coluna !== 'done' &&
-      t.coluna !== 'concluido'
+      t.coluna !== 'concluido' &&
+      t.coluna !== 'arquivo'
     ).sort((a, b) => {
       // Atrasadas primeiro, depois por prazo
       const pa = a.prazo ? new Date(a.prazo).getTime() : Infinity;
@@ -26557,6 +26572,22 @@ async function loadTrafego() {
     }).join('');
   } catch (e) { console.warn('loadTrafego tarefas:', e); }
 }
+
+// Realtime: recarrega KPIs/tarefas quando criativos/campanhas/influencers/tarefas
+// mudam — mas só se a view tiver aberta (debounce evita over-fetch)
+(function setupTrafegoRealtime() {
+  if (window._trafegoRealtimeSetup) return;
+  window._trafegoRealtimeSetup = true;
+  const debounced = debounce(() => {
+    const active = document.querySelector('.view.active');
+    if (active?.id === 'view-trafego' && typeof loadTrafego === 'function') loadTrafego();
+  }, 1500);
+  ['criativos','campanhas_internas','influenciadores','tarefas'].forEach(tbl => {
+    sb.channel('realtime-trafego-' + tbl)
+      .on('postgres_changes', { event: '*', schema: 'public', table: tbl }, debounced)
+      .subscribe();
+  });
+})();
 
 async function loadEstoque() {
   const emp = empresaAtual() || 'todas';
