@@ -436,10 +436,11 @@
         results.innerHTML = `<div style="text-align:center;padding:30px;color:rgba(255,255,255,0.4);font-size:13px">Nenhum produto encontrado pra "${escapeHtml(q)}"</div>`;
         return;
       }
+      // Ícone 🛒 universal (Bling tem URLs S3 pre-signed que expiram em 1h → muitas falham)
       results.innerHTML = produtos.map(p => `
         <button onclick='window._selecionarProdutoFiltro(${JSON.stringify(p).replace(/'/g, "&apos;")})'
           style="width:100%;display:flex;align-items:center;gap:12px;padding:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:8px;margin-bottom:6px;cursor:pointer;text-align:left">
-          ${p.imagem_principal ? `<img src="${escapeHtml(p.imagem_principal)}" style="width:44px;height:44px;object-fit:cover;border-radius:6px;flex-shrink:0">` : '<div style="width:44px;height:44px;background:rgba(255,255,255,0.05);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🛒</div>'}
+          <div style="width:44px;height:44px;background:rgba(168,139,250,0.1);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🛒</div>
           <div style="flex:1;min-width:0">
             <div style="font-size:12.5px;color:#e2e8f0;font-weight:600">${escapeHtml(p.nome || '')}</div>
             <div style="font-size:10.5px;color:#94a3b8;margin-top:2px">${escapeHtml(p.categoria || '')} · ${escapeHtml(p.sku_ref || '')}${p.preco ? ' · '+fmtBRL(p.preco) : ''}</div>
@@ -744,7 +745,7 @@
       }
       div.innerHTML = data.map(p => `
         <div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px solid rgba(255,255,255,0.04)">
-          ${p.imagem_principal ? `<img src="${escapeHtml(p.imagem_principal)}" style="width:40px;height:40px;object-fit:cover;border-radius:5px;flex-shrink:0">` : '<div style="width:40px;height:40px;background:rgba(255,255,255,0.05);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🛒</div>'}
+          <div style="width:40px;height:40px;background:rgba(168,139,250,0.1);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🛒</div>
           <div style="flex:1;min-width:0">
             <div style="font-size:12px;color:#e2e8f0;font-weight:600">${escapeHtml(p.nome || '')}</div>
             <div style="font-size:10.5px;color:#94a3b8;margin-top:2px">${escapeHtml(p.categoria || '')}${p.preco ? ' · '+fmtBRL(p.preco) : ''} · ${p.quantos_compraram} clientes parecidos compraram</div>
@@ -1941,7 +1942,7 @@
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px">
             ${g.sugestoes.map(s => `
               <div style="display:flex;gap:10px;padding:9px;background:rgba(255,255,255,0.02);border-radius:6px;align-items:center">
-                ${s.imagem_sugerida ? `<img src="${escapeHtml(s.imagem_sugerida)}" style="width:42px;height:42px;object-fit:cover;border-radius:5px;flex-shrink:0">` : '<div style="width:42px;height:42px;background:rgba(255,255,255,0.05);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🛒</div>'}
+                <div style="width:42px;height:42px;background:rgba(168,139,250,0.1);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🛒</div>
                 <div style="flex:1;min-width:0">
                   <div style="font-size:11.5px;color:#e2e8f0;font-weight:600;line-height:1.3">${escapeHtml((s.nome_curado || s.produto_sugerido_desc || s.produto_sugerido_codigo || '').slice(0, 60))}</div>
                   <div style="font-size:10px;color:#94a3b8;margin-top:2px">${s.co_ocorrencias}× junto · ${Math.round(Number(s.confidence||0)*100)}% chance</div>
