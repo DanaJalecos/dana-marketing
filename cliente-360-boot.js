@@ -277,7 +277,10 @@
   function applyFilters() {
     const q = (state.searchQuery || '').trim().toLowerCase();
     const qDigits = q.replace(/\D/g, '');
+    // FASE 5: filtro produto -> clientes (Set carregado por aplicarFiltroProduto)
+    const setProd = state.produtoFiltro && state._clientesQueCompraram instanceof Set ? state._clientesQueCompraram : null;
     state.filtered = state.clientes.filter(c => {
+      if (setProd && !setProd.has(c.contato_nome)) return false;
       if (state.segmentFilter !== 'todos' && c.segmento !== state.segmentFilter) return false;
       if (state.ufFilter !== 'todos') {
         if (state.ufFilter === 'null') { if (c.uf) return false; }
@@ -299,6 +302,129 @@
     state.page = 0;
     renderList();
   }
+
+  // ─── FASE 5: Filtro produtos → clientes (autocomplete + RPC + chip) ───
+  state.produtoFiltro = null;
+  state._clientesQueCompraram = null;
+
+  // Carrega autocomplete de produtos curados do site
+  async function _buscarProdutosAutocomplete(q) {
+    if (!q || q.length < 2) return [];
+    try {
+      const { data, error } = await state.sb.from('produto_catalogo_site')
+        .select('sku_ref, nome, imagem_principal, categoria, preco')
+        .or(`nome.ilike.%${q}%,sku_ref.ilike.%${q}%`)
+        .limit(20);
+      if (error) return [];
+      return data || [];
+    } catch (e) { return []; }
+  }
+
+  // Aplica filtro: busca clientes via RPC + atualiza state
+  window.aplicarFiltroProduto = async function(produto) {
+    state.produtoFiltro = produto;
+    _renderChipProdutoFiltro();
+    if (!produto) {
+      state._clientesQueCompraram = null;
+      applyFilters();
+      return;
+    }
+    // Mostra loading no chip
+    const chipBox = document.getElementById('c360-prod-chip-box');
+    if (chipBox) chipBox.innerHTML = `<span style="font-size:12px;color:#fbbf24">⏳ Buscando clientes...</span>`;
+    try {
+      const query = produto.sku_ref || produto.nome;
+      const { data, error } = await state.sb.rpc('clientes_que_compraram', {
+        p_query: query, p_empresa: state.empresa, p_limite: 5000
+      });
+      if (error) throw error;
+      state._clientesQueCompraram = new Set((data || []).map(r => r.contato_nome));
+      _renderChipProdutoFiltro();
+      applyFilters();
+    } catch (e) {
+      console.error('[c360 filtro produto]', e);
+      state.produtoFiltro = null;
+      state._clientesQueCompraram = null;
+      if (chipBox) chipBox.innerHTML = `<span style="font-size:12px;color:#ef4444">❌ Erro ao filtrar</span>`;
+      setTimeout(() => _renderChipProdutoFiltro(), 2000);
+    }
+  };
+
+  function _renderChipProdutoFiltro() {
+    const chipBox = document.getElementById('c360-prod-chip-box');
+    if (!chipBox) return;
+    const p = state.produtoFiltro;
+    if (!p) {
+      chipBox.innerHTML = `<button onclick="window.abrirModalFiltroProduto()" style="padding:7px 14px;border-radius:8px;border:1px solid rgba(168,139,250,0.4);background:rgba(168,139,250,0.1);color:#c4b5fd;cursor:pointer;font-size:12.5px;font-weight:600">🛒 Filtrar por produto</button>`;
+      return;
+    }
+    const set = state._clientesQueCompraram;
+    const qtd = set ? set.size : 0;
+    chipBox.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;background:rgba(168,139,250,0.15);color:#c4b5fd;border:1px solid rgba(168,139,250,0.4);border-radius:20px;font-size:12px;font-weight:600">🛒 ${escapeHtml(p.nome)} (${qtd}) <button onclick="window.aplicarFiltroProduto(null)" style="background:transparent;border:none;color:#c4b5fd;cursor:pointer;font-size:14px;font-weight:700;line-height:1" title="Remover filtro">×</button></span>`;
+  }
+
+  window.abrirModalFiltroProduto = function() {
+    const existente = document.getElementById('c360-modal-filtro-prod');
+    if (existente) existente.remove();
+    const modal = document.createElement('div');
+    modal.id = 'c360-modal-filtro-prod';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding-top:8vh;backdrop-filter:blur(4px)';
+    modal.innerHTML = `
+      <div style="background:#0b0f17;border:1px solid rgba(255,255,255,0.12);border-radius:12px;width:min(560px,92vw);max-height:80vh;overflow:hidden;display:flex;flex-direction:column">
+        <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-size:15px;font-weight:700;color:#f1f5f9">🛒 Filtrar clientes por produto</div>
+            <div style="font-size:11px;color:#64748b;margin-top:3px">Digite nome ou SKU. Filtro encontra todos os clientes que compraram esse produto.</div>
+          </div>
+          <button onclick="document.getElementById('c360-modal-filtro-prod').remove()" style="background:transparent;border:none;color:#94a3b8;font-size:22px;cursor:pointer;line-height:1">×</button>
+        </div>
+        <div style="padding:14px 18px">
+          <input id="c360-prod-search" type="text" placeholder="Ex: Chloe, Manuela, Scrub Branco, 378-ZI..."
+            oninput="window._buscarProdutosOninput(this.value)"
+            style="width:100%;padding:10px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#e2e8f0;font-size:14px" autofocus>
+        </div>
+        <div id="c360-prod-results" style="flex:1;overflow-y:auto;padding:0 12px 12px">
+          <div style="text-align:center;padding:30px;color:rgba(255,255,255,0.4);font-size:13px">Digite pra começar (mín 2 letras)</div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+    setTimeout(() => document.getElementById('c360-prod-search')?.focus(), 50);
+  };
+
+  let _prodSearchTimer = null;
+  window._buscarProdutosOninput = function(q) {
+    clearTimeout(_prodSearchTimer);
+    _prodSearchTimer = setTimeout(async () => {
+      const results = document.getElementById('c360-prod-results');
+      if (!results) return;
+      if (!q || q.trim().length < 2) {
+        results.innerHTML = `<div style="text-align:center;padding:30px;color:rgba(255,255,255,0.4);font-size:13px">Digite pra começar (mín 2 letras)</div>`;
+        return;
+      }
+      results.innerHTML = `<div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4);font-size:12px">⏳ Buscando...</div>`;
+      const produtos = await _buscarProdutosAutocomplete(q.trim());
+      if (!produtos.length) {
+        results.innerHTML = `<div style="text-align:center;padding:30px;color:rgba(255,255,255,0.4);font-size:13px">Nenhum produto encontrado pra "${escapeHtml(q)}"</div>`;
+        return;
+      }
+      results.innerHTML = produtos.map(p => `
+        <button onclick='window._selecionarProdutoFiltro(${JSON.stringify(p).replace(/'/g, "&apos;")})'
+          style="width:100%;display:flex;align-items:center;gap:12px;padding:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:8px;margin-bottom:6px;cursor:pointer;text-align:left">
+          ${p.imagem_principal ? `<img src="${escapeHtml(p.imagem_principal)}" style="width:44px;height:44px;object-fit:cover;border-radius:6px;flex-shrink:0">` : '<div style="width:44px;height:44px;background:rgba(255,255,255,0.05);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🛒</div>'}
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12.5px;color:#e2e8f0;font-weight:600">${escapeHtml(p.nome || '')}</div>
+            <div style="font-size:10.5px;color:#94a3b8;margin-top:2px">${escapeHtml(p.categoria || '')} · ${escapeHtml(p.sku_ref || '')}${p.preco ? ' · '+fmtBRL(p.preco) : ''}</div>
+          </div>
+        </button>
+      `).join('');
+    }, 250);
+  };
+
+  window._selecionarProdutoFiltro = function(produto) {
+    document.getElementById('c360-modal-filtro-prod')?.remove();
+    aplicarFiltroProduto(produto);
+  };
 
   // ─── Renderiza lista de clientes ───
   function renderList() {
@@ -480,6 +606,15 @@
         applyFilters();
       });
       btnUf.parentElement.replaceChild(sel, btnUf);
+
+      // FASE 5: chip "Filtrar por produto" ao lado do UF
+      if (!document.getElementById('c360-prod-chip-box')) {
+        const chipBox = document.createElement('span');
+        chipBox.id = 'c360-prod-chip-box';
+        chipBox.style.cssText = 'display:inline-flex;align-items:center;margin-left:8px';
+        sel.parentNode.insertBefore(chipBox, sel.nextSibling);
+        _renderChipProdutoFiltro();
+      }
     }
   }
 
