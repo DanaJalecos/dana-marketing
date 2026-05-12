@@ -560,6 +560,25 @@
     return pedidos.map(p => ({ ...p, itens: itensByPedido[p.id] || [] }));
   }
 
+  // FASE 4: cache do benchmark de ciclo por segmento (30min TTL)
+  window._c360CicloBenchmark = window._c360CicloBenchmark || {};
+  async function loadCicloBenchmark(empresa) {
+    const TTL = 30 * 60 * 1000; // 30min
+    const cached = window._c360CicloBenchmark[empresa];
+    if (cached && (Date.now() - cached.ts) < TTL) return cached.data;
+    try {
+      const { data, error } = await state.sb.rpc('benchmark_ciclo_por_segmento', { p_empresa: empresa });
+      if (error) return {};
+      const map = {};
+      (data || []).forEach(r => { map[r.segmento] = r; });
+      window._c360CicloBenchmark[empresa] = { ts: Date.now(), data: map };
+      return map;
+    } catch (e) {
+      console.warn('[c360] benchmark ciclo:', e);
+      return {};
+    }
+  }
+
   // Categoria e canal preferidos
   function computeFavoritos(pedidos) {
     const lojaCount = {};
@@ -607,17 +626,22 @@
     window.scrollTo(0,0);
 
     try {
-      // Cliente completo + pedidos + inadimplência (Fase 2)
+      // Cliente completo + pedidos + inadimplência (Fase 2) + ciclo (Fase 4) + benchmark (Fase 4)
       const c = state.clientes.find(x => x.contato_nome === nome);
-      const [pedidos, inadResult] = await Promise.all([
+      const [pedidos, inadResult, cicloResult, bench] = await Promise.all([
         fetchPedidosCliente(nome, state.empresa),
         state.sb.from('cliente_inadimplencia')
           .select('total_atrasado, max_dias_atraso, qtd_contas_atrasadas, vencimento_mais_antigo, pedidos_origem')
-          .eq('contato_nome', nome).eq('empresa', state.empresa).maybeSingle()
+          .eq('contato_nome', nome).eq('empresa', state.empresa).maybeSingle(),
+        state.sb.from('cliente_ciclo_compra')
+          .select('ciclo_compra_dias, pedidos_validos')
+          .eq('contato_nome', nome).eq('empresa', state.empresa).maybeSingle(),
+        loadCicloBenchmark(state.empresa)
       ]);
       const fav = computeFavoritos(pedidos);
       const inad = (inadResult && !inadResult.error) ? inadResult.data : null;
-      if (c) c._inadimplencia = inad;
+      const ciclo = (cicloResult && !cicloResult.error) ? cicloResult.data : null;
+      if (c) { c._inadimplencia = inad; c._ciclo = ciclo; c._cicloBenchmark = bench; }
       renderClientDetail(c, nome, pedidos, fav);
       // Injeta painel de metadata (status/tel_alt/observacao) logo abaixo do header
       if (c?.contato_id) {
@@ -1049,12 +1073,29 @@
 
     // Ciclo medio: dias entre pedidos consecutivos
     let cicloMedio = '—';
+    let cicloDias = null;
     if (pedidos.length >= 2) {
       const datas = pedidos.map(p => new Date(p.data)).sort((a,b) => a-b);
       let soma = 0, n = 0;
       for (let i = 1; i < datas.length; i++) { soma += (datas[i] - datas[i-1]) / 86400000; n++; }
-      cicloMedio = n > 0 ? Math.round(soma/n) + ' dias' : '—';
+      cicloDias = n > 0 ? Math.round(soma/n) : null;
+      cicloMedio = cicloDias != null ? cicloDias + ' dias' : '—';
     }
+    // FASE 4: subtitle do KPI Ciclo Médio com benchmark do segmento
+    let cicloSub = '';
+    try {
+      const bench = c._cicloBenchmark;
+      const segBench = bench?.[c.segmento];
+      const benchMediano = segBench ? Number(segBench.ciclo_mediano) : null;
+      if (cicloDias != null && benchMediano && benchMediano > 0) {
+        const desvio = Math.round(((cicloDias - benchMediano) / benchMediano) * 100);
+        const benchTxt = Math.round(benchMediano) + 'd';
+        if (desvio > 50) cicloSub = `🔴 ${benchTxt} no segmento · +${desvio}%`;
+        else if (desvio > 30) cicloSub = `🟡 ${benchTxt} no segmento · +${desvio}%`;
+        else if (desvio < -30) cicloSub = `🟢 ${benchTxt} no segmento · ${desvio}% (excelente!)`;
+        else cicloSub = `${benchTxt} no segmento`;
+      }
+    } catch (e) { /* silencioso */ }
     // Proxima estimada: ultima_compra + ciclo
     let proximaEstimada = '—';
     let diasProxima = '';
@@ -1172,7 +1213,7 @@
     ${kpiCard('🛒 Total de Pedidos', fmtNum(c.total_pedidos), '')}
     ${kpiCard('$ Total Gasto', fmtBRL(c.total_gasto), '', 18)}
     ${kpiCard('↗ Ticket Médio', fmtBRL(c.ticket_medio), '', 18)}
-    ${kpiCard('⏰ Ciclo Médio', cicloMedio, '', 18)}
+    ${kpiCard('⏰ Ciclo Médio', cicloMedio, cicloSub, 18)}
     ${kpiCard('⏰ Última Compra', fmtDate(c.ultima_compra), 'Há '+fmtNum(c.dias_sem_compra)+' dias', 16)}
     ${kpiCard('↗ Próxima Estimada', proximaEstimada, diasProxima, 16)}
   </div>

@@ -138,6 +138,15 @@ REGRAS DE AÇÃO COMERCIAL POR SEGMENTO (CRÍTICO — siga rigorosamente):
 - **Em Risco**: desconto agressivo (15-20%) + contato direto pelo WhatsApp pra reativar.
 - **Inativo**: desconto forte (20-25%) + benefício adicional (frete grátis, brinde) + ligação/WhatsApp pessoal.
 
+REGRA DE CICLO DE COMPRA (orientação pra reduzir intervalo):
+Se o contexto traz "Ciclo de compra" com "desvio +N%" onde N > 30%:
+- O cliente está demorando MAIS que o normal pra recomprar (no segmento dele).
+- Na seção AÇÃO, sugira uma OFERTA URGENTE com prazo curto ("essa semana", "até sexta") OU um MOTIVADOR (lançamento de coleção, frete grátis, novidade da Dana) que dê motivo pra antecipar a próxima compra.
+- Na MENSAGEM WHATSAPP, crie senso de urgência sutil sem ser invasivo. Ex: "preparamos algo especial pra essa semana e queríamos que você fosse uma das primeiras a ver".
+- Se desvio for -30% ou menos (cliente compra MAIS rápido que a média), elogie a frequência e foque em fidelizar (não em forçar mais venda).
+Essa regra é COMPATÍVEL com as regras de segmento — se VIP demorando, ainda assim BRINDE (não desconto), mas com senso de urgência.
+Inadimplência sempre tem prioridade sobre ciclo (regra abaixo).
+
 REGRA DE INADIMPLÊNCIA (PRIORIDADE MÁXIMA — sobrepõe TODAS as outras):
 Se o contexto traz "Inadimplência: ⚠ DEVENDO..." (cliente em atraso):
 - NÃO ofereça novos descontos, produtos, brindes ou novidades. ZERO oferta nova.
@@ -358,6 +367,25 @@ Deno.serve(async (req) => {
       )
     } catch (_e) { /* sem inadimplência se view não existe ou erro silencioso */ }
 
+    // 7c. FASE 4: ciclo de compra + benchmark do segmento
+    let cicloInfo: any = null
+    let benchSeg: any = null
+    let cicloDesvio: number | null = null
+    try {
+      cicloInfo = await supaSingle(
+        `cliente_ciclo_compra?empresa=eq.${empresa}&contato_nome=eq.${enc(contato_nome)}&select=ciclo_compra_dias,pedidos_validos&limit=1`
+      )
+      if (cicloInfo?.ciclo_compra_dias) {
+        const bench = await supaRpc('benchmark_ciclo_por_segmento', { p_empresa: empresa })
+        benchSeg = (bench || []).find((b: any) => b.segmento === cs.segmento) || null
+        if (benchSeg?.ciclo_mediano) {
+          cicloDesvio = Math.round(
+            ((cicloInfo.ciclo_compra_dias - Number(benchSeg.ciclo_mediano)) / Number(benchSeg.ciclo_mediano)) * 100
+          )
+        }
+      }
+    } catch (_e) { /* silencioso */ }
+
     const empresaLabel = empresa === 'matriz' ? 'Matriz (Piçarras)' : 'Balneário Camboriú (BC)'
     const tipoPessoa = cs.tipo_pessoa === 'J' ? 'Pessoa Jurídica' : cs.tipo_pessoa === 'F' ? 'Pessoa Física' : 'N/D'
     const fone = cs.celular || cs.telefone || '—'
@@ -392,6 +420,11 @@ Inadimplência (contas em atraso):
 ${inadInfo && Number(inadInfo.total_atrasado) > 0
   ? `⚠ DEVENDO: ${fmtBRL(inadInfo.total_atrasado)} (${inadInfo.qtd_contas_atrasadas} conta(s), ${inadInfo.max_dias_atraso}d de atraso${inadInfo.pedidos_origem ? ', pedidos '+inadInfo.pedidos_origem : ''})`
   : '- (em dia)'}
+
+Ciclo de compra (intervalo médio entre pedidos):
+${cicloInfo?.ciclo_compra_dias
+  ? `${cicloInfo.ciclo_compra_dias} dias (cliente)${benchSeg?.ciclo_mediano ? ` · ${Math.round(Number(benchSeg.ciclo_mediano))} dias (mediana do segmento ${cs.segmento})` : ''}${cicloDesvio !== null ? ` · desvio ${cicloDesvio > 0 ? '+' : ''}${cicloDesvio}%${cicloDesvio > 30 ? ' ⚠ DEMORANDO MAIS QUE O NORMAL' : ''}` : ''}`
+  : '- (cliente com 1 pedido só ou sem histórico)'}
 
 ---
 
