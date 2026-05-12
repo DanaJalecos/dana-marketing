@@ -18164,20 +18164,23 @@ function renderCalendario() {
   };
 
   // Permissão: usuário sem `calendario_ver_todos` (ex: vendedor) só vê eventos
-  // do tipo campanha_interna. Tarefas continuam visíveis normalmente.
+  // do tipo campanha_interna. Tarefas (cards azuis ✓) também são ocultadas —
+  // o calendário fica limpo só com as campanhas internas.
   const soVeInternas = (userPermissoes['calendario_ver_todos'] === false)
     && currentProfile?.cargo !== 'admin';
   const matchTipo = (tipo) => !soVeInternas || tipo === 'campanha_interna';
 
-  // Coletar tarefas com prazo (respeita filtro de campanha)
+  // Coletar tarefas com prazo (respeita filtro de campanha + permissão)
   const tarefasPorDia = {};
-  (_tarefasCache || []).filter(t => matchCampanha(t.campanha_id)).forEach(t => {
-    const data = t.prazo || t.data_fim;
-    if (!data) return;
-    const dataStr = data.substring(0, 10);
-    if (!tarefasPorDia[dataStr]) tarefasPorDia[dataStr] = [];
-    tarefasPorDia[dataStr].push(t);
-  });
+  if (!soVeInternas) {
+    (_tarefasCache || []).filter(t => matchCampanha(t.campanha_id)).forEach(t => {
+      const data = t.prazo || t.data_fim;
+      if (!data) return;
+      const dataStr = data.substring(0, 10);
+      if (!tarefasPorDia[dataStr]) tarefasPorDia[dataStr] = [];
+      tarefasPorDia[dataStr].push(t);
+    });
+  }
 
   const cellStyle = 'background:var(--surface);padding:6px;height:110px;overflow:hidden;min-width:0;box-sizing:border-box';
 
@@ -18241,7 +18244,8 @@ function mostrarTodosItensDoDia(dateStr) {
     matchCampanha(e.campanha_id) &&
     matchTipo(e.tipo)
   );
-  const tarefas = (_tarefasCache || []).filter(t => {
+  // Tarefas: ocultadas pra quem só vê internas
+  const tarefas = soVeInternas ? [] : (_tarefasCache || []).filter(t => {
     const data = (t.prazo || t.data_fim || '').substring(0, 10);
     return data === dateStr && matchCampanha(t.campanha_id);
   });
