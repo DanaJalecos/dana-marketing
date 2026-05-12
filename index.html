@@ -18200,7 +18200,7 @@ function renderCalendario() {
     html += `<div style="${cellStyle};cursor:pointer" onclick="calDiaClick('${dateStr}')">
       <div style="font-size:12px;margin-bottom:4px;${todayStyle}">${d}</div>
       ${items.slice(0,3).map(it => `<div onclick="${it.onclick}" style="${itemStyle};background:${it.color}" title="${esc(it.titulo)}">${it.icon ? it.icon + ' ' : ''}${esc(it.titulo)}</div>`).join('')}
-      ${items.length > 3 ? '<div style="font-size:9px;color:var(--text3)">+'+(items.length-3)+' mais</div>' : ''}
+      ${items.length > 3 ? `<div onclick="event.stopPropagation();mostrarTodosItensDoDia('${dateStr}')" style="font-size:9px;color:var(--text3);cursor:pointer;padding:2px 5px;border-radius:3px;background:rgba(255,255,255,0.04);font-weight:600;transition:background 0.15s" onmouseover="this.style.background='rgba(255,255,255,0.1)';this.style.color='var(--text1)'" onmouseout="this.style.background='rgba(255,255,255,0.04)';this.style.color='var(--text3)'">+${items.length-3} mais →</div>` : ''}
     </div>`;
   }
 
@@ -18212,6 +18212,93 @@ function renderCalendario() {
   }
 
   grid.innerHTML = html;
+}
+
+// ─── Popup "ver todos os itens do dia" — chamado pelo "+X mais" no calendário ───
+// Mostra modal listando TODOS eventos + tarefas do dia, cada um clicável.
+function mostrarTodosItensDoDia(dateStr) {
+  // Recalcula os items pra esse dia (mesma lógica do renderCalendario)
+  const filtroCamp = document.getElementById('cal-filtro-campanha')?.value || '';
+  const matchCampanha = (campId) => {
+    if (!filtroCamp) return true;
+    if (filtroCamp === '__sem__') return !campId;
+    return campId === filtroCamp;
+  };
+  const eventos = (_eventosCache || []).filter(e =>
+    e.data_inicio <= dateStr &&
+    (e.data_fim ? e.data_fim >= dateStr : e.data_inicio === dateStr) &&
+    matchCampanha(e.campanha_id)
+  );
+  const tarefas = (_tarefasCache || []).filter(t => {
+    const data = (t.prazo || t.data_fim || '').substring(0, 10);
+    return data === dateStr && matchCampanha(t.campanha_id);
+  });
+
+  const tiposCor = { campanha:'#0a0a0a', campanha_c360:'#f97316', campanha_interna:'#a855f7', promocao:'#15803d', lancamento:'#1d4ed8', evento:'#b45309', deadline:'#dc2626', feriado:'#6b7280' };
+  const tiposIcon = { campanha:'📣', campanha_c360:'📢', campanha_interna:'🎯', promocao:'🎁', lancamento:'🚀', evento:'🎪', deadline:'⏰', feriado:'🎉' };
+
+  // Formata data pra header
+  const dt = new Date(dateStr + 'T12:00:00');
+  const dataFmt = dt.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+
+  // Remove overlay anterior se existir (evita empilhamento)
+  const oldOverlay = document.getElementById('cal-dia-overlay');
+  if (oldOverlay) oldOverlay.remove();
+
+  // Cria overlay + modal
+  const overlay = document.createElement('div');
+  overlay.id = 'cal-dia-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn 0.15s ease';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  const total = eventos.length + tarefas.length;
+  const itensHtml = [
+    ...eventos.map(e => {
+      const cor = (e.cor && e.cor.trim()) ? e.cor : (tiposCor[e.tipo] || '#666');
+      const icon = tiposIcon[e.tipo] || '🎪';
+      return `<div onclick="document.getElementById('cal-dia-overlay').remove();editarEvento('${e.id}')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,255,255,0.03);border-left:4px solid ${cor};border-radius:6px;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='rgba(255,255,255,0.07)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
+        <div style="font-size:16px">${icon}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:var(--text1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.titulo || '(sem título)')}</div>
+          ${e.descricao ? `<div style="font-size:11px;color:var(--text3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.descricao.slice(0, 100))}</div>` : ''}
+        </div>
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Evento</div>
+      </div>`;
+    }),
+    ...tarefas.map(t => `<div onclick="document.getElementById('cal-dia-overlay').remove();openTarefa('${t.id}')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,255,255,0.03);border-left:4px solid #1a4fa0;border-radius:6px;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='rgba(255,255,255,0.07)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
+      <div style="font-size:16px">✓</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--text1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.titulo || '(sem título)')}</div>
+        ${t.prioridade ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">Prioridade: ${esc(t.prioridade)}</div>` : ''}
+      </div>
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Tarefa</div>
+    </div>`)
+  ].join('');
+
+  const modal = document.createElement('div');
+  modal.style.cssText = 'background:var(--card,#0a0a0a);border:1px solid var(--line);border-radius:12px;max-width:520px;width:100%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.6)';
+  modal.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:16px 18px;border-bottom:1px solid var(--line)">
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:16px;color:var(--text1);text-transform:capitalize">${dataFmt}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">${total} ${total === 1 ? 'item' : 'itens'} agendado${total === 1 ? '' : 's'}</div>
+      </div>
+      <button type="button" style="background:transparent;border:none;color:var(--text3);font-size:22px;line-height:1;cursor:pointer;padding:0;margin:0" onclick="document.getElementById('cal-dia-overlay').remove()">×</button>
+    </div>
+    <div style="padding:14px 18px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:6px">
+      ${itensHtml || '<div style="text-align:center;color:var(--text3);font-size:12.5px;padding:30px">Nada agendado pra esse dia.</div>'}
+    </div>
+    <div style="padding:12px 18px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px">
+      ${typeof podeCriarEvento === 'function' && podeCriarEvento() ? `<button class="btn btn-ghost btn-sm" onclick="document.getElementById('cal-dia-overlay').remove();calDiaClick('${dateStr}')">+ Novo evento neste dia</button>` : ''}
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('cal-dia-overlay').remove()">Fechar</button>
+    </div>
+  `;
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  // ESC fecha
+  const onEsc = (ev) => { if (ev.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onEsc); } };
+  document.addEventListener('keydown', onEsc);
 }
 
 let _viewingEventoId = null;
