@@ -4626,6 +4626,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     if (!user) { console.warn('[mc] mcLoadPerms: sem user (nao cacheia)'); return { meus_clientes: false, c360Tabs: {}, _degradado: true }; }
     const { data: profile } = await state.sb.from('profiles').select('id, nome, cargo').eq('id', user.id).maybeSingle();
     if (!profile) { console.warn('[mc] mcLoadPerms: sem profile (nao cacheia)'); return { meus_clientes: false, c360Tabs: {}, _degradado: true }; }
+    // Expõe profile no state pra funções de UI usarem (rankings, modal meta, etc)
+    state.profile = profile;
     // Busca TODAS permissoes relevantes do cargo de uma vez
     const { data: perms } = await state.sb.from('cargo_permissoes')
       .select('secao, permitido').eq('cargo', profile.cargo)
@@ -4671,10 +4673,35 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     return data;
   }
 
-  // Ranking por vendedor (agregado server-side)
+  // Ranking 1 (Geral) — view vendedor_performance
   async function mcLoadRanking(empresa) {
     const { data, error } = await state.sb.from('vendedor_performance').select('*').eq('empresa', empresa).order('faturamento', { ascending: false });
     if (error) { console.error('[mc] ranking error', error); return []; }
+    return data || [];
+  }
+
+  // Ranking 2 (Desempenho) — reativações 90+ dias do mês corrente
+  async function mcLoadRankingDesempenho(empresa) {
+    let q = state.sb.from('vendedor_ranking_desempenho').select('*').order('pontos', { ascending: false });
+    if (empresa) q = q.eq('empresa', empresa);
+    const { data, error } = await q;
+    if (error) {
+      // Schema novo pode não estar aplicado em ambientes antigos — fallback silencioso
+      if (!String(error.message || '').includes('does not exist')) console.warn('[mc] desempenho:', error);
+      return [];
+    }
+    return data || [];
+  }
+
+  // Ranking 3 (Mensal) — faturamento do mês × meta
+  async function mcLoadRankingMensal(empresa) {
+    let q = state.sb.from('vendedor_ranking_mensal').select('*').order('faturamento_mes', { ascending: false });
+    if (empresa) q = q.eq('empresa', empresa);
+    const { data, error } = await q;
+    if (error) {
+      if (!String(error.message || '').includes('does not exist')) console.warn('[mc] mensal:', error);
+      return [];
+    }
     return data || [];
   }
 
@@ -5037,6 +5064,10 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     // state pro filtro
     state.mcAdminRanking = ranking;
     state.mcAdminVendedores = ranking.filter(r => r.vendedor_profile_id);
+    // Cache p/ Ranking tabs (geral é carregado já; desempenho/mensal lazy)
+    state.mcRankingGeralCache = ranking;
+    state.mcRankingTotalFatCache = totalFat;
+    state.mcRankingTab = state.mcRankingTab || 'geral';
 
     content.innerHTML = `
       <div style="padding:24px;max-width:1400px;margin:0 auto">
@@ -5062,13 +5093,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
         ${state.mcAdminVendedores.length === 0 ? mcEmptyMapping() : ''}
 
         <div style="margin-bottom:24px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-            <h2 style="margin:0;font-size:16px;font-weight:600;color:#e2e8f0">🏆 Ranking por vendedor</h2>
-            <button type="button" onclick="window.mcExportarRankingPDF()" style="padding:6px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:6px" onmouseover="this.style.background='rgba(255,255,255,0.08)'" onmouseout="this.style.background='rgba(255,255,255,0.04)'">
-              🖨 Exportar PDF
-            </button>
-          </div>
-          ${mcRankingTable(ranking, totalFat)}
+          ${mcRenderRankingsBloco(ranking, totalFat)}
         </div>
 
         <div>
@@ -5216,6 +5241,308 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       </div>
     `;
   }
+
+  // ─── Bloco completo dos 3 Rankings (Geral / Desempenho / Mensal) ───
+  // Renderiza tabs + botão PDF condicional por cargo + container que troca pela tab ativa.
+  // state.mcRankingTab define a tab corrente (default 'geral').
+  function mcRenderRankingsBloco(rankingGeral, totalFat) {
+    const tab = state.mcRankingTab || 'geral';
+    const cargo = state.profile?.cargo || '';
+    const podeExportarSempre = cargo === 'admin' || cargo === 'gerente_comercial';
+    // Tab Mensal: SEMPRE permite export (vendedora baixa seu próprio); outras só admin/gerente
+    const mostrarPDF = (tab === 'mensal') || podeExportarSempre;
+
+    const TABS = [
+      { id: 'geral', label: '🏆 Geral', sub: 'Carteira & faturamento total' },
+      { id: 'desempenho', label: '🔥 Desempenho', sub: 'Reativações 90d+ no mês' },
+      { id: 'mensal', label: '📅 Mensal', sub: 'Vendas do mês × meta' },
+    ];
+
+    const tabsHtml = TABS.map(t => {
+      const ativa = t.id === tab;
+      return `<button type="button" onclick="window.mcSwitchRankingTab('${t.id}')"
+        style="padding:10px 18px;background:${ativa?'rgba(167,139,250,0.12)':'transparent'};
+               border:none;border-bottom:2px solid ${ativa?'#a78bfa':'transparent'};
+               color:${ativa?'#e2e8f0':'#94a3b8'};cursor:pointer;font-size:13px;
+               font-weight:${ativa?'700':'500'};display:flex;flex-direction:column;
+               align-items:flex-start;gap:2px;transition:all 0.15s">
+        <span>${t.label}</span>
+        <span style="font-size:10px;font-weight:400;color:#64748b">${t.sub}</span>
+      </button>`;
+    }).join('');
+
+    return `
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:0;border-bottom:1px solid rgba(255,255,255,0.08);flex-wrap:wrap;gap:8px">
+          <div style="display:flex;gap:0">${tabsHtml}</div>
+          ${mostrarPDF ? `<button type="button" onclick="window.mcExportarRankingPDF('${tab}')"
+            style="padding:6px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:8px"
+            onmouseover="this.style.background='rgba(255,255,255,0.08)'"
+            onmouseout="this.style.background='rgba(255,255,255,0.04)'">🖨 Exportar PDF</button>` : ''}
+        </div>
+        <div id="mc-ranking-content" style="margin-top:14px">
+          ${mcRankingTabRender(tab, rankingGeral, totalFat)}
+        </div>
+      </div>
+    `;
+  }
+
+  function mcRankingTabRender(tab, rankingGeral, totalFat) {
+    if (tab === 'geral') {
+      return mcRankingTable(rankingGeral, totalFat);
+    }
+    if (tab === 'desempenho') {
+      const list = state.mcRankingDesempenho || null;
+      if (list === null) return '<div style="padding:30px;text-align:center;color:#64748b;font-size:12.5px">⏳ Carregando ranking de desempenho...</div>';
+      return mcRankingTableDesempenho(list);
+    }
+    if (tab === 'mensal') {
+      const list = state.mcRankingMensal || null;
+      if (list === null) return '<div style="padding:30px;text-align:center;color:#64748b;font-size:12.5px">⏳ Carregando ranking mensal...</div>';
+      return mcRankingTableMensal(list);
+    }
+    return '';
+  }
+
+  // Tabela Ranking 2 — Desempenho
+  function mcRankingTableDesempenho(ranking) {
+    if (!ranking.length) {
+      return `<div style="background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.1);border-radius:12px;padding:30px;text-align:center">
+        <div style="font-size:28px;margin-bottom:8px">🔥</div>
+        <div style="color:#e2e8f0;font-size:14px;font-weight:600;margin-bottom:4px">Sem reativações no mês corrente</div>
+        <div style="color:#94a3b8;font-size:12px">Quando vendedora reativar cliente que estava 90+ dias sem comprar, ela ganha <strong style="color:#fbbf24">+50 pontos</strong>. Faça acontecer!</div>
+      </div>`;
+    }
+    const meuId = state.profile?.id;
+    const rows = ranking.map((r, idx) => {
+      const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx+1}`;
+      const eu = r.vendedor_profile_id === meuId;
+      const nome = escapeHtml(r.vendedor_nome || '(sem nome)');
+      const ultima = r.ultima_reativacao ? new Date(r.ultima_reativacao).toLocaleDateString('pt-BR') : '—';
+      return `
+        <tr style="border-top:1px solid rgba(255,255,255,0.06);${eu?'background:rgba(167,139,250,0.06)':''}">
+          <td style="padding:10px 14px;color:#94a3b8">${medal}</td>
+          <td style="padding:10px 14px;color:#e2e8f0;font-weight:500">${nome}${eu?' <span style="font-size:9.5px;padding:1px 7px;border-radius:8px;background:#a78bfa;color:#fff;font-weight:700;margin-left:5px">VOCÊ</span>':''}</td>
+          <td style="padding:10px 14px;color:#fbbf24;text-align:right;font-weight:700;font-variant-numeric:tabular-nums">${r.reativacoes_90d}</td>
+          <td style="padding:10px 14px;color:#a78bfa;text-align:right;font-weight:700;font-size:16px;font-variant-numeric:tabular-nums">${r.pontos}</td>
+          <td style="padding:10px 14px;color:#64748b;text-align:right;font-size:11.5px">${ultima}</td>
+          <td style="padding:10px 14px;color:#64748b;text-align:right;font-size:11.5px;font-variant-numeric:tabular-nums">${r.menor_gap_dias || '—'}d</td>
+        </tr>`;
+    }).join('');
+    return `
+      <div style="background:rgba(245,158,11,0.04);border:1px solid rgba(245,158,11,0.15);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:11.5px;color:#fcd34d;line-height:1.5">
+        💡 <strong>Como funciona:</strong> cada cliente que estava <strong>90+ dias sem comprar</strong> e fez novo pedido no mês corrente = <strong>+50 pontos</strong>. Ranking reseta todo mês. Mostra quem está fazendo cliente "morto" voltar a comprar.
+      </div>
+      <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;min-width:560px">
+          <thead><tr style="background:rgba(255,255,255,0.03)">
+            <th style="padding:10px 14px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b">#</th>
+            <th style="padding:10px 14px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b">Vendedor</th>
+            <th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;color:#64748b">Reativações 90d+</th>
+            <th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;color:#64748b">Pontos</th>
+            <th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;color:#64748b">Última</th>
+            <th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;color:#64748b">Menor gap</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  // Tabela Ranking 3 — Mensal com meta
+  function mcRankingTableMensal(ranking) {
+    if (!ranking.length) {
+      return `<div style="background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.1);border-radius:12px;padding:30px;text-align:center">
+        <div style="font-size:28px;margin-bottom:8px">📅</div>
+        <div style="color:#e2e8f0;font-size:14px;font-weight:600;margin-bottom:4px">Sem vendas no mês corrente ainda</div>
+        <div style="color:#94a3b8;font-size:12px">Mês está começando. Aparece aqui assim que houver primeiro pedido.</div>
+      </div>`;
+    }
+    const meuId = state.profile?.id;
+    const cargo = state.profile?.cargo || '';
+    const podeEditarOutros = cargo === 'admin' || cargo === 'gerente_comercial';
+    const mesNome = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+    const rows = ranking.map((r, idx) => {
+      const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx+1}`;
+      const eu = r.vendedor_profile_id === meuId;
+      const podeEditar = eu || podeEditarOutros;
+      const fat = Number(r.faturamento_mes || 0);
+      const meta = Number(r.meta_reais || 0);
+      const pct = r.pct_meta != null ? Number(r.pct_meta) : null;
+      const pctTxt = pct != null ? pct.toFixed(1) + '%' : '—';
+      const pctCor = pct == null ? '#64748b' : pct >= 100 ? '#22c55e' : pct >= 80 ? '#fbbf24' : pct >= 50 ? '#fb923c' : '#ef4444';
+      const barWidth = pct == null ? 0 : Math.min(100, pct);
+      const nome = escapeHtml(r.vendedor_nome || '(sem nome)');
+      return `
+        <tr style="border-top:1px solid rgba(255,255,255,0.06);${eu?'background:rgba(167,139,250,0.06)':''}">
+          <td style="padding:10px 14px;color:#94a3b8">${medal}</td>
+          <td style="padding:10px 14px;color:#e2e8f0;font-weight:500">${nome}${eu?' <span style="font-size:9.5px;padding:1px 7px;border-radius:8px;background:#a78bfa;color:#fff;font-weight:700;margin-left:5px">VOCÊ</span>':''}</td>
+          <td style="padding:10px 14px;color:#a78bfa;text-align:right;font-weight:600;font-variant-numeric:tabular-nums">${fmtBRL(fat)}</td>
+          <td style="padding:10px 14px;color:#94a3b8;text-align:right;font-variant-numeric:tabular-nums">${fmtNum(r.pedidos_mes || 0)}</td>
+          <td style="padding:10px 14px;color:#e2e8f0;text-align:right;font-variant-numeric:tabular-nums">${meta > 0 ? fmtBRL(meta) : '<span style="color:#64748b">—</span>'}</td>
+          <td style="padding:10px 14px;text-align:right;min-width:140px">
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+              <div style="color:${pctCor};font-weight:700;font-variant-numeric:tabular-nums">${pctTxt}</div>
+              ${meta > 0 ? `<div style="width:100px;height:5px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden">
+                <div style="height:100%;width:${barWidth}%;background:${pctCor};border-radius:3px;transition:width 0.4s"></div>
+              </div>` : ''}
+            </div>
+          </td>
+          <td style="padding:10px 14px;text-align:right">
+            ${podeEditar ? `<button type="button" onclick="window.mcAbrirModalMeta('${r.vendedor_profile_id}','${nome.replace(/'/g,'&#39;')}',${meta})"
+              style="padding:4px 10px;border-radius:6px;border:1px solid rgba(167,139,250,0.4);background:rgba(167,139,250,0.1);color:#c4b5fd;cursor:pointer;font-size:11px;font-weight:600">${meta > 0 ? '✎ Editar' : '+ Meta'}</button>` : ''}
+          </td>
+        </tr>`;
+    }).join('');
+    return `
+      <div style="background:rgba(34,197,94,0.04);border:1px solid rgba(34,197,94,0.15);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:11.5px;color:#86efac;line-height:1.5">
+        💡 <strong>Mês corrente:</strong> ${escapeHtml(mesNome)}. Vendedora define sua própria meta (gerência pode override). Reseta automaticamente no dia 1 de cada mês.
+      </div>
+      <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;min-width:760px">
+          <thead><tr style="background:rgba(255,255,255,0.03)">
+            <th style="padding:10px 14px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b">#</th>
+            <th style="padding:10px 14px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b">Vendedor</th>
+            <th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;color:#64748b">Faturamento</th>
+            <th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;color:#64748b">Pedidos</th>
+            <th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;color:#64748b">Meta</th>
+            <th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;color:#64748b">% Meta</th>
+            <th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;color:#64748b">Ação</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  // Troca de tab — carrega lazy se necessário
+  window.mcSwitchRankingTab = async function(tab) {
+    state.mcRankingTab = tab;
+    const el = document.getElementById('mc-ranking-content');
+    const tabsContainer = el?.parentElement?.querySelector('div:first-child > div:first-child');
+    // Atualiza estilos das tabs (não precisa re-render bloco inteiro, só conteúdo + estilos)
+    if (el?.parentElement) {
+      const allBtns = el.parentElement.querySelectorAll('button[onclick*="mcSwitchRankingTab"]');
+      allBtns.forEach(b => {
+        const isAtiva = b.getAttribute('onclick').includes(`'${tab}'`);
+        b.style.background = isAtiva ? 'rgba(167,139,250,0.12)' : 'transparent';
+        b.style.borderBottom = isAtiva ? '2px solid #a78bfa' : '2px solid transparent';
+        b.style.color = isAtiva ? '#e2e8f0' : '#94a3b8';
+        b.style.fontWeight = isAtiva ? '700' : '500';
+      });
+    }
+
+    // Lazy load: busca se ainda não tem
+    if (tab === 'desempenho' && !state.mcRankingDesempenho) {
+      if (el) el.innerHTML = '<div style="padding:30px;text-align:center;color:#64748b;font-size:12.5px">⏳ Carregando ranking de desempenho...</div>';
+      state.mcRankingDesempenho = await mcLoadRankingDesempenho(state.empresa);
+    } else if (tab === 'mensal' && !state.mcRankingMensal) {
+      if (el) el.innerHTML = '<div style="padding:30px;text-align:center;color:#64748b;font-size:12.5px">⏳ Carregando ranking mensal...</div>';
+      state.mcRankingMensal = await mcLoadRankingMensal(state.empresa);
+    }
+
+    // Renderiza conteúdo
+    if (el) {
+      el.innerHTML = mcRankingTabRender(tab, state.mcRankingGeralCache || [], state.mcRankingTotalFatCache || 0);
+    }
+
+    // Mostra/esconde botão PDF conforme cargo
+    const cargo = state.profile?.cargo || '';
+    const podeExportarSempre = cargo === 'admin' || cargo === 'gerente_comercial';
+    const mostrarPDF = tab === 'mensal' || podeExportarSempre;
+    if (el?.parentElement) {
+      const pdfBtn = el.parentElement.querySelector('button[onclick*="mcExportarRankingPDF"]');
+      if (pdfBtn) {
+        pdfBtn.style.display = mostrarPDF ? '' : 'none';
+        pdfBtn.setAttribute('onclick', `window.mcExportarRankingPDF('${tab}')`);
+      } else if (mostrarPDF) {
+        // Botão não existe ainda (admin trocou de tab onde não aparecia) — adicionar
+        const header = el.parentElement.querySelector('div:first-child');
+        if (header) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.setAttribute('onclick', `window.mcExportarRankingPDF('${tab}')`);
+          btn.style.cssText = 'padding:6px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:8px';
+          btn.innerHTML = '🖨 Exportar PDF';
+          header.appendChild(btn);
+        }
+      }
+    }
+  };
+
+  // Modal pra editar meta mensal
+  window.mcAbrirModalMeta = function(vendedorId, vendedorNome, metaAtual) {
+    const meuId = state.profile?.id;
+    const cargo = state.profile?.cargo || '';
+    const ehOutro = vendedorId !== meuId;
+    const aviso = ehOutro
+      ? `<div style="padding:8px 12px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:6px;font-size:11.5px;color:#fcd34d;margin-bottom:14px">⚠ Você está editando a meta de outra pessoa (override de gerência). Ação registrada no histórico.</div>`
+      : '';
+    const now = new Date();
+    const mesNome = now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    const html = `
+      <div id="mc-modal-meta-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);z-index:10200;display:flex;align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)document.getElementById('mc-modal-meta-overlay').remove()">
+        <div style="background:#1a1f2e;border:1px solid rgba(255,255,255,0.1);border-radius:12px;max-width:440px;width:100%;padding:22px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+            <div>
+              <div style="font-size:16px;font-weight:700;color:#e2e8f0">📅 Meta mensal</div>
+              <div style="font-size:12px;color:#94a3b8;margin-top:2px">${escapeHtml(vendedorNome)} · ${escapeHtml(mesNome)}</div>
+            </div>
+            <button onclick="document.getElementById('mc-modal-meta-overlay').remove()" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:22px;line-height:1;padding:0">×</button>
+          </div>
+          ${aviso}
+          <label style="display:block;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600">Meta de faturamento (R$)</label>
+          <input type="number" id="mc-meta-input" value="${metaAtual || ''}" min="0" step="1000" placeholder="Ex: 50000" style="width:100%;padding:12px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:16px;font-weight:600;font-variant-numeric:tabular-nums" autofocus>
+          <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">
+            <button type="button" onclick="document.getElementById('mc-modal-meta-overlay').remove()" style="padding:9px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:#94a3b8;cursor:pointer;font-size:13px">Cancelar</button>
+            <button type="button" onclick="window.mcSalvarMeta('${vendedorId}')" id="mc-meta-salvar-btn" style="padding:9px 18px;border-radius:8px;border:none;background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;cursor:pointer;font-size:13px;font-weight:700">💾 Salvar meta</button>
+          </div>
+        </div>
+      </div>`;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    document.body.appendChild(wrap.firstElementChild);
+    setTimeout(() => document.getElementById('mc-meta-input')?.focus(), 50);
+  };
+
+  window.mcSalvarMeta = async function(vendedorId) {
+    const input = document.getElementById('mc-meta-input');
+    const btn = document.getElementById('mc-meta-salvar-btn');
+    if (!input || !btn) return;
+    const valor = parseFloat(input.value || '0');
+    if (isNaN(valor) || valor < 0) {
+      if (typeof showToast === 'function') showToast('Meta inválida', 'error');
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = '⏳ Salvando...';
+    const now = new Date();
+    try {
+      const { data, error } = await state.sb.rpc('setar_meta_mensal', {
+        p_ano: now.getFullYear(),
+        p_mes: now.getMonth() + 1,
+        p_vendedor_profile_id: vendedorId,
+        p_meta_reais: valor,
+        p_empresa: state.empresa || null,
+      });
+      if (error) throw error;
+      if (data && data.ok === false) {
+        if (typeof showToast === 'function') showToast(data.mensagem || 'Erro: ' + data.erro, 'error');
+        btn.disabled = false;
+        btn.textContent = '💾 Salvar meta';
+        return;
+      }
+      if (typeof showToast === 'function') showToast('✓ Meta salva');
+      document.getElementById('mc-modal-meta-overlay')?.remove();
+      // Invalida cache + recarrega Ranking 3
+      state.mcRankingMensal = null;
+      window.mcSwitchRankingTab('mensal');
+    } catch (e) {
+      console.error('[mc] salvar meta:', e);
+      if (typeof showToast === 'function') showToast('Erro: ' + (e.message || String(e)).slice(0, 200), 'error');
+      btn.disabled = false;
+      btn.textContent = '💾 Salvar meta';
+    }
+  };
 
   function mcRankingTable(ranking, totalFat) {
     const rows = ranking.map((r, idx) => {
@@ -5802,7 +6129,94 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
   };
 
   // ─── Export PDF do Ranking (admin/gerente) ───
-  window.mcExportarRankingPDF = async function() {
+  // PDF Ranking Desempenho (reativações 90+ dias do mês)
+  function mcExportarDesempenhoPDF(ranking) {
+    if (!ranking.length) { alert('Sem dados — nada a exportar'); return; }
+    const empresa = EMPRESA_LABELS[state.empresa] || state.empresa;
+    const hoje = new Date().toLocaleDateString('pt-BR');
+    const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const mesNome = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    const medalha = (i) => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + 'º';
+    const totalReat = ranking.reduce((s, r) => s + (r.reativacoes_90d || 0), 0);
+    const totalPts = ranking.reduce((s, r) => s + (r.pontos || 0), 0);
+    const rowsHtml = ranking.map((r, i) => {
+      const ultima = r.ultima_reativacao ? new Date(r.ultima_reativacao).toLocaleDateString('pt-BR') : '—';
+      return `<tr>
+        <td style="text-align:center;font-weight:700">${medalha(i)}</td>
+        <td style="font-weight:600">${escapeHtml(r.vendedor_nome || '(sem nome)')}</td>
+        <td style="text-align:right">${r.reativacoes_90d}</td>
+        <td style="text-align:right;font-weight:700">${r.pontos}</td>
+        <td style="text-align:right">${ultima}</td>
+        <td style="text-align:right">${r.menor_gap_dias || '—'}d</td>
+        <td style="text-align:right">${r.maior_gap_dias || '—'}d</td>
+      </tr>`;
+    }).join('');
+    const win = window.open('', '_blank', 'width=1100,height=800');
+    if (!win) { alert('Permita popups para exportar PDF'); return; }
+    win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Ranking Desempenho — ${empresa} — ${hoje}</title>
+    <style>* { box-sizing: border-box; margin: 0; padding: 0; } body { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; padding: 32px 40px; color: #111; background: #fff; } .header { border-bottom: 2px solid #111; padding-bottom: 12px; margin-bottom: 18px; display:flex; justify-content:space-between; align-items:flex-end; } .header h1 { font-size: 24px; font-weight: 800; } .meta { font-size: 11px; color: #666; text-align: right; } .kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; } .kpi { padding: 12px 14px; border: 1px solid #ddd; border-radius: 8px; } .kpi .label { font-size: 10px; text-transform: uppercase; color: #888; font-weight: 600; } .kpi .value { font-size: 22px; font-weight: 700; } table { width: 100%; border-collapse: collapse; font-size: 12px; } th { background: #111; color: #fff; padding: 8px 10px; text-align: left; } th:not(:nth-child(2)):not(:first-child) { text-align: right; } td { padding: 7px 10px; border-bottom: 1px solid #eee; } tr:nth-child(even) td { background: #f8f9fa; } .footer { margin-top: 30px; padding-top: 12px; border-top: 1px solid #eee; font-size: 10px; color: #999; text-align: center; } @media print { body { padding: 20px; } .no-print { display: none; } @page { size: A4 landscape; margin: 15mm; } } .btn-print { position: fixed; top: 20px; right: 20px; padding: 10px 18px; background: #111; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }</style></head>
+    <body><button class="btn-print no-print" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
+    <div class="header"><div><h1>Ranking de Desempenho</h1><div style="font-size:11px;color:#666;margin-top:2px">Reativações 90+ dias · ${escapeHtml(mesNome)} · ${empresa}</div></div><div class="meta">Gerado em ${hoje} às ${hora}<br>Dana Marketing System</div></div>
+    <div class="kpi-row"><div class="kpi"><div class="label">Vendedores</div><div class="value">${ranking.length}</div></div><div class="kpi"><div class="label">Reativações no mês</div><div class="value">${totalReat}</div></div><div class="kpi"><div class="label">Pontos totais</div><div class="value">${totalPts}</div></div></div>
+    <table><thead><tr><th style="width:40px">#</th><th>Vendedor</th><th>Reativações 90d+</th><th>Pontos</th><th>Última reat.</th><th>Menor gap</th><th>Maior gap</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+    <div class="footer">Critério: cliente que não comprou há 90+ dias voltou a comprar no mês corrente. +50 pontos por reativação.</div></body></html>`);
+    win.document.close();
+  }
+
+  // PDF Ranking Mensal (com meta)
+  function mcExportarMensalPDF(ranking) {
+    if (!ranking.length) { alert('Sem dados — nada a exportar'); return; }
+    const empresa = EMPRESA_LABELS[state.empresa] || state.empresa;
+    const hoje = new Date().toLocaleDateString('pt-BR');
+    const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const mesNome = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    const medalha = (i) => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + 'º';
+    const totalFat = ranking.reduce((s, r) => s + Number(r.faturamento_mes || 0), 0);
+    const totalMeta = ranking.reduce((s, r) => s + Number(r.meta_reais || 0), 0);
+    const totalPed = ranking.reduce((s, r) => s + Number(r.pedidos_mes || 0), 0);
+    const rowsHtml = ranking.map((r, i) => {
+      const fat = Number(r.faturamento_mes || 0);
+      const meta = Number(r.meta_reais || 0);
+      const pct = r.pct_meta != null ? Number(r.pct_meta) : null;
+      const pctTxt = pct != null ? pct.toFixed(1) + '%' : '—';
+      return `<tr>
+        <td style="text-align:center;font-weight:700">${medalha(i)}</td>
+        <td style="font-weight:600">${escapeHtml(r.vendedor_nome || '(sem nome)')}</td>
+        <td style="text-align:right">${fmtBRL(fat)}</td>
+        <td style="text-align:right">${fmtNum(r.pedidos_mes || 0)}</td>
+        <td style="text-align:right">${meta > 0 ? fmtBRL(meta) : '—'}</td>
+        <td style="text-align:right;font-weight:700;color:${pct == null ? '#888' : pct >= 100 ? '#16a34a' : pct >= 80 ? '#ca8a04' : '#dc2626'}">${pctTxt}</td>
+      </tr>`;
+    }).join('');
+    const win = window.open('', '_blank', 'width=1100,height=800');
+    if (!win) { alert('Permita popups para exportar PDF'); return; }
+    win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Ranking Mensal — ${empresa} — ${hoje}</title>
+    <style>* { box-sizing: border-box; margin: 0; padding: 0; } body { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; padding: 32px 40px; color: #111; background: #fff; } .header { border-bottom: 2px solid #111; padding-bottom: 12px; margin-bottom: 18px; display:flex; justify-content:space-between; align-items:flex-end; } .header h1 { font-size: 24px; font-weight: 800; } .meta { font-size: 11px; color: #666; text-align: right; } .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; } .kpi { padding: 12px 14px; border: 1px solid #ddd; border-radius: 8px; } .kpi .label { font-size: 10px; text-transform: uppercase; color: #888; font-weight: 600; } .kpi .value { font-size: 20px; font-weight: 700; } table { width: 100%; border-collapse: collapse; font-size: 12px; } th { background: #111; color: #fff; padding: 8px 10px; text-align: left; } th:not(:nth-child(2)):not(:first-child) { text-align: right; } td { padding: 7px 10px; border-bottom: 1px solid #eee; } tr:nth-child(even) td { background: #f8f9fa; } .footer { margin-top: 30px; padding-top: 12px; border-top: 1px solid #eee; font-size: 10px; color: #999; text-align: center; } @media print { body { padding: 20px; } .no-print { display: none; } @page { size: A4 landscape; margin: 15mm; } } .btn-print { position: fixed; top: 20px; right: 20px; padding: 10px 18px; background: #111; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }</style></head>
+    <body><button class="btn-print no-print" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
+    <div class="header"><div><h1>Ranking Mensal — ${escapeHtml(mesNome)}</h1><div style="font-size:11px;color:#666;margin-top:2px">Faturamento × Meta · ${empresa}</div></div><div class="meta">Gerado em ${hoje} às ${hora}<br>Dana Marketing System</div></div>
+    <div class="kpi-row"><div class="kpi"><div class="label">Vendedores</div><div class="value">${ranking.length}</div></div><div class="kpi"><div class="label">Pedidos</div><div class="value">${fmtNum(totalPed)}</div></div><div class="kpi"><div class="label">Faturamento</div><div class="value">${fmtBRL(totalFat)}</div></div><div class="kpi"><div class="label">Meta total</div><div class="value">${fmtBRL(totalMeta)}</div></div></div>
+    <table><thead><tr><th style="width:40px">#</th><th>Vendedor</th><th>Faturamento</th><th>Pedidos</th><th>Meta</th><th>% Meta</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+    <div class="footer">Meta definida pela própria vendedora ou gerência. Reseta no dia 1 de cada mês.</div></body></html>`);
+    win.document.close();
+  }
+
+  window.mcExportarRankingPDF = async function(tab) {
+    tab = tab || state.mcRankingTab || 'geral';
+    // Bloqueio de permissão: vendedora só pode exportar tab Mensal (sua meta)
+    const cargo = state.profile?.cargo || '';
+    const podeExportarSempre = cargo === 'admin' || cargo === 'gerente_comercial';
+    if (!podeExportarSempre && tab !== 'mensal') {
+      if (typeof showToast === 'function') showToast('Apenas admin e gerência podem exportar este ranking', 'error');
+      return;
+    }
+
+    if (tab === 'desempenho') {
+      return mcExportarDesempenhoPDF(state.mcRankingDesempenho || []);
+    }
+    if (tab === 'mensal') {
+      return mcExportarMensalPDF(state.mcRankingMensal || []);
+    }
+    // Default: Ranking Geral (código original abaixo)
     const ranking = state.mcAdminVendedores || [];
     if (!ranking.length) { alert('Ranking vazio — nada a exportar'); return; }
 
