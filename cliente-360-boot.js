@@ -605,14 +605,21 @@
     window.scrollTo(0,0);
 
     try {
-      // Cliente completo + pedidos
+      // Cliente completo + pedidos + inadimplência (Fase 2)
       const c = state.clientes.find(x => x.contato_nome === nome);
-      const [pedidos] = await Promise.all([ fetchPedidosCliente(nome, state.empresa) ]);
+      const [pedidos, inadResult] = await Promise.all([
+        fetchPedidosCliente(nome, state.empresa),
+        state.sb.from('cliente_inadimplencia')
+          .select('total_atrasado, max_dias_atraso, qtd_contas_atrasadas, vencimento_mais_antigo, pedidos_origem')
+          .eq('contato_nome', nome).eq('empresa', state.empresa).maybeSingle()
+      ]);
       const fav = computeFavoritos(pedidos);
+      const inad = (inadResult && !inadResult.error) ? inadResult.data : null;
+      if (c) c._inadimplencia = inad;
       renderClientDetail(c, nome, pedidos, fav);
       // Injeta painel de metadata (status/tel_alt/observacao) logo abaixo do header
       if (c?.contato_id) {
-        await injectMetadataPanel(c.contato_id, state.empresa, nome);
+        await injectMetadataPanel(c.contato_id, state.empresa, nome, inad);
       }
     } catch (e) {
       console.error('[c360] erro detalhe:', e);
@@ -632,7 +639,7 @@
     { v: 'sem_interesse', l: '😐 Sem interesse', cor: '#94a3b8' },
   ];
 
-  async function injectMetadataPanel(contatoId, empresa, nome) {
+  async function injectMetadataPanel(contatoId, empresa, nome, inadOpt) {
     const page = document.getElementById('page-cliente-1');
     if (!page) return;
     // Busca metadata existente
@@ -641,6 +648,19 @@
     const status = meta?.status_relacionamento || 'novo';
     const tel = meta?.telefone_alternativo || '';
     const obs = meta?.observacao_rapida || '';
+
+    // FASE 2: card de inadimplência (se cliente devendo) — opcional, vem do showClientDetail
+    const inad = inadOpt && Number(inadOpt.total_atrasado) > 0 ? inadOpt : null;
+    const inadHtml = inad ? `
+      <div style="margin-bottom:12px;padding:10px 12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.35);border-radius:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:12.5px;color:#fca5a5;font-weight:700">💳 Inadimplência ativa: ${fmtBRL(inad.total_atrasado)}</div>
+            <div style="font-size:11px;color:#94a3b8;margin-top:3px">${inad.qtd_contas_atrasadas} conta(s) atrasada(s)${inad.max_dias_atraso > 0 ? ' · '+inad.max_dias_atraso+'d atraso' : ' · vence hoje'}${inad.pedidos_origem ? ' · pedidos: '+escapeHtml(inad.pedidos_origem) : ''}</div>
+          </div>
+          <div style="font-size:10.5px;color:#fca5a5;font-style:italic">⚠ priorize cobrança antes de nova oferta</div>
+        </div>
+      </div>` : '';
 
     // Cria card da metadata e injeta no topo do detalhe (depois do breadcrumb "Voltar")
     const existente = document.getElementById('c360-meta-panel');
@@ -651,6 +671,7 @@
     const statusCor = METADATA_STATUS.find(s => s.v === status)?.cor || '#94a3b8';
 
     panel.innerHTML = `
+      ${inadHtml}
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap">
         <div style="font-family:'Playfair Display',serif;font-size:14px;font-weight:600;color:#f1f5f9">📝 Acompanhamento comercial</div>
         ${meta?.atualizado_em ? `<div style="font-size:10.5px;color:#64748b">${escapeHtml(meta.atualizado_por_nome || '—')} · ${new Date(meta.atualizado_em).toLocaleString('pt-BR')}</div>` : ''}
@@ -1051,6 +1072,17 @@
     const barRecColor = pRec >= 70 ? '#22c55e' : pRec >= 40 ? '#eab308' : '#ef4444';
     const recLabel = pRec >= 70 ? 'Alta chance de recompra' : pRec >= 40 ? 'Média chance de recompra' : 'Baixa chance — reativar';
 
+    // ─── FASE 2: badge inadimplência (vermelho) se cliente devendo ───
+    let inadimpHtml = '';
+    try {
+      const inad = c._inadimplencia;
+      if (inad && Number(inad.total_atrasado) > 0) {
+        const dias = inad.max_dias_atraso;
+        const diasLabel = dias > 0 ? ` · ${dias}d atraso` : ' · vence hoje';
+        inadimpHtml = `<span style="background:rgba(239,68,68,0.15);color:#fca5a5;border:1px solid rgba(239,68,68,0.4);padding:4px 10px;border-radius:12px;font-size:11px;font-weight:600" title="${inad.qtd_contas_atrasadas} conta(s) atrasada(s) · pedidos: ${escapeHtml(inad.pedidos_origem || '—')}">💳 Devendo ${fmtBRL(inad.total_atrasado)}${diasLabel}</span>`;
+      }
+    } catch (e) { /* silencioso */ }
+
     // ─── FASE 1: badge "Pós-venda em Xd" se tem pedido entre 27-30 dias atrás ───
     // Heurística client-side antes do cron disparar — vendedora vê a janela aproximada
     let posvendaPendenteHtml = '';
@@ -1119,6 +1151,7 @@
             <h2 style="margin:0;font-size:22px;font-weight:700;color:#f1f5f9">${escapeHtml(nome)}</h2>
             <span class="inline-flex items-center rounded-full font-medium text-xs px-2.5 py-1 ${segStyle.bg} ${segStyle.fg} border ${segStyle.border}">${seg}</span>
             <span class="inline-flex items-center rounded-full font-medium text-xs px-2.5 py-1 ${risco.cls} border">Risco: ${risco.label}</span>
+            ${inadimpHtml}
             ${posvendaPendenteHtml}
           </div>
           <div style="font-size:13px;color:#94a3b8;margin-bottom:4px">${fone ? escapeHtml(fone) : '<span style="color:#475569">sem telefone</span>'}${c.uf ? ' · '+c.uf : ''}${doc ? ' · '+escapeHtml(doc) : ''}</div>

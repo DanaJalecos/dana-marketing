@@ -1,36 +1,34 @@
-// ══════════════════════════════════════════════════════════
-// Edge Function: cliente360-insight
-// Gera insight personalizado de um cliente via Groq/Gemini
+// ══════════════════════════════════════════════════════════════════════════
+// Edge Function: cliente360-insight (versão SEM @supabase/supabase-js)
+// Reescrita com fetch direto pra REST API + Auth pra ser resiliente a
+// problemas de cache CDN do Deno. Mesmo pattern do sync-magazord.
 //
 // Uso:
 //   POST /functions/v1/cliente360-insight
 //   Body: { contato_nome: string, empresa: 'matriz'|'bc' }
 //   Headers: Authorization: Bearer <jwt_do_usuario>
-// ══════════════════════════════════════════════════════════
-
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+// ══════════════════════════════════════════════════════════════════════════
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+const SR = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+const ANON = Deno.env.get('SUPABASE_ANON_KEY')!
 const GROQ_API_KEY = Deno.env.get('GROQ_API_KEY')!
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY')!
 
 const GROQ_MODEL = 'llama-3.3-70b-versatile'
-const GEMINI_MODEL = 'gemini-2.5-flash'
+const GEMINI_MODEL = 'gemini-2.5-pro'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
-const json = (o: any, status = 200) =>
+const json = (o: unknown, status = 200) =>
   new Response(JSON.stringify(o), { status, headers: { ...CORS, 'Content-Type': 'application/json' } })
 
-const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
-
-const CARGOS_AUTORIZADOS = new Set(['admin', 'gerente_comercial', 'gerente_marketing', 'vendedor'])
+const CARGOS_AUTORIZADOS = new Set(['admin', 'gerente_comercial', 'gerente_marketing', 'vendedor', 'vendedora'])
 const CARGOS_ILIMITADOS = new Set(['admin'])
-const CARGOS_GERENTE    = new Set(['gerente_comercial', 'gerente_marketing'])
+const CARGOS_GERENTE = new Set(['gerente_comercial', 'gerente_marketing'])
 
 const LOJA_NOMES: Record<string, string> = {
   '0': 'Site', 'null': 'Site',
@@ -40,10 +38,77 @@ const LOJA_NOMES: Record<string, string> = {
   '205430008': 'TikTok Shop',
   '205522474': 'Shopee',
 }
-const lojaNome = (id: any) => (id === null || id === 0) ? 'Site' : (LOJA_NOMES[String(id)] || 'Magalu')
+const lojaNome = (id: unknown) =>
+  (id === null || id === 0 || id === undefined) ? 'Site' : (LOJA_NOMES[String(id)] || 'Magalu')
 
-function fmtBRL(n: any) {
+function fmtBRL(n: unknown) {
   return (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+// ── Helpers fetch direto pra Supabase (sem @supabase/supabase-js) ────────
+async function supaGet(path: string): Promise<any[]> {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    headers: { apikey: SR, Authorization: `Bearer ${SR}` },
+  })
+  if (!r.ok) throw new Error(`supaGet ${path}: ${r.status} ${(await r.text()).slice(0, 200)}`)
+  return r.json()
+}
+
+async function supaSingle(path: string): Promise<any | null> {
+  const rows = await supaGet(path)
+  return rows && rows.length > 0 ? rows[0] : null
+}
+
+async function supaRpc(fn: string, args?: Record<string, unknown>): Promise<any> {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: { apikey: SR, Authorization: `Bearer ${SR}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(args || {}),
+  })
+  if (!r.ok) throw new Error(`supaRpc ${fn}: ${r.status} ${(await r.text()).slice(0, 200)}`)
+  return r.json()
+}
+
+async function supaInsert(table: string, row: Record<string, unknown>): Promise<void> {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+    method: 'POST',
+    headers: {
+      apikey: SR, Authorization: `Bearer ${SR}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(row),
+  })
+  if (!r.ok) {
+    const t = await r.text()
+    console.warn(`[insight] insert ${table} falhou: ${r.status} ${t.slice(0, 200)}`)
+  }
+}
+
+async function supaUpdate(table: string, where: string, patch: Record<string, unknown>): Promise<void> {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${where}`, {
+    method: 'PATCH',
+    headers: {
+      apikey: SR, Authorization: `Bearer ${SR}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(patch),
+  })
+  if (!r.ok) {
+    const t = await r.text()
+    console.warn(`[insight] update ${table}: ${r.status} ${t.slice(0, 200)}`)
+  }
+}
+
+// Valida JWT do user e retorna { id, email } ou null
+async function getUserFromJwt(jwt: string): Promise<{ id: string; email?: string } | null> {
+  const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    headers: { apikey: ANON, Authorization: `Bearer ${jwt}` },
+  })
+  if (!r.ok) return null
+  const u = await r.json()
+  return u && u.id ? { id: u.id, email: u.email } : null
 }
 
 const SYSTEM_PROMPT = `Você é um consultor de CRM da Dana Jalecos (empresa brasileira de jalecos/scrubs/uniformes de saúde).
@@ -60,21 +125,60 @@ REGRAS:
 7. Se o cliente for "Consumidor Final" ou razão social genérica, note isso na análise.
 8. Use **negrito** em dados-chave (números, nomes de canais, categorias). Não use headers Markdown.
 
-FORMATO OBRIGATÓRIO (exatamente 3 seções, nesse formato, com os rótulos em CAIXA ALTA seguidos de dois-pontos):
+CANAL PREFERIDO — USE LITERALMENTE O QUE ESTIVER NO CONTEXTO:
+Os dados fornecem o campo "Canal preferido". Use EXATAMENTE esse texto. Exemplos:
+- Se contexto diz "Loja/WhatsApp Piçarras" → escreva "Loja/WhatsApp Piçarras". NÃO escreva "Site".
+- Se contexto diz "Mercado Livre" → escreva "Mercado Livre". NÃO escreva "marketplace" genérico.
+NUNCA infira canal preferido a partir de outras frases — só do campo explícito.
+
+REGRAS DE AÇÃO COMERCIAL POR SEGMENTO (CRÍTICO — siga rigorosamente):
+- **VIP**: NUNCA ofereça desconto monetário. VIPs já compram bastante e oferecer desconto desvaloriza a relação. Sugira BRINDE PERSONALIZADO (broche bordado com nome, bolsa porta-jaleco, chaveiro com a marca, caneta) ou CONDIÇÃO ESPECIAL (frete grátis, brinde na próxima compra, kit exclusivo de lançamento, acesso antecipado a coleções novas).
+- **Frequente**: pode oferecer desconto pequeno (5-8%) OU brinde, depende do contexto. Use desconto se o objetivo for fechar venda agora; brinde se for fidelizar.
+- **Ocasional**: desconto promocional médio (10-15%) pra incentivar nova compra.
+- **Em Risco**: desconto agressivo (15-20%) + contato direto pelo WhatsApp pra reativar.
+- **Inativo**: desconto forte (20-25%) + benefício adicional (frete grátis, brinde) + ligação/WhatsApp pessoal.
+
+REGRA DE INADIMPLÊNCIA (PRIORIDADE MÁXIMA — sobrepõe TODAS as outras):
+Se o contexto traz "Inadimplência: ⚠ DEVENDO..." (cliente em atraso):
+- NÃO ofereça novos descontos, produtos, brindes ou novidades. ZERO oferta nova.
+- A AÇÃO deve ser EXCLUSIVAMENTE lembrar do pagamento atrasado, de forma cordial mas firme.
+- A MENSAGEM WHATSAPP deve mencionar o valor pendente e perguntar se o cliente quer parcelar/regularizar.
+- Tom: respeitoso, sem julgar — "Notamos uma conta em aberto..." / "Quer combinar uma forma de quitar?"
+- ZERO senso de urgência comercial — só cobrança humanizada.
+- ZERO emoji exceto talvez 1 (😊 ou 🙂).
+- NUNCA termine sugerindo nova compra. Só após resolver a pendência.
+Essa regra vale pra QUALQUER segmento (até VIP). Pagamento atrasado tem prioridade sobre relacionamento.
+
+FORMATO OBRIGATÓRIO (exatamente 4 seções, nesse formato, com os rótulos em CAIXA ALTA seguidos de dois-pontos):
 
 ANÁLISE DO COMPORTAMENTO ATUAL:
-(parágrafo único descrevendo o perfil de compra: frequência, ticket, canal preferido, categorias, tempo ativo, segmento RFM)
+(parágrafo único descrevendo o perfil de compra: frequência, ticket, canal preferido [LITERAL do contexto], categorias, tempo ativo, segmento RFM)
 
 RISCO OU OPORTUNIDADE PRINCIPAL:
 (parágrafo único sobre O principal risco OU oportunidade — escolha o mais relevante e seja específico com números e datas)
 
 AÇÃO COMERCIAL RECOMENDADA:
-(parágrafo único com 1-2 ações concretas: o que oferecer, quando contatar, qual canal usar, com que tom)`
+(parágrafo único com 1-2 ações concretas que SEGUEM A REGRA DE AÇÃO POR SEGMENTO acima: o que oferecer [brinde vs desconto conforme segmento], quando contatar, qual canal usar [literal do contexto], com que tom)
+
+MENSAGEM WHATSAPP PRONTA:
+(texto curto e direto pra vendedora COPIAR e enviar via WhatsApp ao cliente — 2 a 4 linhas no máximo)
+
+REGRAS DA MENSAGEM WHATSAPP (CRÍTICO):
+- Tom: cordial mas direto, em primeira pessoa do plural ("queremos te oferecer", "preparamos pra você")
+- DEVE refletir a AÇÃO COMERCIAL RECOMENDADA da seção anterior — siga as REGRAS POR SEGMENTO rigorosamente:
+  · Se cliente VIP: NUNCA mencione desconto. Ofereça BRINDE (broche bordado, kit exclusivo, frete grátis, acesso antecipado a coleção nova). Use frases como "preparamos um brinde exclusivo" ou "selecionamos uma cortesia".
+  · Se Frequente: pode mencionar desconto pequeno (5-8%) OU brinde, alinhado com a ação.
+  · Se Ocasional / Em Risco / Inativo: pode mencionar desconto (no patamar % das regras acima).
+- Cite o nome do cliente literalmente no começo ("Olá, [nome]!")
+- Se o contexto traz **categoria preferida** (Jalecos/Scrubs/etc), mencione ela na oferta
+- Finalize SEMPRE com algo tipo "— Equipe Dana Jalecos" ou "Abraços, Dana Jalecos"
+- NUNCA mencione concorrentes nem prazos vagos. Sem hashtags. Sem emojis em excesso (max 1-2).
+- NUNCA invente promoções específicas com datas — fale em termos gerais ("essa semana", "preparamos pra você")`
 
 async function callGroq(messages: any[]) {
   const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: GROQ_MODEL, messages, temperature: 0.5, max_tokens: 900 }),
   })
   if (!resp.ok) throw new Error(`Groq ${resp.status}: ${(await resp.text()).slice(0, 300)}`)
@@ -99,21 +203,20 @@ async function callGemini(prompt: string) {
   return j?.candidates?.[0]?.content?.parts?.[0]?.text || ''
 }
 
-async function gerarInsight(contexto: string): Promise<{ text: string, modelo: string }> {
-  const messages = [
-    { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: contexto },
-  ]
-  // Tenta Groq primeiro
+async function gerarInsight(contexto: string): Promise<{ text: string; modelo: string }> {
+  const messages = [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: contexto }]
   try {
     const text = await callGroq(messages)
     if (text) return { text, modelo: GROQ_MODEL }
   } catch (e) {
     console.warn('[insight] Groq falhou:', (e as Error).message)
   }
-  // Fallback Gemini (combina system + user em 1 prompt)
   const text = await callGemini(SYSTEM_PROMPT + '\n\n---\n\n' + contexto)
   return { text, modelo: GEMINI_MODEL }
+}
+
+function enc(v: string): string {
+  return encodeURIComponent(v)
 }
 
 Deno.serve(async (req) => {
@@ -126,24 +229,21 @@ Deno.serve(async (req) => {
     const jwt = authHeader.replace(/^Bearer /, '')
     if (!jwt) return json({ error: 'Autenticação obrigatória' }, 401)
 
-    const userClient = createClient(SUPABASE_URL, Deno.env.get('SUPABASE_ANON_KEY')!, {
-      global: { headers: { Authorization: authHeader } },
-    })
-    const { data: userData, error: userErr } = await userClient.auth.getUser(jwt)
-    if (userErr || !userData.user) return json({ error: 'JWT inválido' }, 401)
+    const user = await getUserFromJwt(jwt)
+    if (!user) return json({ error: 'JWT inválido' }, 401)
 
-    // 2. Permissão (admin, gerentes ou vendedor com quota)
-    const { data: profile } = await admin.from('profiles').select('cargo, nome').eq('id', userData.user.id).single()
+    // 2. Permissão
+    const profileRows = await supaGet(`profiles?id=eq.${user.id}&select=cargo,nome&limit=1`)
+    const profile = profileRows[0] || null
     const cargo = profile?.cargo || 'vendedor'
     if (!CARGOS_AUTORIZADOS.has(cargo)) {
       return json({ error: 'Sem permissão. Insights IA disponível para admin, gerentes e vendedores.' }, 403)
     }
 
-    // 2.1. Config + kill-switch + quota
-    const { data: cfg } = await admin.from('cliente_insights_config').select('*').eq('id', 1).single()
-    const config = cfg || {
-      ativo: true, limite_diario_vendedor: 5, limite_diario_gerente: 20,
-      limite_mensal_reais: 30, custo_por_insight_reais: 0.02, pausado_por_limite: false
+    // 2.1 Config + kill-switch + quota
+    const config = await supaSingle('cliente_insights_config?id=eq.1&select=*&limit=1') || {
+      ativo: true, limite_diario_vendedor: 10, limite_diario_gerente: 20,
+      limite_mensal_reais: 30, custo_por_insight_reais: 0.10, pausado_por_limite: false,
     }
     if (!config.ativo) {
       return json({ error: 'Geração de insights está desativada pelo admin.' }, 403)
@@ -152,33 +252,30 @@ Deno.serve(async (req) => {
       return json({ error: 'Geração de insights pausada — limite mensal atingido. Fale com o admin.' }, 403)
     }
 
-    // Kill-switch automático: gasto do mês >= limite
-    const { data: gastoMes } = await admin.rpc('cliente_insights_gasto_mes')
+    // Kill-switch automático
+    const gastoMes = await supaRpc('cliente_insights_gasto_mes')
     const gasto = Number(gastoMes) || 0
     if (gasto >= Number(config.limite_mensal_reais)) {
-      // Auto-pausa
-      await admin.from('cliente_insights_config').update({ pausado_por_limite: true }).eq('id', 1)
+      await supaUpdate('cliente_insights_config', 'id=eq.1', { pausado_por_limite: true })
       return json({ error: `Limite mensal de R$ ${config.limite_mensal_reais} atingido. Geração pausada.` }, 403)
     }
 
-    // Quota diária (admin ilimitado)
+    // Quota diária
     let limiteDiario = 0
     if (CARGOS_ILIMITADOS.has(cargo)) {
-      limiteDiario = -1 // ilimitado
+      limiteDiario = -1
     } else if (CARGOS_GERENTE.has(cargo)) {
       limiteDiario = Number(config.limite_diario_gerente) || 20
     } else {
-      // vendedor
-      limiteDiario = Number(config.limite_diario_vendedor) || 5
+      limiteDiario = Number(config.limite_diario_vendedor) || 10
     }
-
     if (limiteDiario !== -1) {
-      const { data: countHoje } = await admin.rpc('cliente_insights_count_hoje', { uid: userData.user.id })
+      const countHoje = await supaRpc('cliente_insights_count_hoje', { uid: user.id })
       const usados = Number(countHoje) || 0
       if (usados >= limiteDiario) {
         return json({
           error: `Quota diária atingida (${usados}/${limiteDiario}). Tente novamente amanhã.`,
-          quota: { usados, limite: limiteDiario, restante: 0 }
+          quota: { usados, limite: limiteDiario, restante: 0 },
         }, 429)
       }
     }
@@ -189,52 +286,44 @@ Deno.serve(async (req) => {
     const empresa = body.empresa === 'bc' ? 'bc' : 'matriz'
     if (!contato_nome) return json({ error: 'contato_nome obrigatório' }, 400)
 
-    // 3.1 Escopo vendedor: só pode gerar insight de cliente DA CARTEIRA dele
-    if (cargo === 'vendedor') {
-      const { data: meusClientes } = await admin
-        .from('cliente_scoring_vendedor')
-        .select('contato_nome')
-        .eq('vendedor_profile_id', userData.user.id)
-        .eq('empresa', empresa)
-        .eq('contato_nome', contato_nome)
-        .maybeSingle()
-      if (!meusClientes) {
+    // 3.1 Escopo vendedor (só carteira própria)
+    if (cargo === 'vendedor' || cargo === 'vendedora') {
+      const meus = await supaSingle(
+        `cliente_scoring_vendedor?vendedor_profile_id=eq.${user.id}&empresa=eq.${empresa}&contato_nome=eq.${enc(contato_nome)}&select=contato_nome&limit=1`
+      )
+      if (!meus) {
         return json({
-          error: 'Este cliente não está na sua carteira. Você só pode gerar insights dos seus clientes.'
+          error: 'Este cliente não está na sua carteira. Você só pode gerar insights dos seus clientes.',
         }, 403)
       }
     }
 
-    // 4. Busca dados agregados (cliente_scoring_full)
-    const { data: cs } = await admin
-      .from('cliente_scoring_full')
-      .select('*')
-      .eq('empresa', empresa)
-      .eq('contato_nome', contato_nome)
-      .maybeSingle()
+    // 4. cliente_scoring_full
+    const cs = await supaSingle(
+      `cliente_scoring_full?empresa=eq.${empresa}&contato_nome=eq.${enc(contato_nome)}&select=*&limit=1`
+    )
     if (!cs) return json({ error: 'Cliente não encontrado' }, 404)
 
-    // 5. Busca últimos 30 pedidos com itens
-    const { data: pedidos } = await admin
-      .from('pedidos')
-      .select('id, numero, data, total, total_produtos, situacao_id, loja_id, vendedor_nome')
-      .eq('empresa', empresa)
-      .eq('contato_nome', contato_nome)
-      .order('data', { ascending: false })
-      .limit(30)
+    // 5. Últimos 100 pedidos
+    const pedidos = await supaGet(
+      `pedidos?empresa=eq.${empresa}&contato_nome=eq.${enc(contato_nome)}&select=id,numero,data,total,total_produtos,situacao_id,loja_id,vendedor_nome&order=data.desc&limit=100`
+    )
     const pids = (pedidos || []).map((p: any) => p.id)
-    const { data: itens } = pids.length
-      ? await admin.from('pedidos_itens').select('pedido_id, descricao, quantidade, valor_total').in('pedido_id', pids)
-      : { data: [] }
+    let itens: any[] = []
+    if (pids.length) {
+      itens = await supaGet(
+        `pedidos_itens?pedido_id=in.(${pids.join(',')})&select=pedido_id,descricao,quantidade,valor_total`
+      )
+    }
     const itensPorPedido: Record<string, any[]> = {}
-    for (const it of itens || []) {
+    for (const it of itens) {
       (itensPorPedido[it.pedido_id] = itensPorPedido[it.pedido_id] || []).push(it)
     }
 
     // 6. Agregados
     const canalCount: Record<string, number> = {}
     const catCount: Record<string, number> = {}
-    for (const p of pedidos || []) {
+    for (const p of pedidos) {
       canalCount[lojaNome(p.loja_id)] = (canalCount[lojaNome(p.loja_id)] || 0) + 1
       for (const i of itensPorPedido[p.id] || []) {
         const d = String(i.descricao || '').toLowerCase()
@@ -253,7 +342,7 @@ Deno.serve(async (req) => {
     const topCanal = Object.entries(canalCount).sort((a, b) => b[1] - a[1]).slice(0, 3)
     const topCat = Object.entries(catCount).sort((a, b) => b[1] - a[1]).slice(0, 3)
 
-    // 7. Últimas compras resumidas
+    // 7. Últimas 5 compras
     const ultimasCompras = (pedidos || []).slice(0, 5).map((p: any) => {
       const dataStr = p.data ? new Date(p.data).toLocaleDateString('pt-BR') : '—'
       const valor = Number(p.total) || Number(p.total_produtos) || 0
@@ -261,12 +350,20 @@ Deno.serve(async (req) => {
       return `- ${dataStr} · ${lojaNome(p.loja_id)} · ${fmtBRL(valor)} · ${qtdItens} item(ns)`
     }).join('\n')
 
+    // 7b. FASE 2: inadimplência do cliente (view cliente_inadimplencia)
+    let inadInfo: any = null
+    try {
+      inadInfo = await supaSingle(
+        `cliente_inadimplencia?empresa=eq.${empresa}&contato_nome=eq.${enc(contato_nome)}&select=total_atrasado,max_dias_atraso,qtd_contas_atrasadas,pedidos_origem&limit=1`
+      )
+    } catch (_e) { /* sem inadimplência se view não existe ou erro silencioso */ }
+
     const empresaLabel = empresa === 'matriz' ? 'Matriz (Piçarras)' : 'Balneário Camboriú (BC)'
     const tipoPessoa = cs.tipo_pessoa === 'J' ? 'Pessoa Jurídica' : cs.tipo_pessoa === 'F' ? 'Pessoa Física' : 'N/D'
     const fone = cs.celular || cs.telefone || '—'
     const hoje = new Date().toLocaleDateString('pt-BR')
 
-    // 8. Monta contexto pro LLM
+    // 8. Contexto
     const contexto = `DADOS DO CLIENTE (${hoje}, empresa ${empresaLabel}):
 
 Nome: ${cs.contato_nome}
@@ -281,7 +378,8 @@ Métricas agregadas:
 - Última compra: ${cs.ultima_compra || '—'} (${cs.dias_sem_compra} dias atrás)
 - Meses ativos: ${cs.meses_ativos}
 
-Canais de compra (frequência):
+Canal preferido: ${topCanal[0]?.[0] || '—'}
+Canais de compra (frequência, últimos 100 pedidos):
 ${topCanal.length ? topCanal.map(([k, v]) => `- ${k}: ${v} pedido(s)`).join('\n') : '- (sem dados)'}
 
 Categorias preferidas (por quantidade de itens):
@@ -290,38 +388,42 @@ ${topCat.length ? topCat.map(([k, v]) => `- ${k}: ${v} peça(s)`).join('\n') : '
 Últimas 5 compras:
 ${ultimasCompras || '- (sem compras registradas)'}
 
+Inadimplência (contas em atraso):
+${inadInfo && Number(inadInfo.total_atrasado) > 0
+  ? `⚠ DEVENDO: ${fmtBRL(inadInfo.total_atrasado)} (${inadInfo.qtd_contas_atrasadas} conta(s), ${inadInfo.max_dias_atraso}d de atraso${inadInfo.pedidos_origem ? ', pedidos '+inadInfo.pedidos_origem : ''})`
+  : '- (em dia)'}
+
 ---
 
 Gere o insight seguindo EXATAMENTE o formato obrigatório do system prompt.`
 
-    // 9. Gera via LLM
+    // 9. LLM
     const { text, modelo } = await gerarInsight(contexto)
 
-    // Custo estimado (Groq = free, Gemini 2.5 Flash ~$0.02 BRL equiv)
     const custoEstimado = modelo.toLowerCase().includes('gemini')
-      ? Number(config.custo_por_insight_reais) || 0.02
-      : 0  // Groq = zero custo
+      ? Number(config.custo_por_insight_reais) || 0.10
+      : 0
     const provider = modelo.toLowerCase().includes('gemini') ? 'gemini'
                    : modelo.toLowerCase().includes('groq') || modelo.toLowerCase().includes('llama') ? 'groq'
                    : 'desconhecido'
 
-    // 10. Salva no cliente_insights (cache + quota)
-    await admin.from('cliente_insights').insert({
+    // 10. Salva
+    await supaInsert('cliente_insights', {
       empresa,
       contato_nome,
       insight: text,
       modelo,
       modelo_provider: provider,
-      user_id: userData.user.id,
-      user_nome: profile?.nome || userData.user.email,
+      user_id: user.id,
+      user_nome: profile?.nome || user.email,
       cargo_autor: cargo,
       custo_estimado: custoEstimado,
-    }).then(({ error }) => { if (error) console.warn('[insight] save erro:', error.message) })
+    })
 
-    // Quota info pra UI mostrar "3/5"
+    // Quota info pra UI
     let quotaInfo: any = null
     if (limiteDiario !== -1) {
-      const { data: novoCount } = await admin.rpc('cliente_insights_count_hoje', { uid: userData.user.id })
+      const novoCount = await supaRpc('cliente_insights_count_hoje', { uid: user.id })
       quotaInfo = {
         usados: Number(novoCount) || 0,
         limite: limiteDiario,
@@ -329,7 +431,11 @@ Gere o insight seguindo EXATAMENTE o formato obrigatório do system prompt.`
       }
     }
 
-    return json({ ok: true, insight: text, modelo, provider, custo_estimado: custoEstimado, quota: quotaInfo, gerado_em: new Date().toISOString() })
+    return json({
+      ok: true, insight: text, modelo, provider,
+      custo_estimado: custoEstimado, quota: quotaInfo,
+      gerado_em: new Date().toISOString(),
+    })
   } catch (e) {
     console.error('[insight] erro:', e)
     return json({ error: (e as Error).message || 'erro interno' }, 500)
