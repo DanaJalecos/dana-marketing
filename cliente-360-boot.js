@@ -307,6 +307,24 @@
   state.produtoFiltro = null;
   state._clientesQueCompraram = null;
 
+  // Remove sufixos de variação tipo "Tamanho:M;Cor:Chumbo", "Manga Longa", "ITC", etc
+  // Mantém só o núcleo do nome pro ILIKE casar amplamente
+  function _limparNomeProduto(s) {
+    if (!s) return '';
+    return String(s)
+      // sufixos com ":" (Tamanho:X;Cor:Y)
+      .replace(/\s*Tamanho\s*:\s*[^;,]+/gi, '')
+      .replace(/\s*Cor\s*:\s*[^;,]+/gi, '')
+      // suffixos de variação que aparecem em qualquer posição
+      .replace(/\s+ITC\b/gi, '')
+      .replace(/\s+Manga\s+(Longa|Curta)\b/gi, '')
+      .replace(/\s+[-–]\s+/g, ' ')
+      .replace(/\s+[-–]\s*$/g, '')
+      .replace(/[;,]\s*$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   // Carrega autocomplete de produtos — usa Bling (produtos table, 2237+ SKUs matriz)
   async function _buscarProdutosAutocomplete(q) {
     if (!q || q.length < 2) return [];
@@ -341,7 +359,9 @@
     const chipBox = document.getElementById('c360-prod-chip-box');
     if (chipBox) chipBox.innerHTML = `<span style="font-size:12px;color:#fbbf24">⏳ Buscando clientes...</span>`;
     try {
-      const query = produto.sku_ref || produto.nome;
+      // Sempre busca por NOME do produto (não código) — variações em pedidos_itens.codigo
+      // têm sufixo de tamanho/cor (-G00, -M00) que não bate com produtos.codigo pai
+      const query = _limparNomeProduto(produto.nome || produto.sku_ref || '');
       const { data, error } = await state.sb.rpc('clientes_que_compraram', {
         p_query: query, p_empresa: state.empresa, p_limite: 5000
       });
@@ -5203,7 +5223,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       return;
     }
     try {
-      const query = produto.sku_ref || produto.nome;
+      // Sempre busca por NOME (não código), pra cobrir variações de tamanho/cor
+      const query = _limparNomeProduto(produto.nome || produto.sku_ref || '');
       const { data, error } = await state.sb.rpc('clientes_que_compraram', {
         p_query: query, p_empresa: state.empresa, p_limite: 5000
       });
@@ -5448,9 +5469,11 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
   // ─── View VENDEDOR (só clientes dele) ───
   async function renderMcVendedorView(content, perms) {
     const filtros = state.mcVendedorFiltros || {};
-    const [meusBling, manuaisRaw] = await Promise.all([
+    const [meusBling, manuaisRaw, rankingGeral, rankingMensal] = await Promise.all([
       mcLoadClientes(state.empresa, perms.profileId, filtros.busca || null, 1000, filtros),
       mcLoadClientesManuais(state.empresa, perms.profileId),
+      mcLoadRanking(state.empresa).catch(() => []),
+      mcLoadRankingMensal(state.empresa).catch(() => []),
     ]);
     // Aplica filtros em manuais localmente (PostgREST nao tem score/segmento)
     let manuais = manuaisRaw.map(mcNormalizarManual);
@@ -5492,6 +5515,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
           ${mcKpiCard('Ticket médio', fmtBRL(ticket), '#60a5fa')}
         </div>
 
+        ${mcRenderRankingVendedora(rankingGeral, rankingMensal, perms)}
+
         ${mcRenderFiltrosBar(filtros, true)}
 
         <div id="mc-tabela-wrap" style="margin-top:14px">
@@ -5500,6 +5525,59 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       </div>
     `;
     mcWireTable(content);
+  }
+
+  // ─── Bloco de Ranking pra vendedora (sua posição + top 5) ───
+  function mcRenderRankingVendedora(rankingGeral, rankingMensal, perms) {
+    const meuId = perms.profileId;
+    if (!Array.isArray(rankingGeral) || rankingGeral.length === 0) return '';
+
+    // Ranking geral por faturamento
+    const sortGeral = [...rankingGeral].sort((a,b) => Number(b.faturamento||0) - Number(a.faturamento||0));
+    const minhaPosGeral = sortGeral.findIndex(r => r.vendedor_profile_id === meuId) + 1;
+    const minhaRowGeral = sortGeral.find(r => r.vendedor_profile_id === meuId);
+
+    // Ranking mensal (meta)
+    const minhaRowMensal = (rankingMensal || []).find(r => r.vendedor_profile_id === meuId);
+    const minhaMeta = Number(minhaRowMensal?.meta_reais || 0);
+    const meuFatMes = Number(minhaRowMensal?.faturamento_mes || 0);
+    const pctMeta = minhaMeta > 0 ? Math.round((meuFatMes / minhaMeta) * 100) : null;
+
+    // Top 5 do geral
+    const top5 = sortGeral.slice(0, 5);
+
+    return `
+      <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:16px;margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div style="font-size:14px;font-weight:700;color:#fbbf24">🏆 Ranking de vendedoras</div>
+          ${minhaPosGeral > 0 ? `<div style="font-size:12px;color:#94a3b8">Sua posição: <strong style="color:#a78bfa">${minhaPosGeral}º</strong> de ${sortGeral.length}</div>` : ''}
+        </div>
+        ${minhaMeta > 0 ? `
+          <div style="margin-bottom:14px;padding:10px;background:rgba(168,139,250,0.06);border:1px solid rgba(168,139,250,0.2);border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#c4b5fd;margin-bottom:6px">
+              <span>📅 Sua meta de ${new Date().toLocaleDateString('pt-BR', { month: 'long' })}</span>
+              <span style="font-weight:700">${fmtBRL(meuFatMes)} / ${fmtBRL(minhaMeta)} · ${pctMeta}%</span>
+            </div>
+            <div style="height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${Math.min(100, pctMeta || 0)}%;background:${pctMeta >= 100 ? '#22c55e' : pctMeta >= 70 ? '#fbbf24' : '#60a5fa'};transition:width 0.5s"></div>
+            </div>
+          </div>
+        ` : ''}
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
+          ${top5.map((r, i) => {
+            const medal = ['🥇','🥈','🥉','4º','5º'][i] || (i+1)+'º';
+            const ehVoce = r.vendedor_profile_id === meuId;
+            return `
+              <div style="padding:10px;background:${ehVoce?'rgba(168,139,250,0.12)':'rgba(255,255,255,0.02)'};border:1px solid ${ehVoce?'rgba(168,139,250,0.4)':'rgba(255,255,255,0.06)'};border-radius:8px">
+                <div style="font-size:11px;color:#64748b;margin-bottom:3px">${medal} ${ehVoce?'<strong style="color:#c4b5fd">VOCÊ</strong>':''}</div>
+                <div style="font-size:12.5px;color:#e2e8f0;font-weight:600;line-height:1.3;margin-bottom:4px">${escapeHtml(r.vendedor_nome || '(sem nome)')}</div>
+                <div style="font-size:11px;color:#94a3b8">${fmtBRL(Number(r.faturamento || 0))} · ${fmtNum(r.clientes || 0)} clientes</div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
   }
 
   // ─── View ADMIN / GERENTE (ranking + global) ───
