@@ -778,6 +778,7 @@
     window._c360ComportamentoLoaded = false; // reseta cache da aba Comportamento (Lead Tracking)
     window._c360QualifLoaded = false;        // reseta cache da aba Qualificação IA
     window._c360SiteLoaded = false;          // reseta cache da aba Site (Magazord)
+    window._c360MixLoaded = false;           // FASE 7: reset cache do Mix
     const page = document.getElementById('page-cliente-1');
     if (!page) { console.error('[c360] page-cliente-1 nao encontrada'); return; }
 
@@ -1441,6 +1442,7 @@
       <button id="c360-tab-timeline" onclick="c360SwitchTab('timeline')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">📜 Timeline</button>
       <button id="c360-tab-comportamento" onclick="c360SwitchTab('comportamento')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">🔍 Comportamento</button>
       <button id="c360-tab-qualificacao" onclick="c360SwitchTab('qualificacao')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">🎯 Qualificação</button>
+      <button id="c360-tab-mix" onclick="c360SwitchTab('mix')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px" title="Quem comprou produtos parecidos também comprou...">🛒 Mix</button>
       <button id="c360-tab-insights" onclick="c360SwitchTab('insights')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">◆ Insights IA</button>
       <button id="c360-tab-notas" onclick="c360SwitchTab('notas')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">💬 Notas</button>
     </div>
@@ -1465,6 +1467,9 @@
       <div id="c360-qualif-conteudo" style="font-size:12.5px;color:#94a3b8">
         <div style="text-align:center;padding:30px;color:rgba(255,255,255,0.4)">⏳ Carregando…</div>
       </div>
+    </div>
+    <div id="c360-tabpanel-mix" style="padding:20px;display:none">
+      <div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando mix de produtos...</div>
     </div>
     <div id="c360-tabpanel-insights" style="padding:20px;display:none;color:#64748b">
       <div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando insights...</div>
@@ -1585,7 +1590,7 @@
 
   // Tabs internos
   window.c360SwitchTab = function(tab) {
-    const tabs = ['pedidos','site','timeline','comportamento','qualificacao','insights','notas'];
+    const tabs = ['pedidos','site','timeline','comportamento','qualificacao','mix','insights','notas'];
     for (const t of tabs) {
       const btn = document.getElementById('c360-tab-'+t);
       const panel = document.getElementById('c360-tabpanel-'+t);
@@ -1614,6 +1619,10 @@
         c360CarregarQualificacao(nome, empresa);
         window._c360QualifLoaded = true;
       }
+    }
+    // FASE 7: lazy load do mix
+    if (tab === 'mix' && typeof loadMix === 'function' && !window._c360MixLoaded) {
+      loadMix();
     }
   };
 
@@ -1837,6 +1846,76 @@
       ${filtrosHtml}
       ${corpo}
       ${_renderTimelinePagBar(visiveis.length, safePage, PER_PAGE)}
+    `;
+  }
+
+  // ─── FASE 7: Aba Mix (esteira de produtos vendidos juntos) ───
+  window.loadMix = async function(force) {
+    const panel = document.getElementById('c360-tabpanel-mix');
+    if (!panel) return;
+    const nome = state.currentContatoNome;
+    if (!nome) {
+      panel.innerHTML = '<div style="text-align:center;padding:30px;color:rgba(255,255,255,0.4);font-size:13px">Sem cliente selecionado</div>';
+      return;
+    }
+    if (window._c360MixLoaded && !force) return;
+    panel.innerHTML = '<div style="text-align:center;padding:30px;color:rgba(255,255,255,0.4);font-size:13px">⏳ Carregando mix de produtos...</div>';
+    try {
+      const { data, error } = await state.sb.rpc('mix_para_cliente', {
+        p_contato_nome: nome, p_empresa: state.empresa, p_limite_por_produto: 5
+      });
+      if (error) throw error;
+      _renderMix(data || []);
+      window._c360MixLoaded = true;
+    } catch (e) {
+      console.error('[c360 mix]', e);
+      panel.innerHTML = `<div style="color:#ef4444;padding:20px;font-size:12px">Erro ao carregar mix: ${escapeHtml(String(e.message||e))}</div>`;
+    }
+  };
+
+  function _renderMix(rows) {
+    const panel = document.getElementById('c360-tabpanel-mix');
+    if (!panel) return;
+    if (!rows || !rows.length) {
+      panel.innerHTML = `
+        <div style="text-align:center;padding:50px 20px;color:rgba(255,255,255,0.4);font-size:13px">
+          🛒 Esse cliente ainda não tem mix calculado.<br/>
+          <div style="margin-top:8px;font-size:11.5px;color:rgba(255,255,255,0.3)">Os pares aparecem quando outros clientes com produtos parecidos completam ≥5 compras juntos.</div>
+        </div>`;
+      return;
+    }
+    // Agrupa por produto_origem
+    const grupos = {};
+    rows.forEach(r => {
+      const key = r.produto_origem;
+      if (!grupos[key]) grupos[key] = { desc: r.produto_origem_desc, sugestoes: [] };
+      grupos[key].sugestoes.push(r);
+    });
+    panel.innerHTML = `
+      <div style="font-size:14px;font-weight:600;color:#e2e8f0;margin-bottom:6px">
+        🛒 Mix de produtos: quem comprou esses também levou
+      </div>
+      <div style="font-size:11.5px;color:rgba(255,255,255,0.5);margin-bottom:18px">
+        Baseado em ${rows.length} pares de produtos analisados — top sugestões por co-ocorrência real em pedidos.
+      </div>
+      ${Object.entries(grupos).map(([codigo, g]) => `
+        <div style="margin-bottom:20px;padding:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:10px">
+          <div style="font-size:12.5px;font-weight:700;color:#fbbf24;margin-bottom:10px">
+            Cliente comprou: <span style="color:#e2e8f0">${escapeHtml((g.desc || codigo).slice(0, 80))}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px">
+            ${g.sugestoes.map(s => `
+              <div style="display:flex;gap:10px;padding:9px;background:rgba(255,255,255,0.02);border-radius:6px;align-items:center">
+                ${s.imagem_sugerida ? `<img src="${escapeHtml(s.imagem_sugerida)}" style="width:42px;height:42px;object-fit:cover;border-radius:5px;flex-shrink:0">` : '<div style="width:42px;height:42px;background:rgba(255,255,255,0.05);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🛒</div>'}
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:11.5px;color:#e2e8f0;font-weight:600;line-height:1.3">${escapeHtml((s.nome_curado || s.produto_sugerido_desc || s.produto_sugerido_codigo || '').slice(0, 60))}</div>
+                  <div style="font-size:10px;color:#94a3b8;margin-top:2px">${s.co_ocorrencias}× junto · ${Math.round(Number(s.confidence||0)*100)}% chance</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('')}
     `;
   }
 
