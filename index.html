@@ -5383,7 +5383,7 @@ async function confirmarAprovarArte() {
         titulo: c.titulo,
         comentario,
         aprovador: currentProfile?.nome || 'Equipe Dana',
-        link: location.origin + '/#criativos',
+        link: location.origin + '/criativos?abrir=' + encodeURIComponent(c.id),
       });
     }
 
@@ -5450,7 +5450,7 @@ async function confirmarReprovarArte() {
         titulo: c.titulo,
         feedback,
         aprovador: currentProfile?.nome || 'Equipe Dana',
-        link: location.origin + '/#criativos',
+        link: location.origin + '/criativos?abrir=' + encodeURIComponent(c.id),
       });
     }
 
@@ -13701,6 +13701,24 @@ window.addEventListener('load', async () => {
     if (targetView) {
       const navEl = document.querySelector('[onclick*="\''+targetView+'\'"]');
       go(navEl, targetView, targetSubtab ? { subtab: targetSubtab } : undefined);
+
+      // Deep-link de email: ?abrir=<id> abre o recurso específico
+      // (criativo, tarefa, etc) que veio no email transacional
+      try {
+        const params = new URLSearchParams(location.search);
+        const abrirId = params.get('abrir');
+        if (abrirId) {
+          if (targetView === 'criativos' && typeof focarCriativo === 'function') {
+            setTimeout(() => focarCriativo(abrirId), 800);
+          } else if ((targetView === 'tarefas' || targetView === 'kanban') && typeof focarTarefa === 'function') {
+            setTimeout(() => focarTarefa(abrirId), 800);
+          } else if (targetView === 'cliente360') {
+            // Cliente 360 usa contato_nome + empresa, não id puro — ignora
+          }
+          // Limpa o ?abrir= da URL pra não disparar de novo se user navegar
+          history.replaceState(null, '', location.pathname);
+        }
+      } catch(e) { console.warn('[init] deep-link abrir:', e); }
     }
   } catch(e) { console.warn('[init] restoreView:', e); }
   // animate KPI bars
@@ -15023,7 +15041,7 @@ async function createTask() {
       prioridade: prio,
       prazo,
       atribuido_por: quem,
-      link: location.origin + '/#tarefas-e-kanban',
+      link: location.origin + '/tarefas-e-kanban?abrir=' + encodeURIComponent(inserted?.id || ''),
     });
   }
 
@@ -15466,7 +15484,7 @@ async function salvarTarefaEdit() {
         prioridade: updates.prioridade,
         prazo: updates.prazo,
         atribuido_por: quem,
-        link: location.origin + '/#tarefas-e-kanban',
+        link: location.origin + '/tarefas-e-kanban?abrir=' + encodeURIComponent(_editingTaskId),
       });
     }
   }
