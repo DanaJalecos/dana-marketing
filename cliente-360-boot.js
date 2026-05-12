@@ -307,16 +307,24 @@
   state.produtoFiltro = null;
   state._clientesQueCompraram = null;
 
-  // Carrega autocomplete de produtos curados do site
+  // Carrega autocomplete de produtos — usa Bling (produtos table, 2237+ SKUs matriz)
   async function _buscarProdutosAutocomplete(q) {
     if (!q || q.length < 2) return [];
     try {
-      const { data, error } = await state.sb.from('produto_catalogo_site')
-        .select('sku_ref, nome, imagem_principal, categoria, preco')
-        .or(`nome.ilike.%${q}%,sku_ref.ilike.%${q}%`)
-        .limit(20);
+      const { data, error } = await state.sb.from('produtos')
+        .select('codigo, nome, imagem_url, imagem_storage_url, preco')
+        .eq('empresa', state.empresa)
+        .or(`nome.ilike.%${q}%,codigo.ilike.%${q}%`)
+        .limit(30);
       if (error) return [];
-      return data || [];
+      // Normaliza pra schema esperado pelo filtro
+      return (data || []).map(p => ({
+        sku_ref: p.codigo,
+        nome: p.nome,
+        imagem_principal: p.imagem_storage_url || p.imagem_url || null,
+        categoria: '', // Bling não tem categoria estruturada
+        preco: p.preco
+      }));
     } catch (e) { return []; }
   }
 
@@ -423,7 +431,14 @@
 
   window._selecionarProdutoFiltro = function(produto) {
     document.getElementById('c360-modal-filtro-prod')?.remove();
-    aplicarFiltroProduto(produto);
+    // Handler customizado tem prioridade (Meus Clientes usa esse)
+    if (typeof window._modalFiltroSelecionarHandler === 'function') {
+      const handler = window._modalFiltroSelecionarHandler;
+      window._modalFiltroSelecionarHandler = null; // reset
+      handler(produto);
+    } else {
+      aplicarFiltroProduto(produto);
+    }
   };
 
   // ─── Renderiza lista de clientes ───
@@ -5162,11 +5177,51 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     if (f.pedidosMax != null) q = q.lte('total_pedidos', f.pedidosMax);
     if (f.gastoMin != null) q = q.gte('total_gasto', f.gastoMin);
     if (f.gastoMax != null) q = q.lte('total_gasto', f.gastoMax);
+    // FASE 5: filtro produto (via RPC clientes_que_compraram -> Set -> .in)
+    if (state._mcClientesQueCompraram instanceof Set && state._mcClientesQueCompraram.size > 0) {
+      const nomes = Array.from(state._mcClientesQueCompraram).slice(0, 2000); // cap pra evitar URL gigante
+      q = q.in('contato_nome', nomes);
+    } else if (state._mcClientesQueCompraram instanceof Set && state._mcClientesQueCompraram.size === 0) {
+      // Set vazio = filtro ativo mas zero matches
+      return [];
+    }
     q = q.order('score', { ascending: false }).limit(limit || 500);
     const { data, error } = await q;
     if (error) { console.error('[mc] clientes error', error); return []; }
     return data || [];
   }
+
+  // FASE 5 expansão: Filtro produto pra Meus Clientes
+  state.mcProdutoFiltro = null;
+  state._mcClientesQueCompraram = null;
+
+  window.aplicarFiltroProdutoMC = async function(produto) {
+    state.mcProdutoFiltro = produto;
+    if (!produto) {
+      state._mcClientesQueCompraram = null;
+      if (typeof renderMeusClientesPage === 'function') await renderMeusClientesPage();
+      return;
+    }
+    try {
+      const query = produto.sku_ref || produto.nome;
+      const { data, error } = await state.sb.rpc('clientes_que_compraram', {
+        p_query: query, p_empresa: state.empresa, p_limite: 5000
+      });
+      if (error) throw error;
+      state._mcClientesQueCompraram = new Set((data || []).map(r => r.contato_nome));
+      if (typeof renderMeusClientesPage === 'function') await renderMeusClientesPage();
+    } catch (e) {
+      console.error('[mc filtro produto]', e);
+      state.mcProdutoFiltro = null;
+      state._mcClientesQueCompraram = null;
+    }
+  };
+
+  window.abrirModalFiltroProdutoMC = function() {
+    // Reusa o modal da Fase 5 mas com handler de seleção diferente
+    window._modalFiltroSelecionarHandler = (p) => aplicarFiltroProdutoMC(p);
+    abrirModalFiltroProduto();
+  };
 
   function mcInvalidateCache() {
     state.mcScoringCache = null;
@@ -5590,7 +5645,19 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
         </div>
         ${temFiltro ? `<button onclick="window.${fnClear}()" style="padding:7px 14px;border-radius:6px;border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.1);color:#f87171;cursor:pointer;font-size:12px">Limpar filtros</button>` : ''}
       </div>
+      ${mcRenderChipProduto()}
     `;
+  }
+
+  // FASE 5 expansão: chip filtro produto na barra de Meus Clientes
+  function mcRenderChipProduto() {
+    const p = state.mcProdutoFiltro;
+    if (!p) {
+      return `<div style="margin-top:10px"><button onclick="window.abrirModalFiltroProdutoMC()" style="padding:7px 14px;border-radius:8px;border:1px solid rgba(168,139,250,0.4);background:rgba(168,139,250,0.1);color:#c4b5fd;cursor:pointer;font-size:12.5px;font-weight:600">🛒 Filtrar por produto</button></div>`;
+    }
+    const set = state._mcClientesQueCompraram;
+    const qtd = set ? set.size : 0;
+    return `<div style="margin-top:10px"><span style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;background:rgba(168,139,250,0.15);color:#c4b5fd;border:1px solid rgba(168,139,250,0.4);border-radius:20px;font-size:12px;font-weight:600">🛒 ${escapeHtml(p.nome)} (${qtd} clientes) <button onclick="window.aplicarFiltroProdutoMC(null)" style="background:transparent;border:none;color:#c4b5fd;cursor:pointer;font-size:14px;font-weight:700;line-height:1" title="Remover filtro">×</button></span></div>`;
   }
 
   // Le filtros do DOM
