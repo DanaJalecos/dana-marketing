@@ -592,6 +592,8 @@
     const nome = decodeURIComponent(clienteId);
     state.currentContatoNome = nome;
     window._c360TimelineLoaded = false; // reseta cache da Timeline (Onda #2)
+    window._c360TimelineSearch = '';    // FASE 3: reset search ao trocar cliente
+    window._c360TimelinePage = 1;
     window._c360ComportamentoLoaded = false; // reseta cache da aba Comportamento (Lead Tracking)
     window._c360QualifLoaded = false;        // reseta cache da aba Qualificação IA
     window._c360SiteLoaded = false;          // reseta cache da aba Site (Magazord)
@@ -1467,6 +1469,24 @@
     _renderTimeline(window._c360TimelineCache || []);
   };
 
+  // ─── FASE 3: search na Timeline (debounced 250ms, client-side) ───
+  let _c360TimelineSearchTimer = null;
+  window.c360TimelineSearch = function(q) {
+    clearTimeout(_c360TimelineSearchTimer);
+    _c360TimelineSearchTimer = setTimeout(() => {
+      window._c360TimelineSearch = String(q || '');
+      window._c360TimelinePage = 1;
+      _renderTimeline(window._c360TimelineCache || []);
+    }, 250);
+  };
+  window.c360TimelineSearchClear = function() {
+    const inp = document.getElementById('c360-timeline-search');
+    if (inp) inp.value = '';
+    window._c360TimelineSearch = '';
+    window._c360TimelinePage = 1;
+    _renderTimeline(window._c360TimelineCache || []);
+  };
+
   window.c360TimelinePage = function(p) {
     window._c360TimelinePage = p;
     _renderTimeline(window._c360TimelineCache || []);
@@ -1507,16 +1527,39 @@
     const panel = document.getElementById('c360-tabpanel-timeline');
     if (!panel) return;
     const filtro = window._c360TimelineFiltro || 'todos';
-    const visiveis = filtro === 'todos' ? eventos : eventos.filter(e => e.tipo === filtro);
+    const search = String(window._c360TimelineSearch || '').toLowerCase().trim();
+    let visiveis = filtro === 'todos' ? eventos : eventos.filter(e => e.tipo === filtro);
+    if (search) {
+      visiveis = visiveis.filter(e => {
+        const titulo = String(e.titulo || '').toLowerCase();
+        const desc = String(e.descricao || '').toLowerCase();
+        const dadosStr = e.dados ? JSON.stringify(e.dados).toLowerCase() : '';
+        return titulo.includes(search) || desc.includes(search) || dadosStr.includes(search);
+      });
+    }
 
-    const filtrosHtml = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">${_timelineFiltrosHtml()}</div>`;
+    // FASE 3: input de busca + chips de filtro de tipo
+    const searchHtml = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <input id="c360-timeline-search" type="text"
+          placeholder="🔎 buscar (n° pedido, valor, descrição, autor...)"
+          value="${escapeHtml(window._c360TimelineSearch || '')}"
+          oninput="c360TimelineSearch(this.value)"
+          style="flex:1;min-width:240px;padding:8px 12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#e2e8f0;font-size:13px">
+        ${search ? `<button onclick="c360TimelineSearchClear()" title="Limpar busca" style="padding:8px 12px;background:transparent;border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#fca5a5;font-size:12px;cursor:pointer">✕ limpar</button>` : ''}
+      </div>`;
+
+    const filtrosHtml = searchHtml + `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">${_timelineFiltrosHtml()}</div>`;
 
     if (!eventos.length) {
       panel.innerHTML = filtrosHtml + `<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.4);font-size:13px">📭 Nenhum evento registrado pra esse cliente ainda</div>`;
       return;
     }
     if (!visiveis.length) {
-      panel.innerHTML = filtrosHtml + `<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.4);font-size:13px">Nenhum evento desse tipo</div>`;
+      const msg = search
+        ? `🔎 Nenhum evento encontrado pra "${escapeHtml(search)}"`
+        : 'Nenhum evento desse tipo';
+      panel.innerHTML = filtrosHtml + `<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.4);font-size:13px">${msg}</div>`;
       return;
     }
 
