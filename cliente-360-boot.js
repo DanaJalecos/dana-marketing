@@ -695,6 +695,33 @@
     return pedidos.map(p => ({ ...p, itens: itensByPedido[p.id] || [] }));
   }
 
+  // FASE 6: carregamento async das sugestões de produto (chamado pelo injectMetadataPanel)
+  async function _carregarSugestoesProduto(nome, empresa) {
+    const div = document.getElementById('c360-sugestao-conteudo');
+    if (!div) return;
+    try {
+      const { data, error } = await state.sb.rpc('sugerir_produto_proximo', {
+        p_contato_nome: nome, p_empresa: empresa, p_limite: 3
+      });
+      if (error || !data || !data.length) {
+        div.innerHTML = `<span style="color:#64748b;font-size:11.5px">Sem sugestões — dados insuficientes do segmento.</span>`;
+        return;
+      }
+      div.innerHTML = data.map(p => `
+        <div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px solid rgba(255,255,255,0.04)">
+          ${p.imagem_principal ? `<img src="${escapeHtml(p.imagem_principal)}" style="width:40px;height:40px;object-fit:cover;border-radius:5px;flex-shrink:0">` : '<div style="width:40px;height:40px;background:rgba(255,255,255,0.05);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🛒</div>'}
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;color:#e2e8f0;font-weight:600">${escapeHtml(p.nome || '')}</div>
+            <div style="font-size:10.5px;color:#94a3b8;margin-top:2px">${escapeHtml(p.categoria || '')}${p.preco ? ' · '+fmtBRL(p.preco) : ''} · ${p.quantos_compraram} clientes parecidos compraram</div>
+          </div>
+        </div>
+      `).join('');
+    } catch (e) {
+      console.warn('[c360 sugestao]', e);
+      div.innerHTML = `<span style="color:#64748b;font-size:11.5px">Sem sugestões disponíveis no momento.</span>`;
+    }
+  }
+
   // FASE 4: cache do benchmark de ciclo por segmento (30min TTL)
   window._c360CicloBenchmark = window._c360CicloBenchmark || {};
   async function loadCicloBenchmark(empresa) {
@@ -831,6 +858,13 @@
     panel.style.cssText = 'margin:20px auto 20px;padding:14px 16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;max-width:1200px;width:calc(100% - 40px)';
     const statusCor = METADATA_STATUS.find(s => s.v === status)?.cor || '#94a3b8';
 
+    // FASE 6: card "Próxima oferta sugerida" (carregado async após render)
+    const sugestaoHtml = `
+      <div id="c360-sugestao-produto" style="margin-top:14px;padding:12px;background:rgba(168,139,250,0.06);border:1px solid rgba(168,139,250,0.2);border-radius:8px">
+        <div style="font-size:12.5px;font-weight:700;color:#c4b5fd;margin-bottom:8px">🎁 Próxima oferta sugerida</div>
+        <div id="c360-sugestao-conteudo" style="font-size:12px;color:#94a3b8">⏳ Calculando sugestões...</div>
+      </div>`;
+
     panel.innerHTML = `
       ${inadHtml}
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap">
@@ -857,6 +891,7 @@
         <div style="font-size:10.5px;color:#64748b">💡 Esses campos são locais do DMS — não mexem no Bling.</div>
         <button id="c360-meta-save" onclick="c360SaveMetadata(${contatoId}, '${escapeHtml(empresa)}')" style="padding:7px 16px;border-radius:6px;border:1px solid rgba(167,139,250,0.4);background:rgba(167,139,250,0.15);color:#c4b5fd;cursor:pointer;font-size:12px;font-weight:600">💾 Salvar</button>
       </div>
+      ${sugestaoHtml}
     `;
 
     // Insere DEPOIS do botao "Voltar" (primeiro botao do page)
@@ -865,6 +900,15 @@
       voltarBtn.parentNode.insertBefore(panel, voltarBtn.nextSibling);
     } else {
       page.insertBefore(panel, page.firstChild);
+    }
+
+    // FASE 6: carrega sugestões de produto async (após panel no DOM)
+    // Skip se cliente devedor — IA já vai priorizar cobrança, não faz sentido sugerir compra
+    if (!inad) {
+      setTimeout(() => _carregarSugestoesProduto(nome, empresa), 50);
+    } else {
+      const div = document.getElementById('c360-sugestao-conteudo');
+      if (div) div.innerHTML = `<span style="color:#fca5a5;font-size:11.5px">⚠ Cliente com inadimplência — priorize cobrança antes de nova oferta.</span>`;
     }
   }
 

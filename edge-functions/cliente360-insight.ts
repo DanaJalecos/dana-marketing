@@ -138,6 +138,12 @@ REGRAS DE AÇÃO COMERCIAL POR SEGMENTO (CRÍTICO — siga rigorosamente):
 - **Em Risco**: desconto agressivo (15-20%) + contato direto pelo WhatsApp pra reativar.
 - **Inativo**: desconto forte (20-25%) + benefício adicional (frete grátis, brinde) + ligação/WhatsApp pessoal.
 
+PRODUTOS SUGERIDOS (use o catálogo curado do site quando disponível):
+O contexto traz "Produtos sugeridos pra próxima oferta" — top 3 do catálogo curado de danajalecos.com.br que clientes parecidos compraram E ESTE cliente ainda NÃO comprou.
+- Quando existe lista (não-vazia), cite o PRIMEIRO produto LITERALMENTE na seção AÇÃO ("ofereça o jaleco Manu") e na MENSAGEM WHATSAPP.
+- Se cliente é VIP, ofereça como BRINDE personalizado (ex: "preparamos um brinde exclusivo: jaleco Manu") em vez de venda direta.
+- Não invente produtos que não estão na lista. Se a lista está vazia, fala em termos genéricos da categoria preferida do cliente.
+
 REGRA DE CICLO DE COMPRA (orientação pra reduzir intervalo):
 Se o contexto traz "Ciclo de compra" com "desvio +N%" onde N > 30%:
 - O cliente está demorando MAIS que o normal pra recomprar (no segmento dele).
@@ -367,6 +373,15 @@ Deno.serve(async (req) => {
       )
     } catch (_e) { /* sem inadimplência se view não existe ou erro silencioso */ }
 
+    // 7d. FASE 6: sugestão próximo produto (RPC sugerir_produto_proximo)
+    let sugestoes: any[] = []
+    try {
+      sugestoes = await supaRpc('sugerir_produto_proximo', {
+        p_contato_nome: contato_nome, p_empresa: empresa, p_limite: 3
+      })
+      if (!Array.isArray(sugestoes)) sugestoes = []
+    } catch (_e) { sugestoes = [] }
+
     // 7c. FASE 4: ciclo de compra + benchmark do segmento
     let cicloInfo: any = null
     let benchSeg: any = null
@@ -425,6 +440,11 @@ Ciclo de compra (intervalo médio entre pedidos):
 ${cicloInfo?.ciclo_compra_dias
   ? `${cicloInfo.ciclo_compra_dias} dias (cliente)${benchSeg?.ciclo_mediano ? ` · ${Math.round(Number(benchSeg.ciclo_mediano))} dias (mediana do segmento ${cs.segmento})` : ''}${cicloDesvio !== null ? ` · desvio ${cicloDesvio > 0 ? '+' : ''}${cicloDesvio}%${cicloDesvio > 30 ? ' ⚠ DEMORANDO MAIS QUE O NORMAL' : ''}` : ''}`
   : '- (cliente com 1 pedido só ou sem histórico)'}
+
+Produtos sugeridos pra próxima oferta (top do segmento ${cs.segmento} que cliente NÃO comprou):
+${sugestoes.length
+  ? sugestoes.map((s: any) => `- ${s.nome} (${s.categoria}, ${s.quantos_compraram} clientes parecidos compraram)`).join('\n')
+  : '- (sem dados suficientes do segmento — use sua experiência)'}
 
 ---
 
