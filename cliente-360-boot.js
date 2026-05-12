@@ -5466,15 +5466,19 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     }
   }
 
-  // ─── View VENDEDOR (só clientes dele) ───
+  // ─── View VENDEDOR (só clientes dele + ranking entre vendedoras) ───
   async function renderMcVendedorView(content, perms) {
     const filtros = state.mcVendedorFiltros || {};
-    const [meusBling, manuaisRaw, rankingGeral, rankingMensal] = await Promise.all([
+    const [meusBling, manuaisRaw, rankingGeral, totaisGlobais] = await Promise.all([
       mcLoadClientes(state.empresa, perms.profileId, filtros.busca || null, 1000, filtros),
       mcLoadClientesManuais(state.empresa, perms.profileId),
       mcLoadRanking(state.empresa).catch(() => []),
-      mcLoadRankingMensal(state.empresa).catch(() => []),
+      mcLoadTotais(state.empresa).catch(() => null),
     ]);
+    // Popula caches usados pelo mcRenderRankingsBloco (mesma infra do admin)
+    state.mcRankingGeralCache = rankingGeral || [];
+    state.mcRankingTotalFatCache = Number(totaisGlobais?.faturamento_total || 0);
+    state.mcRankingTab = state.mcRankingTab || 'geral';
     // Aplica filtros em manuais localmente (PostgREST nao tem score/segmento)
     let manuais = manuaisRaw.map(mcNormalizarManual);
     if (filtros.busca) manuais = manuais.filter(c => (c.contato_nome||'').toLowerCase().includes(filtros.busca.toLowerCase()));
@@ -5515,7 +5519,9 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
           ${mcKpiCard('Ticket médio', fmtBRL(ticket), '#60a5fa')}
         </div>
 
-        ${mcRenderRankingVendedora(rankingGeral, rankingMensal, perms)}
+        <div style="margin-bottom:24px">
+          ${mcRenderRankingsBloco(state.mcRankingGeralCache, state.mcRankingTotalFatCache)}
+        </div>
 
         ${mcRenderFiltrosBar(filtros, true)}
 
