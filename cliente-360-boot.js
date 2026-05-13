@@ -5233,13 +5233,31 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
   // Lista de clientes - filtrada server-side
   async function mcLoadClientes(empresa, vendedorId, busca, limit, filtros) {
+    const f = filtros || {};
+
+    // Quando filtro de status_relacionamento está ativo, fazer QUERY INVERSA:
+    // primeiro pega contato_ids do cliente_metadata que batem, depois busca
+    // esses na view. Evita perder contatados que estão fora do top-500 por score.
+    let idsFromMeta = null;
+    if (f.statusRelacionamento && f.statusRelacionamento !== '__nao_contatado__') {
+      try {
+        const { data: metas } = await state.sb
+          .from('cliente_metadata')
+          .select('contato_id')
+          .eq('empresa', empresa)
+          .eq('status_relacionamento', f.statusRelacionamento)
+          .limit(5000);
+        idsFromMeta = (metas || []).map(m => m.contato_id).filter(Boolean);
+        if (idsFromMeta.length === 0) return [];
+      } catch (e) { console.warn('[mc] meta query error', e); }
+    }
+
     let q = state.sb.from('cliente_scoring_vendedor').select('*').eq('empresa', empresa);
     if (vendedorId === '__none__') q = q.is('vendedor_profile_id', null);
     else if (vendedorId) q = q.eq('vendedor_profile_id', vendedorId);
     if (busca) q = q.ilike('contato_nome', '%' + busca.replace(/%/g,'') + '%');
-    // Filtros opcionais
-    const f = filtros || {};
     if (f.segmento) q = q.eq('segmento', f.segmento);
+    if (idsFromMeta) q = q.in('contato_id', idsFromMeta);
     // FASE 5: filtro produto (via RPC clientes_que_compraram -> Set -> .in)
     if (state._mcClientesQueCompraram instanceof Set && state._mcClientesQueCompraram.size > 0) {
       const nomes = Array.from(state._mcClientesQueCompraram).slice(0, 2000); // cap pra evitar URL gigante
