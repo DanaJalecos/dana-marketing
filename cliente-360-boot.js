@@ -4452,15 +4452,15 @@
   * { box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
   body { font-family:'DM Sans',sans-serif; color:#0a0a0a; max-width:900px; margin:0 auto; padding:26px 32px; line-height:1.5; font-size:12px; background:#fff; }
   .pdf-header { background:#0a0a0a; color:#fff; border-radius:12px; padding:20px 24px; margin-bottom:18px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
-  .pdf-title { font-family:'Syne',sans-serif; font-weight:800; font-size:19px; }
+  .pdf-title { font-family:'DM Sans',sans-serif; font-weight:800; font-size:19px; }
   .pdf-sub { font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:rgba(255,255,255,0.55); font-weight:700; }
   .meta { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px; }
   .meta-cell { background:#fafafa; border:1px solid var(--border); border-radius:8px; padding:8px 10px; }
   .meta-label { font-size:9px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); font-weight:700; margin-bottom:2px; }
-  .meta-val { font-family:'Syne',sans-serif; font-weight:700; font-size:13px; color:#0a0a0a; }
+  .meta-val { font-family:'DM Sans',sans-serif; font-weight:700; font-size:13px; color:#0a0a0a; }
   .msg-box { background:#fafafa; border:1px dashed #ccc; border-radius:8px; padding:12px 14px; margin-bottom:16px; white-space:pre-wrap; font-size:12px; color:#333; }
   .msg-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-bottom:6px; }
-  h2.sec { font-family:'Syne',sans-serif; font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:1.5px; margin:16px 0 10px; padding-bottom:6px; border-bottom:2px solid #0a0a0a; }
+  h2.sec { font-family:'DM Sans',sans-serif; font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:1.5px; margin:16px 0 10px; padding-bottom:6px; border-bottom:2px solid #0a0a0a; }
   table { width:100%; border-collapse:collapse; font-size:11px; }
   th { background:#0a0a0a; color:#fff; text-align:left; font-size:9.5px; font-weight:700; letter-spacing:0.5px; text-transform:uppercase; padding:7px 8px; }
   td { padding:6px 8px; border-bottom:1px solid #eee; }
