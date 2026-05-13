@@ -19981,7 +19981,13 @@ async function confirmarExcluirReferencia() {
 // ── MARKETPLACES (Social Selling) ──
 function loadMarketplaces() {
   const pm = liveData.porMes;
-  if (!pm || Object.keys(pm).length === 0) return;
+  if (!pm || Object.keys(pm).length === 0) {
+    // Timing: view abriu antes de loadSupabaseData terminar. Invalida cache
+    // do loadOnce e tenta de novo em 600ms.
+    if (window._viewLoaded) delete window._viewLoaded['marketplaces'];
+    setTimeout(() => { if (typeof loadMarketplaces === 'function') loadMarketplaces(); }, 600);
+    return;
+  }
 
   const now = new Date();
   const mesAtual = now.getMonth() + 1, anoAtual = now.getFullYear();
