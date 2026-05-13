@@ -7453,8 +7453,15 @@ updateDynamicField('foto');
 
   <!-- Top Produtos Vendidos -->
   <div class="card mb20">
-    <div class="card-header">
-      <div><div class="card-title">Top 10 Produtos Mais Vendidos</div><div class="card-sub" id="mp-sku-sub">Somente dos marketplaces (ML, Shopee, TikTok, Magalu) · dados Bling</div></div>
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div><div class="card-title">Top 10 Produtos Mais Vendidos</div><div class="card-sub" id="mp-sku-sub">SKUs mais vendidos em marketplaces · dados Bling</div></div>
+      <select id="mp-marketplace-filter" onchange="if(typeof loadBuscas==='function')loadBuscas()" style="padding:7px 11px;border:1px solid var(--border);border-radius:7px;background:var(--surface);font-size:12px;font-weight:600;cursor:pointer">
+        <option value="todos">Todos os marketplaces</option>
+        <option value="205337834">Mercado Livre</option>
+        <option value="205522474">Shopee</option>
+        <option value="205430008">TikTok Shop</option>
+        <option value="magalu">Magalu</option>
+      </select>
     </div>
     <div id="mp-top-skus" style="overflow-x:auto"><div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Carregando...</div></div>
   </div>
@@ -7634,34 +7641,35 @@ updateDynamicField('foto');
   </style>
 
   <!-- Sub-abas -->
-  <div style="display:flex;gap:6px;margin-bottom:18px;border-bottom:1px solid var(--line);padding-bottom:0">
-    <button class="tab active" data-estoque-tab="ativos" onclick="estoqueSwitchTab(this,'ativos')">🔔 Ativos <span id="estoque-tab-count-ativos" style="opacity:0.65;font-size:11px;margin-left:4px">(–)</span></button>
-    <button class="tab" data-estoque-tab="resolvidos" onclick="estoqueSwitchTab(this,'resolvidos')">✅ Resolvidos <span style="opacity:0.65;font-size:11px;margin-left:4px">(30d)</span></button>
-    <button class="tab" data-estoque-tab="ignorados" onclick="estoqueSwitchTab(this,'ignorados')">🙈 Ignorados</button>
+  <div style="display:flex;gap:6px;margin-bottom:18px;border-bottom:1px solid var(--line);padding-bottom:0;flex-wrap:wrap">
+    <button class="tab active" data-estoque-tab="ativos" onclick="estoqueSwitchTab(this,'ativos')">Ativos <span id="estoque-tab-count-ativos" style="opacity:0.65;font-size:11px;margin-left:4px">(–)</span></button>
+    <button class="tab" data-estoque-tab="parados" onclick="estoqueSwitchTab(this,'parados')">Estoque parado <span id="estoque-tab-count-parados" style="opacity:0.65;font-size:11px;margin-left:4px">(–)</span></button>
+    <button class="tab" data-estoque-tab="resolvidos" onclick="estoqueSwitchTab(this,'resolvidos')">Resolvidos <span style="opacity:0.65;font-size:11px;margin-left:4px">(30d)</span></button>
+    <button class="tab" data-estoque-tab="ignorados" onclick="estoqueSwitchTab(this,'ignorados')">Ignorados</button>
     <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-      <button class="btn btn-ghost btn-sm" onclick="estoqueExportarCSV()" title="Pedido de compra em CSV">⬇ Exportar CSV</button>
-      <button class="btn btn-ghost btn-sm" onclick="loadEstoque()" title="Atualizar">↻</button>
+      <button class="btn btn-ghost btn-sm" id="estoque-export-btn" onclick="estoqueExportarCSV()" title="Exporta CSV pra confecção/produção">Exportar CSV</button>
+      <button class="btn btn-ghost btn-sm" onclick="loadEstoque()" title="Atualizar">Atualizar</button>
     </div>
   </div>
 
   <!-- KPIs -->
   <div id="estoque-kpis" class="kpi-grid" style="grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px">
-    <div class="kpi-card"><div class="kpi-label">🔴 Críticos</div><div class="kpi-value" id="estoque-kpi-criticos">–</div><div class="kpi-sub" style="font-size:11px;color:var(--text3)">0-2 unidades</div></div>
-    <div class="kpi-card"><div class="kpi-label">🟡 Baixo</div><div class="kpi-value" id="estoque-kpi-baixos">–</div><div class="kpi-sub" style="font-size:11px;color:var(--text3)">3-5 unidades</div></div>
-    <div class="kpi-card"><div class="kpi-label">📅 Detectados hoje</div><div class="kpi-value" id="estoque-kpi-hoje">–</div><div class="kpi-sub" style="font-size:11px;color:var(--text3)">novos alertas</div></div>
-    <div class="kpi-card"><div class="kpi-label">✅ Resolvidos</div><div class="kpi-value" id="estoque-kpi-resolvidos">–</div><div class="kpi-sub" style="font-size:11px;color:var(--text3)">esta semana</div></div>
+    <div class="kpi-card"><div class="kpi-label">Críticos</div><div class="kpi-value" id="estoque-kpi-criticos">–</div><div class="kpi-sub" style="font-size:11px;color:var(--text3)">0-2 unidades · produzir já</div></div>
+    <div class="kpi-card"><div class="kpi-label">Baixo</div><div class="kpi-value" id="estoque-kpi-baixos">–</div><div class="kpi-sub" style="font-size:11px;color:var(--text3)">3-5 unidades</div></div>
+    <div class="kpi-card"><div class="kpi-label">Parado 5m+</div><div class="kpi-value" id="estoque-kpi-parados">–</div><div class="kpi-sub" style="font-size:11px;color:var(--text3)">candidatos a desconto</div></div>
+    <div class="kpi-card"><div class="kpi-label">Valor parado</div><div class="kpi-value" id="estoque-kpi-valor-parado" style="font-size:20px">–</div><div class="kpi-sub" style="font-size:11px;color:var(--text3)">capital empatado</div></div>
   </div>
 
   <!-- Filtros chip -->
   <div id="estoque-filtros-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
     <span style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Filtrar:</span>
     <button class="chip chip-active" data-estoque-urgencia="todos" onclick="estoqueSetUrgencia(this,'todos')">Todos</button>
-    <button class="chip" data-estoque-urgencia="criticos" onclick="estoqueSetUrgencia(this,'criticos')">🔴 Críticos</button>
-    <button class="chip" data-estoque-urgencia="baixos" onclick="estoqueSetUrgencia(this,'baixos')">🟡 Baixo</button>
+    <button class="chip" data-estoque-urgencia="criticos" onclick="estoqueSetUrgencia(this,'criticos')">Críticos</button>
+    <button class="chip" data-estoque-urgencia="baixos" onclick="estoqueSetUrgencia(this,'baixos')">Baixo</button>
     <span style="width:1px;height:18px;background:var(--line);margin:0 4px"></span>
     <button class="chip chip-active" data-estoque-velocidade="todos" onclick="estoqueSetVelocidade(this,'todos')">Todos</button>
-    <button class="chip" data-estoque-velocidade="movimentando" onclick="estoqueSetVelocidade(this,'movimentando')">📈 Movimentando</button>
-    <button class="chip" data-estoque-velocidade="parado" onclick="estoqueSetVelocidade(this,'parado')">📉 Parado 30d</button>
+    <button class="chip" data-estoque-velocidade="movimentando" onclick="estoqueSetVelocidade(this,'movimentando')">Movimentando</button>
+    <button class="chip" data-estoque-velocidade="parado" onclick="estoqueSetVelocidade(this,'parado')">Sem giro 90d</button>
     <span style="width:1px;height:18px;background:var(--line);margin:0 4px"></span>
     <select id="estoque-filtro-linha" class="input" style="font-size:12px;padding:5px 8px;min-width:200px" onchange="renderEstoqueGrupos()">
       <option value="todas">Todas as linhas</option>
@@ -21288,7 +21296,10 @@ async function loadFaturamentoPorCanal() {
       shopee:    { nome: '🛍 Shopee',                  cor: '#ee4d2d', total: 0, pedidos: 0, fonte: 'Bling' },
       tiktok:    { nome: '🎵 TikTok Shop',             cor: '#0ea5e9', total: 0, pedidos: 0, fonte: 'Bling' },
       magalu:    { nome: '🛒 Magalu',                  cor: '#06aaff', total: 0, pedidos: 0, fonte: 'Bling' },
-      siteBling: { nome: '🌐 Site (Bling - manuais)',  cor: '#94a3b8', total: 0, pedidos: 0, fonte: 'Bling' },
+      // siteBling REMOVIDO (Ciclo 88): pedidos com loja_id=0 eram contados como
+      // "Site" mas na verdade são vendas B2B/manuais lançadas direto no Bling.
+      // O site verdadeiro é o Magazord (puxado abaixo). Esses pedidos agora são
+      // ignorados pra não inflar o consolidado.
     };
     (blingR.data || []).forEach(p => {
       const lid = String(p.loja_id || '0');
@@ -21298,7 +21309,7 @@ async function loadFaturamentoPorCanal() {
       else if (lid === '205337834') key = 'ml';
       else if (lid === '205522474') key = 'shopee';
       else if (lid === '205430008') key = 'tiktok';
-      else if (lid === '0' || lid === 'null' || lid === 'undefined') key = 'siteBling';
+      else if (lid === '0' || lid === 'null' || lid === 'undefined') return;  // ignora B2B/manuais
       else key = 'magalu';
       canais[key].total += valor;
       canais[key].pedidos += 1;
@@ -21629,28 +21640,81 @@ async function loadMarketplacesExtras() {
     fim = nextA + '-' + String(nextM).padStart(2,'0') + '-01';
   }
 
-  // ── TOP PRODUTOS (da view top_produtos_mes ou top_produtos) ──
+  // ── TOP PRODUTOS (com filtro por marketplace + exclusão de serviços) ──
   try {
     const skuEl = document.getElementById('mp-top-skus');
     const subEl = document.getElementById('mp-sku-sub');
-    if (subEl) subEl.textContent = 'SKUs mais vendidos em marketplaces · ' + labelP;
+    const mktFilter = document.getElementById('mp-marketplace-filter')?.value || 'todos';
 
-    // Usa views FILTRADAS só de marketplaces (exclui site + loja física)
+    // Labels pro subtítulo
+    const mktLabel = {
+      'todos': 'todos os marketplaces (ML + Shopee + TikTok + Magalu)',
+      '205337834': 'Mercado Livre',
+      '205522474': 'Shopee',
+      '205430008': 'TikTok Shop',
+      'magalu': 'Magalu',
+    }[mktFilter] || 'marketplaces';
+    if (subEl) subEl.textContent = 'SKUs mais vendidos · ' + mktLabel + ' · ' + labelP;
+
+    // Palavras que indicam SERVIÇO, não produto físico (filtra do ranking)
+    const SERVICOS_KEYWORDS = ['aplicação bordado','aplicacao bordado','personalização','personalizacao','serviço bordado','servico bordado','cartela de numeração','cartela de numeracao','hobby','frete','desconto','taxa','ajuste'];
+    const ehServico = (desc) => {
+      const d = String(desc || '').toLowerCase();
+      return SERVICOS_KEYWORDS.some(k => d.includes(k));
+    };
+
     let prodData = null;
-    if (filtro === 'ytd') {
-      const { data } = await sb.from('top_produtos_marketplaces').select('*').limit(10);
-      prodData = data;
+    if (mktFilter === 'todos') {
+      // Usa view consolidada (já exclui site + loja física)
+      if (filtro === 'ytd') {
+        const { data } = await sb.from('top_produtos_marketplaces').select('*').limit(40);
+        prodData = data;
+      } else {
+        const mesQ = filtro === 'atual' ? mesAtual : parseInt(filtro.split('-')[1]);
+        const anoQ = filtro === 'atual' ? anoAtual : parseInt(filtro.split('-')[0]);
+        const { data } = await sb.from('top_produtos_marketplaces_mes').select('*').eq('ano', anoQ).eq('mes', mesQ).limit(40);
+        prodData = data;
+      }
     } else {
-      const mesQ = filtro === 'atual' ? mesAtual : parseInt(filtro.split('-')[1]);
-      const anoQ = filtro === 'atual' ? anoAtual : parseInt(filtro.split('-')[0]);
-      const { data } = await sb.from('top_produtos_marketplaces_mes').select('*').eq('ano', anoQ).eq('mes', mesQ).limit(10);
-      prodData = data;
+      // Filtro específico por marketplace — query inline em pedidos_itens
+      const empF = empresaFiltro();
+      let qPedidos = sb.from('pedidos').select('id, loja_id, data, situacao_id, empresa').gte('data', inicio).lt('data', fim).neq('situacao_id', 12);
+      if (empF) qPedidos = qPedidos.eq('empresa', empF);
+      if (mktFilter === 'magalu') {
+        // Magalu = loja_id desconhecido (não é ML/Shopee/TikTok/LojaFisica/0)
+        qPedidos = qPedidos.not('loja_id', 'in', '(0,203536978,203550865,205337834,205522474,205430008)').not('loja_id', 'is', null);
+      } else {
+        qPedidos = qPedidos.eq('loja_id', Number(mktFilter));
+      }
+      const { data: peds } = await qPedidos.limit(5000);
+      const pedIds = (peds || []).map(p => p.id);
+      if (pedIds.length === 0) {
+        prodData = [];
+      } else {
+        // Busca itens em chunks (limite do Supabase é ~1000 ids por IN)
+        const chunks = [];
+        for (let i = 0; i < pedIds.length; i += 800) chunks.push(pedIds.slice(i, i + 800));
+        const agreg = {};
+        for (const ch of chunks) {
+          const { data: itens } = await sb.from('pedidos_itens').select('descricao, codigo, quantidade, valor_total').in('pedido_id', ch).limit(20000);
+          (itens || []).forEach(it => {
+            const key = (it.codigo || '') + '|' + (it.descricao || '');
+            if (!agreg[key]) agreg[key] = { codigo: it.codigo, descricao: it.descricao, total_quantidade: 0, total_receita: 0 };
+            agreg[key].total_quantidade += Number(it.quantidade || 0);
+            agreg[key].total_receita += Number(it.valor_total || 0);
+          });
+        }
+        prodData = Object.values(agreg).sort((a,b) => b.total_quantidade - a.total_quantidade);
+      }
     }
 
-    if (prodData && prodData.length > 0 && skuEl) {
-      const maxQtd = prodData[0]?.total_quantidade || 1;
+    // Filtra serviços + pega top 10
+    const filtered = (prodData || []).filter(p => !ehServico(p.descricao || p.produto)).slice(0, 10);
+
+    if (filtered.length > 0 && skuEl) {
+      const maxQtd = filtered[0]?.total_quantidade || 1;
       skuEl.innerHTML = `<table style="width:100%"><thead><tr><th>#</th><th>Produto</th><th>Qtd.</th><th>Receita</th><th style="width:100px"></th></tr></thead><tbody>
-        ${prodData.slice(0, 10).map((p, i) => `<tr>
+        ${filtered.map((p, i) => `<tr>
           <td style="font-weight:700;color:${i<3?'var(--green)':'var(--text3)'}">${i+1}</td>
           <td class="em">${esc(p.produto||p.descricao)}${p.codigo ? ' <span style="color:var(--text4);font-size:10px">('+esc(p.codigo)+')</span>' : ''}</td>
           <td>${Math.round(p.total_quantidade)} un</td>
@@ -21659,7 +21723,10 @@ async function loadMarketplacesExtras() {
         </tr>`).join('')}
       </tbody></table>`;
     } else if (skuEl) {
-      skuEl.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Sync de itens pendente — rode a Edge Function <strong>sync-pedidos-itens</strong> no Supabase</div>';
+      const msg = mktFilter === 'todos'
+        ? 'Sync de itens pendente — rode a Edge Function <strong>sync-pedidos-itens</strong> no Supabase'
+        : 'Sem vendas nesse marketplace no período selecionado';
+      skuEl.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">' + msg + '</div>';
     }
   } catch (e) { console.warn('Top produtos error:', e); }
 
@@ -26664,17 +26731,24 @@ async function loadEstoque() {
   const container = document.getElementById('estoque-grupos-container');
   if (container) container.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:13px;padding:40px">Carregando...</div>';
 
-  // KPIs sempre dos ATIVOS (independente da tab)
+  // KPIs sempre globais (Críticos, Baixo, Parados 5m+, Valor parado)
   try {
     const { data: kpiData } = await sb.rpc('estoque_kpis', { empresa_filter: emp });
     const k = kpiData?.[0]?.estoque_kpis || kpiData || {};
-    // Compat: alguns drivers retornam objeto direto, outros dentro de array
     const kpi = k.estoque_kpis || k;
     document.getElementById('estoque-kpi-criticos').textContent = (kpi.criticos ?? '–');
     document.getElementById('estoque-kpi-baixos').textContent = (kpi.baixos ?? '–');
-    document.getElementById('estoque-kpi-hoje').textContent = (kpi.detectados_hoje ?? '–');
-    document.getElementById('estoque-kpi-resolvidos').textContent = (kpi.resolvidos_semana ?? '–');
-    // Badge sidebar
+    const elParados = document.getElementById('estoque-kpi-parados');
+    const elValor = document.getElementById('estoque-kpi-valor-parado');
+    if (elParados) elParados.textContent = (kpi.parados ?? '–');
+    if (elValor) {
+      const v = Number(kpi.valor_parado || 0);
+      elValor.textContent = 'R$ ' + Math.round(v).toLocaleString('pt-BR');
+    }
+    // Contador na aba Parados
+    const cP = document.getElementById('estoque-tab-count-parados');
+    if (cP) cP.textContent = '(' + (kpi.parados ?? 0) + ')';
+    // Badge sidebar = críticos + baixos (não inclui parados, pra não distrair)
     const badge = document.getElementById('nav-estoque-badge');
     const totalAtivo = (Number(kpi.criticos)||0) + (Number(kpi.baixos)||0);
     if (badge) {
@@ -26686,6 +26760,7 @@ async function loadEstoque() {
   // Lista do tab ativo
   const rpcName = tab === 'resolvidos' ? 'listar_estoque_resolvidos'
                 : tab === 'ignorados'  ? 'listar_estoque_ignorados'
+                : tab === 'parados'    ? 'listar_estoque_parados'
                 :                         'listar_estoque_baixo';
   try {
     const { data, error } = await sb.rpc(rpcName, { empresa_filter: emp });
@@ -26739,14 +26814,15 @@ function renderEstoqueGrupos() {
       entradas = entradas.map(([k,arr]) => [k, arr.filter(i => Number(i.estoque_virtual) >= 3 && Number(i.estoque_virtual) <= 5)]).filter(([,arr])=>arr.length);
     }
     if (st.velocidade === 'movimentando') {
-      entradas = entradas.map(([k,arr]) => [k, arr.filter(i => Number(i.qtd_vendida_30d) > 0)]).filter(([,arr])=>arr.length);
+      entradas = entradas.map(([k,arr]) => [k, arr.filter(i => Number(i.qtd_vendida_90d) > 0)]).filter(([,arr])=>arr.length);
     } else if (st.velocidade === 'parado') {
-      entradas = entradas.map(([k,arr]) => [k, arr.filter(i => !Number(i.qtd_vendida_30d))]).filter(([,arr])=>arr.length);
+      entradas = entradas.map(([k,arr]) => [k, arr.filter(i => !Number(i.qtd_vendida_90d))]).filter(([,arr])=>arr.length);
     }
   }
 
   if (!entradas.length) {
-    const msg = tab === 'ativos' ? '✅ Sem alertas ativos — estoque sob controle.'
+    const msg = tab === 'ativos' ? 'Sem alertas ativos — estoque sob controle.'
+              : tab === 'parados' ? 'Nenhum produto parado há mais de 5 meses.'
               : tab === 'resolvidos' ? 'Nenhum alerta resolvido nos últimos 30 dias.'
               : 'Nenhum alerta ignorado no momento.';
     container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:40px;font-size:13.5px">' + msg + '</div>';
@@ -26766,42 +26842,69 @@ function renderEstoqueGrupos() {
 function renderEstoqueGrupoCard(linha, itens, tab) {
   const empColor = (e) => e === 'matriz' ? '#3b82f6' : '#10b981';
   const empLabel = (e) => e === 'matriz' ? 'Matriz' : 'BC';
+  const fmtR = (v) => 'R$ ' + Math.round(Number(v)||0).toLocaleString('pt-BR');
 
   // Resumo
   const totalEstoque = itens.reduce((s,i)=>s+(Number(i.estoque_virtual)||0),0);
   const empresas = [...new Set(itens.map(i => i.empresa))];
-  const sumSugerida = itens.reduce((s,i)=>s+(Number(i.qtd_sugerida)||0),0);
+  // Aceita tanto qtd_sugerida_producao (novo) quanto qtd_sugerida (legado)
+  const sumSugerida = itens.reduce((s,i)=>s+(Number(i.qtd_sugerida_producao || i.qtd_sugerida)||0),0);
+  const valorParadoLinha = itens.reduce((s,i)=>s+(Number(i.valor_parado)||0),0);
   const algumCritico = itens.some(i => Number(i.estoque_virtual) < 3);
 
   const linhasHtml = itens.map(it => {
+    // ─── Tab Resolvidos ───
     if (tab === 'resolvidos') {
       const data = it.resolvido_em ? new Date(it.resolvido_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '–';
-      const acao = it.acao_tomada === 'reabastecido' ? '✅ Reabastecido'
-                 : it.acao_tomada === 'tarefa_criada' ? '🛒 Tarefa criada'
-                 : it.acao_tomada;
+      const acao = it.acao_tomada === 'reabastecido' ? 'Reabastecido'
+                 : it.acao_tomada === 'tarefa_criada' ? 'Tarefa criada'
+                 : (it.acao_tomada || '–');
       return `<div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:6px;font-size:12px;align-items:center">
         <div style="color:var(--text2)"><span style="font-family:monospace;font-size:10.5px;color:var(--text3)">${escapeHtml(it.codigo||'')}</span> · ${escapeHtml(it.nome||'')}</div>
         <div style="color:var(--text3);font-size:11px">${data}</div>
         <div style="font-size:11px;color:#10b981;font-weight:600">${acao}</div>
       </div>`;
     }
+    // ─── Tab Ignorados ───
     if (tab === 'ignorados') {
       const ate = it.ignorado_ate ? new Date(it.ignorado_ate).toLocaleDateString('pt-BR') : '–';
       return `<div style="display:grid;grid-template-columns:1fr auto auto auto;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:6px;font-size:12px;align-items:center">
         <div style="color:var(--text2)"><span style="font-family:monospace;font-size:10.5px;color:var(--text3)">${escapeHtml(it.codigo||'')}</span> · ${escapeHtml(it.nome||'')}</div>
         <div style="font-size:11px;color:var(--text3)">${Number(it.estoque_virtual)||0} un</div>
         <div style="font-size:11px;color:var(--text3)">até ${ate}</div>
-        <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:4px 8px" onclick="estoqueDesfazerIgnorar(${it.alerta_id})">↩ Voltar</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:4px 8px" onclick="estoqueDesfazerIgnorar(${it.alerta_id})">Voltar</button>
       </div>`;
     }
-    // tab ativos
+    // ─── Tab Parados (5+ meses sem vender) ───
+    if (tab === 'parados') {
+      const dias = Number(it.dias_sem_vender) || null;
+      const meses = dias ? Math.floor(dias / 30) : null;
+      const valor = Number(it.valor_parado) || (Number(it.estoque_virtual) * Number(it.preco) || 0);
+      const ultima = it.ultima_venda
+        ? new Date(it.ultima_venda).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })
+        : 'nunca';
+      // Sugestão de desconto (escalonado pelo tempo parado)
+      const descSug = !dias ? 30 : dias > 365 ? 50 : dias > 270 ? 40 : 30;
+      return `<div style="display:grid;grid-template-columns:auto 1fr auto auto auto;gap:10px;padding:9px 10px;background:rgba(255,255,255,0.02);border-radius:6px;font-size:12px;align-items:center">
+        <div style="background:${empColor(it.empresa)};color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:0.3px">${empLabel(it.empresa)}</div>
+        <div style="color:var(--text2)">
+          <div><span style="font-family:monospace;font-size:10.5px;color:var(--text3)">${escapeHtml(it.codigo||'')}</span> · ${escapeHtml(it.nome||'')}</div>
+          <div style="font-size:10.5px;color:var(--text3);margin-top:2px">Última venda: ${ultima}${meses ? ' · '+meses+' meses parado' : ''}</div>
+        </div>
+        <div style="font-weight:700;color:#f59e0b;font-size:13px">${Number(it.estoque_virtual)||0} un</div>
+        <div title="Valor parado em capital" style="font-size:11px;color:var(--text2);font-weight:600">${fmtR(valor)}</div>
+        <div title="Sugestão: campanha com desconto" style="background:rgba(239,68,68,0.15);color:#f87171;font-size:10.5px;padding:3px 8px;border-radius:4px;font-weight:600">-${descSug}% off</div>
+      </div>`;
+    }
+    // ─── Tab Ativos (default — baixo/crítico estoque) ───
     const dias = it.dias_de_estoque;
-    const vendas = Number(it.qtd_vendida_30d) || 0;
-    const sug = Number(it.qtd_sugerida) || 0;
+    const vendas = Number(it.qtd_vendida_90d || it.qtd_vendida_30d) || 0;
+    const sug = Number(it.qtd_sugerida_producao || it.qtd_sugerida) || 0;
+    const mediaMes = Number(it.media_mes) || (vendas / 3);
     const corEstoque = Number(it.estoque_virtual) < 3 ? '#ef4444' : '#f59e0b';
     const detalheVelo = vendas > 0
-      ? `vende ${Number(it.vendas_dia).toFixed(2)}/dia${dias?` · ${dias} dia${dias>1?'s':''} restante${dias>1?'s':''}`:''}`
-      : 'sem giro 30d';
+      ? `vende ${mediaMes.toFixed(1)}/mês (90d)${dias ? ` · ${dias} dia${dias>1?'s':''} restante${dias>1?'s':''}` : ''}`
+      : 'sem giro nos últimos 90d';
     return `<div style="display:grid;grid-template-columns:auto 1fr auto auto auto;gap:10px;padding:9px 10px;background:rgba(255,255,255,0.02);border-radius:6px;font-size:12px;align-items:center">
       <div style="background:${empColor(it.empresa)};color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:0.3px">${empLabel(it.empresa)}</div>
       <div style="color:var(--text2)">
@@ -26809,31 +26912,45 @@ function renderEstoqueGrupoCard(linha, itens, tab) {
         <div style="font-size:10.5px;color:var(--text3);margin-top:2px">${detalheVelo}</div>
       </div>
       <div style="font-weight:700;color:${corEstoque};font-size:13px">${Number(it.estoque_virtual)||0} un</div>
-      <div title="Sugestão de compra (cobrir 30d + 7 margem)" style="background:rgba(124,58,237,0.15);color:#a78bfa;font-size:10.5px;padding:3px 8px;border-radius:4px;font-weight:600">+${sug}</div>
+      <div title="Produzir pra cobrir 2 meses de vendas" style="background:rgba(124,58,237,0.15);color:#a78bfa;font-size:10.5px;padding:3px 8px;border-radius:4px;font-weight:600">produzir ${sug}</div>
       <div style="display:flex;gap:4px">
-        <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 7px" title="Marcar como reabastecido" onclick="estoqueResolver(${it.alerta_id},'reabastecido')">✅</button>
-        <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 7px" title="Criar tarefa no Kanban" onclick="estoqueCriarTarefa(${it.alerta_id})">🛒</button>
-        <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 7px" title="Ignorar por 30 dias" onclick="estoqueResolver(${it.alerta_id},'ignorado',30)">🙈</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:4px 8px" title="Marcar como reabastecido / produzido" onclick="estoqueResolver(${it.alerta_id},'reabastecido')">Feito</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:4px 8px" title="Criar tarefa no Kanban pra produzir" onclick="estoqueCriarTarefa(${it.alerta_id})">Tarefa</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:4px 8px" title="Ignorar por 30 dias" onclick="estoqueResolver(${it.alerta_id},'ignorado',30)">Ignorar</button>
       </div>
     </div>`;
   }).join('');
 
-  const headerAcao = (tab === 'ativos' && sumSugerida > 0)
-    ? `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:12px;color:var(--text2)">
-        💡 Sugestão total: <strong style="color:#a78bfa">${sumSugerida} un</strong> pra linha completa
-        <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:11px" onclick="estoqueResolverGrupo('${linha.replace(/'/g,"\\'")}','reabastecido')">✅ Linha toda</button>
-      </div>` : '';
+  // Rodapé adicional por aba
+  let footer = '';
+  if (tab === 'ativos' && sumSugerida > 0) {
+    footer = `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:12px;color:var(--text2)">
+        Programar produção: <strong style="color:#a78bfa">${sumSugerida} un</strong> pra linha completa (cobertura ~2 meses)
+        <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:11px" onclick="estoqueResolverGrupo('${linha.replace(/'/g,"\\'")}','reabastecido')">Linha toda</button>
+      </div>`;
+  } else if (tab === 'parados' && valorParadoLinha > 0) {
+    footer = `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:12px;color:var(--text2)">
+        Capital parado nessa linha: <strong style="color:#f87171">${fmtR(valorParadoLinha)}</strong> · sugestão de campanha
+      </div>`;
+  }
 
-  return `<div style="border:1px solid ${algumCritico?'rgba(239,68,68,0.4)':'var(--line)'};border-radius:10px;padding:14px 16px;background:var(--card)">
+  const headerTitulo = tab === 'parados'
+    ? `<div style="font-weight:700;font-size:14px;color:var(--text1)">${escapeHtml(linha)}</div>
+       <div style="font-size:11px;color:var(--text3);margin-top:2px">${itens.length} variaç${itens.length>1?'ões':'ão'} · ${totalEstoque} un · ${fmtR(valorParadoLinha)} parado</div>`
+    : `<div style="font-weight:700;font-size:14px;color:var(--text1)">${escapeHtml(linha)}</div>
+       <div style="font-size:11px;color:var(--text3);margin-top:2px">${itens.length} variaç${itens.length>1?'ões':'ão'} · total ${totalEstoque} un ${empresas.length>1?'· '+empresas.length+' empresas':''}</div>`;
+
+  const borderColor = tab === 'parados' ? 'rgba(245,158,11,0.3)' :
+                      algumCritico ? 'rgba(239,68,68,0.4)' : 'var(--line)';
+
+  return `<div style="border:1px solid ${borderColor};border-radius:10px;padding:14px 16px;background:var(--card)">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap">
-      <div>
-        <div style="font-weight:700;font-size:14px;color:var(--text1)">👕 ${escapeHtml(linha)}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px">${itens.length} variaç${itens.length>1?'ões':'ão'} · total ${totalEstoque} un ${empresas.length>1?'· '+empresas.length+' empresas':''}</div>
-      </div>
-      ${algumCritico && tab==='ativos' ? '<div style="font-size:10.5px;color:#ef4444;font-weight:700;background:rgba(239,68,68,0.1);padding:3px 8px;border-radius:4px">⚠ TEM CRÍTICO</div>' : ''}
+      <div>${headerTitulo}</div>
+      ${algumCritico && tab==='ativos' ? '<div style="font-size:10.5px;color:#ef4444;font-weight:700;background:rgba(239,68,68,0.1);padding:3px 8px;border-radius:4px">TEM CRÍTICO</div>' : ''}
+      ${tab==='parados' ? '<div style="font-size:10.5px;color:#f59e0b;font-weight:700;background:rgba(245,158,11,0.1);padding:3px 8px;border-radius:4px">PARADO</div>' : ''}
     </div>
     <div style="display:flex;flex-direction:column;gap:4px">${linhasHtml}</div>
-    ${headerAcao}
+    ${footer}
   </div>`;
 }
 
@@ -26844,6 +26961,16 @@ function estoqueSwitchTab(btn, tab) {
   // esconde barra de filtros urgência/velocidade fora da tab ativos
   const filtros = document.getElementById('estoque-filtros-bar');
   if (filtros) filtros.style.display = (tab === 'ativos') ? '' : 'none';
+  // adapta label do botão Exportar conforme tab
+  const expBtn = document.getElementById('estoque-export-btn');
+  if (expBtn) {
+    expBtn.textContent = tab === 'parados' ? 'Exportar campanha desconto'
+                       : tab === 'ativos'  ? 'Exportar pedido produção'
+                       :                     'Exportar CSV';
+    expBtn.title = tab === 'parados' ? 'CSV com SKUs parados + sugestão de desconto'
+                 : tab === 'ativos'  ? 'CSV pra produção (SKU + qty a produzir)'
+                 :                     'Exporta a lista atual em CSV';
+  }
   loadEstoque();
 }
 
@@ -26909,9 +27036,16 @@ async function estoqueResolverGrupo(linha, acao) {
 async function estoqueCriarTarefa(alertaId) {
   const it = window._estoqueState.itens.find(x => x.alerta_id === alertaId);
   if (!it) return;
-  const qtd = Number(it.qtd_sugerida) || 5;
-  const titulo = 'Comprar: ' + (it.nome || it.codigo) + ' · ~' + qtd + ' un';
-  const desc = 'SKU: ' + (it.codigo||'') + '\nEmpresa: ' + (it.empresa||'') + '\nEstoque atual: ' + (it.estoque_virtual||0) + ' un\nVendas 30d: ' + (Number(it.qtd_vendida_30d)||0) + ' un\nSugestão: ' + qtd + ' un (cobrir 30d + 7 margem)';
+  const qtd = Number(it.qtd_sugerida_producao || it.qtd_sugerida) || 5;
+  const vendas90 = Number(it.qtd_vendida_90d) || Number(it.qtd_vendida_30d) || 0;
+  const mediaMes = Number(it.media_mes) || (vendas90 / 3);
+  const titulo = 'Produzir: ' + (it.nome || it.codigo) + ' · ' + qtd + ' un';
+  const desc = 'SKU: ' + (it.codigo||'') +
+    '\nEmpresa: ' + (it.empresa||'') +
+    '\nEstoque atual: ' + (it.estoque_virtual||0) + ' un' +
+    '\nVendas últimos 90 dias: ' + vendas90 + ' un' +
+    '\nMédia mensal: ' + mediaMes.toFixed(1) + ' un/mês' +
+    '\nProduzir: ' + qtd + ' un (cobertura ~2 meses)';
   try {
     const prazo = new Date(); prazo.setDate(prazo.getDate() + 3);
     const { error: insErr } = await sb.from('tarefas').insert({
@@ -26935,25 +27069,52 @@ async function estoqueCriarTarefa(alertaId) {
 
 function estoqueExportarCSV() {
   const itens = window._estoqueState.itens || [];
+  const tab = window._estoqueState.tab;
   if (!itens.length) { if (typeof showToast === 'function') showToast('Sem dados pra exportar'); return; }
-  const linhas = [['Codigo','Nome','Empresa','Estoque','Vendas 30d','Vendas/dia','Sugestao','Preco']];
-  for (const it of itens) {
-    linhas.push([
-      it.codigo || '',
-      (it.nome || '').replace(/[\n;"]/g, ' '),
-      it.empresa || '',
-      it.estoque_virtual ?? '',
-      it.qtd_vendida_30d ?? '',
-      it.vendas_dia ?? '',
-      it.qtd_sugerida ?? '',
-      it.preco ?? ''
-    ]);
+
+  let linhas, nomeArquivo;
+  if (tab === 'parados') {
+    // CSV pra campanha de desconto: SKU, nome, estoque, valor parado, última venda, dias parado, sugestão de desconto
+    linhas = [['Codigo','Nome','Empresa','Estoque','Preco','Valor parado','Ultima venda','Dias parado','Sugestao desconto (%)']];
+    for (const it of itens) {
+      const dias = Number(it.dias_sem_vender) || null;
+      const descSug = !dias ? 30 : dias > 365 ? 50 : dias > 270 ? 40 : 30;
+      linhas.push([
+        it.codigo || '',
+        (it.nome || '').replace(/[\n;"]/g, ' '),
+        it.empresa || '',
+        it.estoque_virtual ?? '',
+        it.preco ?? '',
+        Number(it.valor_parado || 0).toFixed(2),
+        it.ultima_venda ? new Date(it.ultima_venda).toISOString().slice(0,10) : 'nunca',
+        dias ?? '',
+        descSug
+      ]);
+    }
+    nomeArquivo = 'campanha-desconto-parados-' + new Date().toISOString().slice(0,10) + '.csv';
+  } else {
+    // CSV padrão pra produção (programação)
+    linhas = [['Codigo','Nome','Empresa','Estoque','Vendas 90d','Media/mes','Produzir','Preco']];
+    for (const it of itens) {
+      linhas.push([
+        it.codigo || '',
+        (it.nome || '').replace(/[\n;"]/g, ' '),
+        it.empresa || '',
+        it.estoque_virtual ?? '',
+        it.qtd_vendida_90d ?? it.qtd_vendida_30d ?? '',
+        it.media_mes ?? '',
+        it.qtd_sugerida_producao ?? it.qtd_sugerida ?? '',
+        it.preco ?? ''
+      ]);
+    }
+    nomeArquivo = 'pedido-producao-' + new Date().toISOString().slice(0,10) + '.csv';
   }
+
   const csv = linhas.map(l => l.map(c => `"${String(c).replace(/"/g,'""')}"`).join(';')).join('\n');
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'pedido-compra-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.download = nomeArquivo;
   document.body.appendChild(a); a.click(); a.remove();
 }
 
