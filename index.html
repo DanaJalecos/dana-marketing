@@ -21552,7 +21552,13 @@ async function loadTopProdutos(container, mesLabel) {
 // ── MARKETPLACES: Vendas por canal + Top SKUs ──
 async function loadMarketplacesExtras() {
   const pm = liveData.porMes;
-  if (!pm) return;
+  if (!pm) {
+    // liveData ainda não carregou (timing ruim — usuário entrou via URL direta).
+    // Limpa o cache do loadOnce e tenta de novo em 600ms.
+    if (window._viewLoaded) delete window._viewLoaded['marketplaces'];
+    setTimeout(() => { if (typeof loadMarketplacesExtras === 'function') loadMarketplacesExtras(); }, 600);
+    return;
+  }
   const now = new Date();
   const mesAtual = now.getMonth() + 1, anoAtual = now.getFullYear();
   const fmt = (v) => Math.round(v).toLocaleString('pt-BR');
