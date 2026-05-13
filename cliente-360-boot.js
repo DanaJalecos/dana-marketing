@@ -5240,10 +5240,6 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     // Filtros opcionais
     const f = filtros || {};
     if (f.segmento) q = q.eq('segmento', f.segmento);
-    if (f.pedidosMin != null) q = q.gte('total_pedidos', f.pedidosMin);
-    if (f.pedidosMax != null) q = q.lte('total_pedidos', f.pedidosMax);
-    if (f.gastoMin != null) q = q.gte('total_gasto', f.gastoMin);
-    if (f.gastoMax != null) q = q.lte('total_gasto', f.gastoMax);
     // FASE 5: filtro produto (via RPC clientes_que_compraram -> Set -> .in)
     if (state._mcClientesQueCompraram instanceof Set && state._mcClientesQueCompraram.size > 0) {
       const nomes = Array.from(state._mcClientesQueCompraram).slice(0, 2000); // cap pra evitar URL gigante
@@ -5284,6 +5280,13 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
           }
         }
       } catch (e) { console.warn('[mc] merge metadata error', e); }
+    }
+    // Filtro de status_relacionamento (client-side, depois do merge)
+    if (f.statusRelacionamento) {
+      if (f.statusRelacionamento === '__nao_contatado__') {
+        return lista.filter(c => !c.status_relacionamento || c.status_relacionamento === 'novo');
+      }
+      return lista.filter(c => c.status_relacionamento === f.statusRelacionamento);
     }
     return lista;
   }
@@ -5763,7 +5766,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
   function mcRenderFiltrosBar(f, ehVendedor, vendedoresList) {
     const fnFilter = ehVendedor ? 'c360McVendedorFilter' : 'c360McAdminFilter';
     const fnClear = ehVendedor ? 'c360McVendedorLimparFiltros' : 'c360McAdminLimparFiltros';
-    const temFiltro = !!(f.busca || f.segmento || f.pedidosMin != null || f.pedidosMax != null || f.gastoMin != null || f.gastoMax != null || f.vendedor);
+    const temFiltro = !!(f.busca || f.segmento || f.statusRelacionamento || f.vendedor);
     const vendedorSelect = (!ehVendedor && vendedoresList) ? `
       <div style="display:flex;flex-direction:column;gap:3px;min-width:160px">
         <label style="color:#64748b;font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px">Vendedor</label>
@@ -5773,6 +5776,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
           ${vendedoresList.map(r => `<option value="${r.vendedor_profile_id}" ${f.vendedor===r.vendedor_profile_id?'selected':''}>${escapeHtml(r.vendedor_nome || '(sem nome)')}</option>`).join('')}
         </select>
       </div>` : '';
+    const sr = f.statusRelacionamento || '';
     return `
       <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:240px">
@@ -5793,18 +5797,16 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
           </select>
         </div>
         <div style="display:flex;flex-direction:column;gap:3px;min-width:170px">
-          <label style="color:#64748b;font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px">Pedidos (min — max)</label>
-          <div style="display:flex;gap:4px">
-            <input type="number" min="0" id="mc-filtro-ped-min" value="${f.pedidosMin != null ? f.pedidosMin : ''}" placeholder="min" oninput="window.${fnFilter}Debounced()" style="width:70px;padding:7px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:12.5px">
-            <input type="number" min="0" id="mc-filtro-ped-max" value="${f.pedidosMax != null ? f.pedidosMax : ''}" placeholder="max" oninput="window.${fnFilter}Debounced()" style="width:70px;padding:7px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:12.5px">
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:3px;min-width:200px">
-          <label style="color:#64748b;font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px">Total gasto R$ (min — max)</label>
-          <div style="display:flex;gap:4px">
-            <input type="number" min="0" step="100" id="mc-filtro-gasto-min" value="${f.gastoMin != null ? f.gastoMin : ''}" placeholder="min" oninput="window.${fnFilter}Debounced()" style="width:90px;padding:7px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:12.5px">
-            <input type="number" min="0" step="100" id="mc-filtro-gasto-max" value="${f.gastoMax != null ? f.gastoMax : ''}" placeholder="max" oninput="window.${fnFilter}Debounced()" style="width:90px;padding:7px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:12.5px">
-          </div>
+          <label style="color:#64748b;font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px">Status do relacionamento</label>
+          <select id="mc-filtro-status-rel" onchange="window.${fnFilter}()" style="padding:7px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:12.5px">
+            <option value="">Todos</option>
+            <option value="__nao_contatado__" ${sr==='__nao_contatado__'?'selected':''}>Não contatado ainda</option>
+            <option value="contatado" ${sr==='contatado'?'selected':''}>Contatado</option>
+            <option value="em_negociacao" ${sr==='em_negociacao'?'selected':''}>Em negociação</option>
+            <option value="convertido" ${sr==='convertido'?'selected':''}>Convertido</option>
+            <option value="perdido" ${sr==='perdido'?'selected':''}>Perdido</option>
+            <option value="sem_interesse" ${sr==='sem_interesse'?'selected':''}>Sem interesse</option>
+          </select>
         </div>
         ${temFiltro ? `<button onclick="window.${fnClear}()" style="padding:7px 14px;border-radius:6px;border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.1);color:#f87171;cursor:pointer;font-size:12px">Limpar filtros</button>` : ''}
       </div>
@@ -5834,14 +5836,10 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
   // Le filtros do DOM
   function mcLerFiltrosDOM() {
-    const toNum = (v) => { const n = parseFloat(v); return isFinite(n) ? n : null; };
     return {
       busca: (document.getElementById('mc-filtro-busca')?.value || '').trim() || null,
       segmento: document.getElementById('mc-filtro-segmento')?.value || null,
-      pedidosMin: toNum(document.getElementById('mc-filtro-ped-min')?.value),
-      pedidosMax: toNum(document.getElementById('mc-filtro-ped-max')?.value),
-      gastoMin: toNum(document.getElementById('mc-filtro-gasto-min')?.value),
-      gastoMax: toNum(document.getElementById('mc-filtro-gasto-max')?.value),
+      statusRelacionamento: document.getElementById('mc-filtro-status-rel')?.value || null,
       vendedor: document.getElementById('mc-filtro-vendedor')?.value || null,
     };
   }
