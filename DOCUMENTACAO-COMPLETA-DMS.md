@@ -8701,4 +8701,318 @@ UPDATE alertas SET audiencia = 'estoque_silencioso'
 
 ---
 
-**Fim da documentação · Atualizado em 12/05/2026 noite-2 — Section 86 (Gestão Inteligente de Estoque) · v12.6**
+---
+
+## 87. CICLO 12-13/05/2026 — Central do Tráfego + Email Resend + Calendário + Permissões reorganizadas
+
+Várias entregas pequenas e médias agregadas. Estado: tudo deployado em prod no DanaJalecos (Vercel).
+
+### 87.1 Central do Tráfego (nova seção em Marketing)
+- View `#view-trafego` com **4 KPIs** (Criativos prontos, Aguardando aprovação, Campanhas ativas, Influenciadores ativos)
+- **8 cards de atalho** linkando pras seções principais (Criativos, Campanhas Internas, Briefings, Construtor, Canais de Aquisição, Influenciadores, Analytics, Brand Kit)
+- **"Suas tarefas pendentes"** filtradas pelo nome do user logado (tarefas.responsavel é TEXT, não UUID)
+- **Realtime** via `realtime-trafego-*` channels (debounce 1.5s) — recarrega KPIs quando há mudança em `criativos`, `campanhas_internas`, `influenciadores`, `tarefas`
+- Callback `trafego: loadTrafego` em `recarregarTudoPorEmpresa`
+- Permissão: chave `trafego` em PERM_MATRIX
+
+**Bug encontrado e corrigido:** "Suas tarefas pendentes" sempre vazio. Causa: usei `t.responsavel_id === uid` mas `tarefas.responsavel` é TEXT (nome curto, ex: "Hadassah"). Fix: `matchResponsavel(r)` compara contra `currentProfile?.nome` (nome completo, primeiro nome, ou email-prefix).
+
+### 87.2 Sistema de Email transacional Resend
+Disparos automáticos via Edge Function `send-email` em 3 eventos:
+
+| Evento | Notifica | Trigger no frontend |
+|---|---|---|
+| Criativo aprovado | Designer + CC Beatriz | `confirmarAprovarArte` (~index.html:5340) |
+| Criativo reprovado | Designer + CC Beatriz | `confirmarReprovarArte` (~index.html:5399) |
+| Tarefa atribuída | Responsável + CC Beatriz | `salvarTarefaEdit` + `criarTarefa` |
+
+**Arquitetura:**
+- `edge-functions/send-email.ts` — recebe `{evento, para_id, recurso_id, dados}`, resolve email via `auth.users` pelo UUID, renderiza template HTML, envia via Resend, loga em `email_log`
+- `sql-scripts/sql-email-log.sql` — tabela de auditoria com dedupe de 2min (RLS: só admin lê)
+- Helper `enviarEmailNotificacao(evento, paraId, recursoId, dados)` em [index.html:4914](index.html) (ao lado de `criarAlertaParaId`)
+- `RESEND_API_KEY` salvo como Supabase Secret
+- Beatriz Magnus (`comercial@danajalecos.com.br`, profile UUID `f2830334-a0f3-47df-a70c-4655a525da03`) entra em CC hardcoded
+- Remetente atual: `DMS Dana <onboarding@resend.dev>` (sandbox Resend)
+
+**Templates HTML** (1 base + 3 variações):
+- Header preto "DANA JALECOS" + badge colorido por status
+- Caixa de comentário/feedback/descrição
+- Botão CTA com **deep-link** (`?abrir=<UUID>` na URL)
+- Footer cinza
+
+**Deep-link via `?abrir=ID`:**
+- URLs do email: `https://dms.danajalecos.com.br/criativos?abrir=<id>`
+- `restoreView` (boot, ~index.html:13718) lê o query param e dispara `focarCriativo(id)` ou `focarTarefa(id)` após o `go()` inicial
+- Limpa o param com `history.replaceState` pra não disparar de novo em refresh
+- Reusa helpers `focarCriativo` e `focarTarefa` que o sininho já usa
+
+**Limitação atual:** Resend em sandbox — só envia pra `danajalecos@gmail.com`. Pra liberar pra outros destinatários, Juan precisa verificar domínio `danajalecos.com.br` no Resend (DNS HostGator — 3 registros TXT/MX em subdomínio `send.`, não afeta o site).
+
+### 87.3 Calendário — fixes e permissões
+**1. Botão "+X mais" agora abre popup com todos os itens do dia.**
+Antes: era um `<div>` sem `onclick` — parecia clicável mas não fazia nada. Nova função `mostrarTodosItensDoDia(dateStr)` cria overlay-modal listando tudo (eventos + tarefas), cada um clicável (abre detalhe). ESC fecha. Click no backdrop fecha.
+
+**2. Filtro por cargo** — permissão `calendario_ver_todos`:
+- Default true pra todos os cargos, **false pra `vendedor`**
+- Quem está com permissão desmarcada vê **só eventos do tipo `campanha_interna`** (cards roxos) — sem tarefas, sem outros tipos de campanha
+- Aplicado em `renderCalendario` E `mostrarTodosItensDoDia`
+- Admin sempre vê tudo (override hard-coded)
+
+**3. Fix banner errado quando evento é `campanha_interna`:**
+Antes dizia "Gerenciada pelo Cliente 360 · use a seção Cliente 360 → Campanhas" (errado — Campanhas Internas é seção própria). Agora troca dinamicamente:
+- `campanha_c360` → "Gerenciada pelo Cliente 360 · use a seção Cliente 360 → Campanhas"
+- `campanha_interna` → "Gerenciada pelo módulo Campanhas Internas · use a seção Marketing → Campanhas Internas"
+
+### 87.4 Painel de Permissões reorganizado
+**Antes:** PERM_GROUPS era 1 lista plana onde "ver Calendário" + "criar evento" + "excluir evento" apareciam como toggles iguais — confuso.
+
+**Agora:** `PERM_MATRIX` estrutura por SEÇÃO com colunas:
+- 👁 **Ver** (acessar a tela)
+- ✏️ **Criar**
+- 🔧 **Editar**
+- 🗑 **Excluir**
+- Sub-toggles indentados pras chaves especiais (`calendario_ver_todos`, `criativo_aprovar`, `criativo_publicar`, `prospeccao_buscar`, `avatares_ia_gerar`, `provasocial_aprovar`)
+
+**Quando ação não se aplica** (ex: Dashboard não tem "criar"), célula mostra `—` cinza.
+
+**Bug corrigido:** toggles invisíveis no tema dark. CSS antigo era só um retângulo `var(--black)` sem thumb — invisível no dark. Refatorado pra `<label class="perm-switch-wrap"><input hidden><span class="perm-switch-track"></span></label>` com CSS escopado em `#perm-cargo-groups` (track cinza→azul + thumb branco circular que desliza).
+
+**Limpeza:** removidos 65 registros órfãos de `analista_marketing` em `cargo_permissoes` (cargo nunca usado, sem usuário em `profiles`).
+
+### 87.5 Arquivos modificados nesse ciclo
+| Arquivo | Mudanças |
+|---|---|
+| `index.html` | view-trafego + loadTrafego + send-email helper + hooks aprovar/reprovar/atribuir + restoreView deep-link + mostrarTodosItensDoDia + filtro calendario_ver_todos + ESTOQUE_VIEWS bloqueio + PERM_MATRIX + toggles CSS escopado |
+| `edge-functions/send-email.ts` | NOVA — Resend integration com templates HTML por evento |
+| `sql-scripts/sql-email-log.sql` | NOVA — tabela auditoria de emails |
+
+---
+
+## 88. CICLO 13/05/2026 — Dashboard cleanup + Marketplaces filtro + Estoque 90d/parados (ciclo 88)
+
+### 88.1 Faturamento por Canal — REMOVIDO card "Site (Bling - manuais)"
+Investigação mostrou que os R$ 63k atribuídos ao "Site" eram **vendas B2B/manuais lançadas no Bling com `loja_id=0`** — não o site verdadeiro. O Magazord (site real) só apareceu como R$ 14k.
+
+**Fix em [index.html:21291](index.html):**
+- Removida entrada `siteBling` de `canais`
+- Loop ignora pedidos `loja_id=0|null|undefined` (em vez de jogar pra `magalu` que era o default)
+- Total consolidado agora reflete só canais reais (Magazord + Loja Física + ML + Shopee + TikTok + Magalu)
+- Magalu mantém `else key = 'magalu'` apenas pra `loja_id` desconhecido (que NÃO seja 0)
+
+### 88.2 Top 10 Produtos Mais Vendidos — filtro por marketplace
+- Adicionado `<select id="mp-marketplace-filter">` com 5 opções: Todos / Mercado Livre / Shopee / TikTok Shop / Magalu
+- Filtro "Todos" usa view consolidada `top_produtos_marketplaces[_mes]`
+- Filtros específicos fazem **query inline em `pedidos_itens`** + filtro `loja_id`
+- Magalu = `loja_id NOT IN (0, 203536978, 203550865, 205337834, 205522474, 205430008)` (catch-all)
+- **Filtro de serviços** via `SERVICOS_KEYWORDS = ['aplicação bordado', 'personalização', 'serviço bordado', 'cartela de numeração', 'hobby', 'frete', 'desconto', 'taxa', 'ajuste']` — remove esses do ranking
+- Subtítulo dinâmico: "SKUs mais vendidos · {marketplace} · {período}"
+
+**Bug fix:** o `onchange` original chamava `loadBuscas()` (função inexistente) — corrigido pra `loadMarketplacesExtras()`.
+
+### 88.3 Marketplaces — fix timing event-based readiness
+**Bug:** ao entrar em `/marketplaces` via URL direta, KPIs ficavam em "carregando..." pra sempre. Causa: `loadMarketplaces` e `loadMarketplacesExtras` faziam `return` early porque `liveData.porMes` ainda não tinha carregado. O cache do `loadOnce` marcava como executado e nunca mais era chamado.
+
+**Fix robusto** (não depende de timing fixo):
+- `loadSupabaseData()` após popular `liveData.porMes` dispara `CustomEvent('livedata-ready')`
+- Em `loadMarketplaces`/`Extras`, se `!pm`: invalida cache do `loadOnce` + registra listener pra `livedata-ready` → quando evento chega, roda ambas funções
+- Flag `_mktWaitingLive` evita listeners redundantes
+- Fallback de 1.5s caso o evento não chegue por algum motivo
+
+### 88.4 Gestão Inteligente de Estoque — atualizado pra janela 90d + tab "Estoque parado"
+**Pedido da Manu (anterior):** tirar emojis dos labels, usar janela de 3 meses (mais estável que 30d), e identificar produtos parados +5 meses pra campanha de desconto.
+
+**SQL aplicado** (`sql-scripts/sql-estoque-ciclo88.sql`):
+- View nova `produtos_velocidade_90d` (substitui 30d): vendas 90d, média/mês, dias_de_estoque, **qtd_sugerida_producao** (cobrir 2 meses descontando estoque atual)
+- View nova `produtos_parados_150d`: estoque > 0 sem vendas em 5 meses
+- RPCs atualizadas: `listar_estoque_baixo`, `listar_estoque_parados`, `listar_estoque_resolvidos`, `listar_estoque_ignorados`, `estoque_kpis`
+- Resultado real: **417 produtos com giro 90d** · **772 parados (5m+)** · **R$ 524.535 em capital empatado**
+
+**Frontend:**
+- Emojis removidos dos labels visíveis (mantém cores)
+- KPIs: Críticos + Baixo + **Parado 5m+** + **Valor parado** (R$)
+- **Nova sub-aba "Estoque parado"** com cards por linha + escalonamento de desconto:
+  - 5-9 meses: -30%
+  - 9-12 meses: -40%
+  - +12 meses: -50%
+- Botão "Exportar CSV" adapta: `pedido-producao-DATA.csv` (Ativos) ou `campanha-desconto-parados-DATA.csv` (Parados)
+- Tarefa criada no Kanban agora é "Produzir: X" (não "Comprar")
+
+---
+
+## 89. CICLO 13/05/2026 (tarde) — Fonts + C360 status badges + AI Chat turbinado + Tecidos Ajuste
+
+### 89.1 Fontes — Syne → DM Sans bold
+**Motivo:** Syne weight 800 ficava achatada em telas estreitas (KPI cards quebrando).
+
+- `.kpi-value`: Syne 800 → **DM Sans 700** + `tabular-nums` (alinha dígitos)
+- ~200 ocorrências inline de `font-family:'Syne'` substituídas por `'DM Sans'` mantendo o weight (700-800)
+- Aplicado também em `cliente-360-boot.js` (PDF do C360, cache-bust v56 → v57)
+- Link Google Fonts mantém Syne disponível (caso seja usada no futuro)
+
+### 89.2 C360 — Badge de status_relacionamento na tabela
+Vendedora antes não via de relance que cliente já foi contatado — precisava abrir o C360 do cliente. Agora aparece badge ao lado do nome:
+
+| Status | Badge |
+|---|---|
+| Contatado | 🔵 azul `Contatado · 2d` |
+| Em negociação | 🟡 amber `Em negociação · 5d` |
+| Convertido | 🟢 verde `Convertido` |
+| Perdido | 🔴 vermelho `Perdido` |
+| Sem interesse | ⚫ cinza `Sem interesse` |
+| Novo / sem registro | (nada) |
+
+**Implementação:**
+- `loadClientes` (aba Clientes) e `mcLoadClientes` (aba Meus Clientes) fazem **merge com `cliente_metadata`** (status_relacionamento, atualizado_em, atualizado_por_nome) via `contato_id + empresa`. Chunks de 500 ids pra não estourar URL.
+- Novo helper `mcStatusBadge(c)` renderiza o badge colorido com tempo desde atualização + tooltip
+- Aparece em DUAS tabelas (aba Clientes principal + Meus Clientes)
+- Após salvar status no Acompanhamento Comercial: atualiza `state.clientes` local + invalida cache TTL
+
+### 89.3 C360 — Filtro "Status do Relacionamento" + query inversa
+**Substituiu** os filtros `Pedidos (min — max)` e `Total gasto R$ (min — max)` que ninguém usava.
+
+**Novo dropdown** "Status do Relacionamento" com 7 opções:
+- Todos (default)
+- Não contatado ainda
+- Contatado / Em negociação / Convertido / Perdido / Sem interesse
+
+**Bug fix crítico (query inversa):**
+- Problema: `mcLoadClientes` pega top 500 por score. Os 23 clientes Contatados estavam em "Em Risco" (score 39 ou menos) — posição 923+ no ranking. Filtro client-side `.filter(c => c.status_relacionamento === 'contatado')` nunca achava ninguém.
+- Fix: quando `f.statusRelacionamento` está ativo, faz **query inversa**:
+  1. Primeiro busca contato_ids em `cliente_metadata WHERE status_relacionamento = X` (até 5000 ids)
+  2. Depois busca esses ids na view com `.in('contato_id', ids)`
+- Edge case "Não contatado ainda" (`__nao_contatado__`): mantém fluxo normal + filtra client-side quem não tem registro no metadata
+
+### 89.4 AI Chat (Bot Agente IA) — turbinado
+**Bug reportado pela Thamyres:** "qual minha cliente com melhor score" → bot respondia "Não encontrei ninguém com nome 'melhor score'" — caiu em `buscar_contato` interpretando termo analítico como nome literal.
+
+**Fixes no SYSTEM_PROMPT:**
+- Regra dura: NUNCA use `buscar_contato` pra termos analíticos
+- Lista de keywords proibidas: "melhor", "maior", "menor", "pior", "top", "potencial", "VIP", "em risco", "sumiu", etc
+- Few-shot examples reais (incluindo o caso da Thamyres) mostrando o que era errado vs certo
+- Tabela de decisão por tipo de pergunta (pessoa específica → buscar_contato; termo analítico → minha_carteira/top_clientes)
+
+**6 Tools novas:**
+| Tool | Pra que serve |
+|---|---|
+| `listar_criativos` | Artes filtradas por status/designer/briefing/formato/minhas |
+| `resumo_criativos` | Pipeline + top designer + taxa de aprovação |
+| `listar_eventos_calendario` | Eventos por período (hoje/semana/mes/proximos_30/ano)/tipo/campanha |
+| `listar_briefings` | Briefings salvos + busca semântica (título/conceito/oferta) |
+| `listar_influenciadores` | Filtros (status, nicho, região) + ordenação por receita/vendas/seguidores |
+| `alertas_estoque` | Reusa RPCs do Section 86/88 (críticos/baixos/parados) |
+| `minhas_pendencias` | Tarefas atribuídas + alertas pessoais + criativos pra aprovar (se gerente) |
+
+**`minha_carteira` aceita parâmetro `vendedor`** (admin/gerente pode consultar outra pessoa):
+- Se omitido: usa o user logado
+- Se preenchido + user for admin/gerente_comercial/gerente_marketing: busca profile pelo nome (`ilike`)
+- Se preenchido + user NÃO for admin/gerente: retorna `erro_permissao`
+- Trata ambiguidade (0 matches: erro com sugestão; 2+ matches: erro listando candidatos)
+
+**TOOL_SECOES** (mapa de permissões) atualizado pras 6 tools novas. `minhas_pendencias` é livre (filtra pelo user_id automaticamente).
+
+**BOOT_ERROR resolvido (1 linha):**
+- Após deploy das tools novas, Edge Function deu 503 BOOT_ERROR persistente
+- Isolei o problema deployando função minimal com `import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'` → também falhou
+- **Fix:** trocar pelo `npm:` specifier moderno:
+  - `import { createClient } from 'npm:@supabase/supabase-js@2'`
+- Funcionou de primeira. Aparente que o Edge Runtime do Supabase mudou o handling de imports `esm.sh` (ou esm.sh travou na região sa-east-1)
+- **Bônus:** removidos caracteres box-drawing `══` (U+2550) do SYSTEM_PROMPT que podiam dar issue em template literals — trocados por hífens
+
+**Deploy final:** ai-chat **v41 ACTIVE**.
+
+### 89.5 Sistema Estoque/Tecidos (outro repo) — tela de Ajuste de Inventário
+Repo: `DanaJalecos/estoque` (Vercel `danaestoque.vercel.app`). Nada a ver com DMS — sistema irmão de controle de matéria-prima.
+
+**Pedido do Juan:** ajustar estoque pelo inventário físico sem usar "Registrar Entrada" (que polui histórico de compras).
+
+**Entregue:** nova tela em /Movimentar/Ajuste de Inventário com 3 abas:
+1. **Ajuste individual** — select item → mostra estoque atual → input qty REAL → calcula diferença → motivo obrigatório (inventário/perda/achado/vencimento/erro/outro) → confirma como `movements.type='ajuste'`
+2. **Importar planilha** — upload .xlsx (modelo `INVENTARIO-FISICO-yyyy-mm-dd.xlsx` gerado por script Python local) → SheetJS parseia client-side → preview com checkbox + estatísticas → confirma em lote
+3. **Histórico** — últimos 100 ajustes filtrados por `type='ajuste'`
+
+**Permissões SQL:** `role_permissions` jsonb atualizado — admin (sempre) + gerente + estoquista podem; costureira não.
+
+**SheetJS** via CDN `xlsx@0.18.5`.
+
+**Planilha modelo gerada localmente** pra Manu/estoquista preencherem:
+- 175 itens pré-cadastrados com colunas: Categoria, Nome, Variação, Unidade, **Estoque REAL (preencher)**, Estoque Sistema, Diferença (auto), Observação, ID interno (oculto)
+- Conditional formatting: verde se sobra, vermelho se falta
+- 3 abas: Como preencher / Inventário Físico / Resumo automático
+- Script Python `_gerar_inventario_xlsx.py` reutilizável (lê fabrics da view + gera novo xlsx)
+
+---
+
+## 90. PRÓXIMA SESSÃO — Pedido da Manu pra Gestão de Estoque (Section 87+ pra fazer)
+
+Pedido literal (transcrito do áudio):
+> No de estoque coloca filtro de quantidade de produto parado, ele olhar as vendas do últimos meses, semestre, ano e comparar.
+>
+> O documento que for criar de relatório do que tem no estoque nesse sistema DMS não é para produzir — é para fazer as campanhas. Sugerir campanhas e ofertas de desconto, compre e ganhe etc com aquele estoque sem giro.
+>
+> (IDEIA PARA DEPOIS) Até poderia ter uma extensão de inteligência recomendando ações de ofertas comerciais que estão em tendência no mercado (ex: compre e ganhe).
+
+### 90.1 Reorientação estratégica
+**O DMS (Marketing System) NÃO É pra produção** — produção fica no sistema irmão Tecidos Projeto (`danaestoque.vercel.app`). No DMS, o estoque serve pra:
+- Estoque baixo de produto que vende bem → **sugerir promoção pra girar antes de esgotar**
+- Estoque parado → **campanha de desconto / compre e ganhe / kit / brinde**
+- Relatório (CSV) que sai do DMS = **brief de campanha** pra equipe de marketing/comercial, não pedido de produção
+
+### 90.2 Entregas a fazer (3 entregas separadas)
+
+**ENTREGA 1 — Filtros + comparativo histórico (~1h)**
+- Adicionar inputs "Qtd mínima" + "Qtd máxima" na barra de filtros do tab "Estoque parado"
+- Adicionar "Valor parado mínimo" (filtra por R$ empatado)
+- SQL: criar view `produtos_velocidade_multi_janelas` ou estender `produtos_velocidade_90d` pra trazer 4 colunas: `qtd_30d`, `qtd_90d`, `qtd_180d`, `qtd_365d` (vendas em cada janela)
+- Frontend: card do produto mostra `vendia 3.2/m há 12m → 1.8/m há 6m → 0/m há 3m` (tendência de declínio visível)
+
+**ENTREGA 2 — Renovar lógica pra CAMPANHA, não produção (~2h)**
+- Renomear botões/labels do tab Parados: "Linha toda" → "Criar campanha pra linha"
+- Modal "Sugerir campanha" com tipos pré-selecionáveis:
+  - Desconto direto (-30 / -40 / -50%)
+  - Compre e ganhe (esse vira brinde grátis)
+  - Kit/combo (juntar 2-3 produtos parados)
+  - Frete grátis
+  - Outro (campo livre)
+- Lógica de **sugestão automática** baseada em estoque + valor + idade:
+  - Estoque alto (>20 un) + parado +12m → desconto pesado (-50%)
+  - Estoque baixo (<5 un) + preço baixo → vira brinde em compre-e-ganhe
+  - Linha completa parada (3+ variações) → kit/combo
+  - Preço médio + estoque médio → -30% ou frete grátis
+- CSV de saída adapta — vira "brief de campanha" com: SKU + tipo de oferta + desconto sugerido + descrição prontinha
+
+**ENTREGA 3 — IA recomenda oferta em tendência (~3h, futuro)**
+- Botão "💡 IA sugere campanha" em cada linha do tab Parados
+- Nova Edge Function `sugerir-campanha-estoque` chamando Gemini/Groq
+- Contexto enviado: SKU, estoque, valor parado, última venda, segmento de cliente típico, mês atual (sazonalidade)
+- IA retorna: tipo de oferta + copy sugerida + canal recomendado (Instagram, WhatsApp, ML, etc)
+
+### 90.3 Checklist técnico pra próxima sessão
+
+- [ ] SQL: estender `produtos_velocidade_90d` com colunas qtd_30d/90d/180d/365d OU criar nova view
+- [ ] SQL: criar RPC `listar_estoque_parados_v2` que aceita `qty_min`, `qty_max`, `valor_min`
+- [ ] Frontend `index.html` (~view-estoque): adicionar inputs de filtro + render histórico
+- [ ] Frontend: modal "Sugerir campanha" com 5 tipos + sugestão automática
+- [ ] Frontend: `estoqueCriarCampanha(linha, tipo)` salva como `campanhas_internas` (ou nova tabela `propostas_campanha_estoque`)
+- [ ] Frontend: `estoqueExportarCSV` adaptado pra brief de campanha (vs pedido de produção)
+- [ ] Edge Function `sugerir-campanha-estoque` (Entrega 3)
+
+### 90.4 Estado atual da Gestão de Estoque
+
+| Métrica | Valor (em 13/05/2026) |
+|---|---|
+| Produtos críticos (0-2 un) | 465 |
+| Produtos baixos (3-5 un) | 123 |
+| Produtos parados 5m+ | 558 |
+| Valor parado total | R$ 328.187 (BC) / R$ 524.535 (geral) |
+| Produtos com giro 90d | 417 |
+
+### 90.5 Outros pendentes do backlog
+- Sync `produtos.imagem_storage_url` pra voltar fotos reais (ícone 🛒 fallback hoje)
+- Filtro inadimplência no topbar da lista de clientes (Section 84.5)
+- Som de notificação opcional no popup pessoal (Section 85.12)
+- Cron `refresh_produtos_mix` domingo 04:30 (jobid 33) — já agendado, monitorar
+- Pra o **AI Chat (Section 89.4)**: smoke test E2E com vendedora real pra validar que `minha_carteira` sempre é escolhida em vez de `buscar_contato` pra termos analíticos
+
+---
+
+**Fim da documentação · Atualizado em 13/05/2026 noite — Sections 87-90 (Central Tráfego + Email + Calendário + Fonts + C360 status + AI Chat + Tecidos Ajuste + plano Manu campanha estoque) · v12.7**
