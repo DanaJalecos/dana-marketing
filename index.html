@@ -106,6 +106,12 @@ async function loadSupabaseData() {
     liveData.porMes = agruparPorMes(mensalRaw);
     liveData.vendCount = vendCount;
 
+    // Sinaliza pras views que possam estar esperando esses dados (ex: marketplaces
+    // que abriu antes do load terminar). Dispatcha custom event que qualquer função
+    // pode escutar via window.addEventListener('livedata-ready', ...)
+    window._liveDataReady = true;
+    try { window.dispatchEvent(new CustomEvent('livedata-ready')); } catch(e) {}
+
     if (!resumo) { console.warn('Sem dados de resumo'); return; }
 
     // Popular filtro de meses dinamicamente
@@ -19982,10 +19988,22 @@ async function confirmarExcluirReferencia() {
 function loadMarketplaces() {
   const pm = liveData.porMes;
   if (!pm || Object.keys(pm).length === 0) {
-    // Timing: view abriu antes de loadSupabaseData terminar. Invalida cache
-    // do loadOnce e tenta de novo em 600ms.
+    // Timing: view abriu antes de loadSupabaseData terminar.
+    // Limpa cache do loadOnce e escuta evento 'livedata-ready' (mais robusto
+    // que setTimeout — dispara assim que liveData.porMes for populado).
     if (window._viewLoaded) delete window._viewLoaded['marketplaces'];
-    setTimeout(() => { if (typeof loadMarketplaces === 'function') loadMarketplaces(); }, 600);
+    if (!window._mktWaitingLive) {
+      window._mktWaitingLive = true;
+      const onReady = () => {
+        window._mktWaitingLive = false;
+        window.removeEventListener('livedata-ready', onReady);
+        try { loadMarketplaces(); } catch(e) { console.warn('retry loadMarketplaces:', e); }
+        try { loadMarketplacesExtras(); } catch(e) { console.warn('retry loadMarketplacesExtras:', e); }
+      };
+      window.addEventListener('livedata-ready', onReady);
+      // Fallback de segurança: se evento nunca chegar, tenta em 1.5s
+      setTimeout(() => { if (window._mktWaitingLive) onReady(); }, 1500);
+    }
     return;
   }
 
@@ -21559,10 +21577,20 @@ async function loadTopProdutos(container, mesLabel) {
 async function loadMarketplacesExtras() {
   const pm = liveData.porMes;
   if (!pm) {
-    // liveData ainda não carregou (timing ruim — usuário entrou via URL direta).
-    // Limpa o cache do loadOnce e tenta de novo em 600ms.
+    // liveData ainda não carregou. Listener no loadMarketplaces ja vai chamar
+    // ambas funcoes quando livedata-ready disparar — apenas retorna aqui.
     if (window._viewLoaded) delete window._viewLoaded['marketplaces'];
-    setTimeout(() => { if (typeof loadMarketplacesExtras === 'function') loadMarketplacesExtras(); }, 600);
+    if (!window._mktWaitingLive) {
+      window._mktWaitingLive = true;
+      const onReady = () => {
+        window._mktWaitingLive = false;
+        window.removeEventListener('livedata-ready', onReady);
+        try { loadMarketplaces(); } catch(e) {}
+        try { loadMarketplacesExtras(); } catch(e) {}
+      };
+      window.addEventListener('livedata-ready', onReady);
+      setTimeout(() => { if (window._mktWaitingLive) onReady(); }, 1500);
+    }
     return;
   }
   const now = new Date();
