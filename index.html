@@ -7667,7 +7667,7 @@ updateDynamicField('foto');
     <div class="kpi-card"><div class="kpi-label">Valor parado</div><div class="kpi-value" id="estoque-kpi-valor-parado" style="font-size:20px">–</div><div class="kpi-sub" style="font-size:11px;color:var(--text3)">capital empatado</div></div>
   </div>
 
-  <!-- Filtros chip -->
+  <!-- Filtros chip (tab Ativos) -->
   <div id="estoque-filtros-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
     <span style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Filtrar:</span>
     <button class="chip chip-active" data-estoque-urgencia="todos" onclick="estoqueSetUrgencia(this,'todos')">Todos</button>
@@ -7679,6 +7679,42 @@ updateDynamicField('foto');
     <button class="chip" data-estoque-velocidade="parado" onclick="estoqueSetVelocidade(this,'parado')">Sem giro 90d</button>
     <span style="width:1px;height:18px;background:var(--line);margin:0 4px"></span>
     <select id="estoque-filtro-linha" class="input" style="font-size:12px;padding:5px 8px;min-width:200px" onchange="renderEstoqueGrupos()">
+      <option value="todas">Todas as linhas</option>
+    </select>
+  </div>
+
+  <!-- Filtros server-side (tab Parados — Manu Entrega 1) -->
+  <div id="estoque-filtros-parados-bar" style="display:none;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+    <span style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Refinar:</span>
+
+    <div style="display:flex;gap:4px;align-items:center;background:rgba(255,255,255,0.04);padding:4px 8px;border-radius:6px;border:1px solid var(--line)">
+      <label style="font-size:11px;color:var(--text3)">Qtd:</label>
+      <input id="estoque-parados-qty-min" type="number" min="0" placeholder="mín" class="input" style="width:62px;font-size:12px;padding:4px 6px"/>
+      <span style="color:var(--text3);font-size:11px">→</span>
+      <input id="estoque-parados-qty-max" type="number" min="0" placeholder="máx" class="input" style="width:62px;font-size:12px;padding:4px 6px"/>
+      <span style="color:var(--text3);font-size:11px">un</span>
+    </div>
+
+    <div style="display:flex;gap:4px;align-items:center;background:rgba(255,255,255,0.04);padding:4px 8px;border-radius:6px;border:1px solid var(--line)">
+      <label style="font-size:11px;color:var(--text3)">Valor parado ≥</label>
+      <span style="font-size:11px;color:var(--text3)">R$</span>
+      <input id="estoque-parados-valor-min" type="number" min="0" step="50" placeholder="0" class="input" style="width:80px;font-size:12px;padding:4px 6px"/>
+    </div>
+
+    <button class="btn btn-ghost btn-sm" style="font-size:11.5px" onclick="estoqueAplicarFiltrosParados()">Aplicar</button>
+    <button class="btn btn-ghost btn-sm" style="font-size:11.5px;opacity:0.7" onclick="estoqueLimparFiltrosParados()">Limpar</button>
+
+    <span style="width:1px;height:18px;background:var(--line);margin:0 4px"></span>
+
+    <select id="estoque-parados-janela" class="input" style="font-size:12px;padding:5px 8px;min-width:170px" onchange="renderEstoqueGrupos()">
+      <option value="auto">Tendência: auto</option>
+      <option value="30d">Foco últimos 30d</option>
+      <option value="90d">Foco últimos 90d</option>
+      <option value="180d">Foco últimos 180d</option>
+      <option value="365d">Foco últimos 365d</option>
+    </select>
+
+    <select id="estoque-filtro-linha-parados" class="input" style="font-size:12px;padding:5px 8px;min-width:200px" onchange="renderEstoqueGrupos()">
       <option value="todas">Todas as linhas</option>
     </select>
   </div>
@@ -26622,12 +26658,15 @@ async function recarregarTudoPorEmpresa() {
 // Permissão: admin + gerente_financeiro (ESTOQUE_VIEWS).
 // ══════════════════════════════════════════════════════════
 window._estoqueState = {
-  tab: 'ativos',              // 'ativos' | 'resolvidos' | 'ignorados'
+  tab: 'ativos',              // 'ativos' | 'parados' | 'resolvidos' | 'ignorados'
   urgencia: 'todos',           // 'todos' | 'criticos' | 'baixos'
   velocidade: 'todos',         // 'todos' | 'movimentando' | 'parado'
   linha: 'todas',              // filtro de linha de produto (select)
   itens: [],                   // lista raw da RPC ativa
   grupos: {},                  // agrupado por nome limpo
+  // Entrega 1 — filtros server-side do tab Parados (RPC v2)
+  filtrosParados: { qty_min: null, qty_max: null, valor_min: null },
+  janelaFoco: 'auto',          // 'auto'|'30d'|'90d'|'180d'|'365d'  — destaca janela no card
 };
 
 // Fallback caso cliente-360-boot.js não esteja carregado nesta view
@@ -26799,12 +26838,25 @@ async function loadEstoque() {
   } catch (e) { console.warn('estoque kpis:', e); }
 
   // Lista do tab ativo
+  // Parados usa RPC v2 com filtros server-side (qty + valor)
+  const useParadosV2 = (tab === 'parados');
   const rpcName = tab === 'resolvidos' ? 'listar_estoque_resolvidos'
                 : tab === 'ignorados'  ? 'listar_estoque_ignorados'
-                : tab === 'parados'    ? 'listar_estoque_parados'
+                : useParadosV2         ? 'listar_estoque_parados_v2'
                 :                         'listar_estoque_baixo';
+  // Args dinâmicos pra parados_v2
+  let rpcArgs = { empresa_filter: emp };
+  if (useParadosV2) {
+    const f = window._estoqueState.filtrosParados || {};
+    rpcArgs = {
+      empresa_filter: emp,
+      qty_min:   (f.qty_min   != null && f.qty_min   !== '') ? Number(f.qty_min)   : null,
+      qty_max:   (f.qty_max   != null && f.qty_max   !== '') ? Number(f.qty_max)   : null,
+      valor_min: (f.valor_min != null && f.valor_min !== '') ? Number(f.valor_min) : null,
+    };
+  }
   try {
-    const { data, error } = await sb.rpc(rpcName, { empresa_filter: emp });
+    const { data, error } = await sb.rpc(rpcName, rpcArgs);
     if (error) throw error;
     window._estoqueState.itens = data || [];
     // Contador na tab Ativos
@@ -26828,13 +26880,17 @@ async function loadEstoque() {
 }
 
 function estoqueAtualizarFiltroLinhaSelect(grupos) {
-  const sel = document.getElementById('estoque-filtro-linha');
-  if (!sel) return;
   const linhas = Object.keys(grupos).sort();
-  const atual = sel.value;
-  sel.innerHTML = '<option value="todas">Todas as linhas (' + linhas.length + ')</option>' +
+  const opts = '<option value="todas">Todas as linhas (' + linhas.length + ')</option>' +
     linhas.map(l => '<option value="' + l.replace(/"/g,'&quot;') + '">' + escapeHtml(l) + ' (' + grupos[l].length + ')</option>').join('');
-  if (atual && (atual === 'todas' || linhas.includes(atual))) sel.value = atual;
+  // popula os 2 selects (ativos + parados)
+  ['estoque-filtro-linha','estoque-filtro-linha-parados'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const atual = sel.value;
+    sel.innerHTML = opts;
+    if (atual && (atual === 'todas' || linhas.includes(atual))) sel.value = atual;
+  });
 }
 
 function renderEstoqueGrupos() {
@@ -26842,7 +26898,13 @@ function renderEstoqueGrupos() {
   if (!container) return;
   const st = window._estoqueState;
   const tab = st.tab;
-  const linhaFiltro = document.getElementById('estoque-filtro-linha')?.value || 'todas';
+  const selLinha = (tab === 'parados')
+    ? document.getElementById('estoque-filtro-linha-parados')
+    : document.getElementById('estoque-filtro-linha');
+  const linhaFiltro = selLinha?.value || 'todas';
+  // janela escolhida pelo select (só relevante em parados)
+  const janelaSel = document.getElementById('estoque-parados-janela')?.value || 'auto';
+  st.janelaFoco = janelaSel;
 
   let entradas = Object.entries(st.grupos);
   if (linhaFiltro !== 'todas') entradas = entradas.filter(([k]) => k === linhaFiltro);
@@ -26926,11 +26988,52 @@ function renderEstoqueGrupoCard(linha, itens, tab) {
         : 'nunca';
       // Sugestão de desconto (escalonado pelo tempo parado)
       const descSug = !dias ? 30 : dias > 365 ? 50 : dias > 270 ? 40 : 30;
+
+      // ─── Histórico em 4 janelas (Entrega 1 Manu) ───
+      // Mostra um mini "sparkline" textual com a tendência: 365d → 180d → 90d → 30d
+      const q30  = Number(it.qtd_30d)  || 0;
+      const q90  = Number(it.qtd_90d)  || 0;
+      const q180 = Number(it.qtd_180d) || 0;
+      const q365 = Number(it.qtd_365d) || 0;
+      // médias mensais (vendas / nº de meses)
+      const m30  = Number(it.media_mes_30d)  || (q30 / 1);
+      const m90  = Number(it.media_mes_90d)  || (q90 / 3);
+      const m180 = Number(it.media_mes_180d) || (q180 / 6);
+      const m365 = Number(it.media_mes_365d) || (q365 / 12);
+
+      // Direção de tendência (compara mais antigo vs mais recente)
+      const tendenciaCai   = m365 > m90 + 0.3;  // vendia mais antes, caiu
+      const tendenciaSobe  = m30 > m90 + 0.3 && m30 > 0;  // voltou a girar (?)
+      const tendIcon = tendenciaCai ? '↓' : tendenciaSobe ? '↑' : '→';
+      const tendCor  = tendenciaCai ? '#ef4444' : tendenciaSobe ? '#10b981' : 'var(--text3)';
+      const tendTxt  = tendenciaCai ? 'declínio'
+                     : tendenciaSobe ? 'reagindo'
+                     : (q365 === 0 ? 'sem giro 12m' : 'estável');
+
+      const fmtJanela = (m, q) => q === 0 ? '<span style="opacity:0.4">0</span>' : `<strong style="color:var(--text2)">${m.toFixed(m<1?2:1)}</strong>/m`;
+
+      // Realça a janela escolhida no select (estoque-parados-janela)
+      const fJ = window._estoqueState.janelaFoco || 'auto';
+      const hi = (k) => fJ === k ? 'background:rgba(245,158,11,0.12);' : '';
+
+      const historicoHtml = `
+        <div style="display:flex;gap:6px;align-items:center;font-size:10.5px;color:var(--text3);margin-top:3px;flex-wrap:wrap">
+          <span title="Vendas dos últimos 365 dias / 12 meses" style="${hi('365d')}padding:2px 5px;border-radius:3px">12m: ${fmtJanela(m365, q365)}</span>
+          <span style="color:var(--text3);opacity:0.4">→</span>
+          <span title="Vendas dos últimos 180 dias / 6 meses"  style="${hi('180d')}padding:2px 5px;border-radius:3px">6m: ${fmtJanela(m180, q180)}</span>
+          <span style="color:var(--text3);opacity:0.4">→</span>
+          <span title="Vendas dos últimos 90 dias / 3 meses"   style="${hi('90d')}padding:2px 5px;border-radius:3px">3m: ${fmtJanela(m90, q90)}</span>
+          <span style="color:var(--text3);opacity:0.4">→</span>
+          <span title="Vendas dos últimos 30 dias / 1 mês"     style="${hi('30d')}padding:2px 5px;border-radius:3px">1m: ${fmtJanela(m30, q30)}</span>
+          <span style="margin-left:6px;color:${tendCor};font-weight:700" title="Tendência geral">${tendIcon} ${tendTxt}</span>
+        </div>`;
+
       return `<div style="display:grid;grid-template-columns:auto 1fr auto auto auto;gap:10px;padding:9px 10px;background:rgba(255,255,255,0.02);border-radius:6px;font-size:12px;align-items:center">
         <div style="background:${empColor(it.empresa)};color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:0.3px">${empLabel(it.empresa)}</div>
         <div style="color:var(--text2)">
           <div><span style="font-family:monospace;font-size:10.5px;color:var(--text3)">${escapeHtml(it.codigo||'')}</span> · ${escapeHtml(it.nome||'')}</div>
           <div style="font-size:10.5px;color:var(--text3);margin-top:2px">Última venda: ${ultima}${meses ? ' · '+meses+' meses parado' : ''}</div>
+          ${historicoHtml}
         </div>
         <div style="font-weight:700;color:#f59e0b;font-size:13px">${Number(it.estoque_virtual)||0} un</div>
         <div title="Valor parado em capital" style="font-size:11px;color:var(--text2);font-weight:600">${fmtR(valor)}</div>
@@ -26999,9 +27102,11 @@ function renderEstoqueGrupoCard(linha, itens, tab) {
 function estoqueSwitchTab(btn, tab) {
   document.querySelectorAll('[data-estoque-tab]').forEach(b => b.classList.toggle('active', b === btn));
   window._estoqueState.tab = tab;
-  // esconde barra de filtros urgência/velocidade fora da tab ativos
-  const filtros = document.getElementById('estoque-filtros-bar');
-  if (filtros) filtros.style.display = (tab === 'ativos') ? '' : 'none';
+  // mostra/esconde as 2 barras de filtros
+  const filtrosAtivos  = document.getElementById('estoque-filtros-bar');
+  const filtrosParados = document.getElementById('estoque-filtros-parados-bar');
+  if (filtrosAtivos)  filtrosAtivos.style.display  = (tab === 'ativos')  ? 'flex' : 'none';
+  if (filtrosParados) filtrosParados.style.display = (tab === 'parados') ? 'flex' : 'none';
   // adapta label do botão Exportar conforme tab
   const expBtn = document.getElementById('estoque-export-btn');
   if (expBtn) {
@@ -27012,6 +27117,25 @@ function estoqueSwitchTab(btn, tab) {
                  : tab === 'ativos'  ? 'CSV pra produção (SKU + qty a produzir)'
                  :                     'Exporta a lista atual em CSV';
   }
+  loadEstoque();
+}
+
+// ── Filtros server-side do tab Parados (Entrega 1 Manu) ──
+function estoqueAplicarFiltrosParados() {
+  const qMin = document.getElementById('estoque-parados-qty-min')?.value;
+  const qMax = document.getElementById('estoque-parados-qty-max')?.value;
+  const vMin = document.getElementById('estoque-parados-valor-min')?.value;
+  window._estoqueState.filtrosParados = {
+    qty_min:   qMin !== '' ? qMin : null,
+    qty_max:   qMax !== '' ? qMax : null,
+    valor_min: vMin !== '' ? vMin : null,
+  };
+  loadEstoque();
+}
+function estoqueLimparFiltrosParados() {
+  const ids = ['estoque-parados-qty-min','estoque-parados-qty-max','estoque-parados-valor-min'];
+  ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  window._estoqueState.filtrosParados = { qty_min: null, qty_max: null, valor_min: null };
   loadEstoque();
 }
 
@@ -27115,11 +27239,18 @@ function estoqueExportarCSV() {
 
   let linhas, nomeArquivo;
   if (tab === 'parados') {
-    // CSV pra campanha de desconto: SKU, nome, estoque, valor parado, última venda, dias parado, sugestão de desconto
-    linhas = [['Codigo','Nome','Empresa','Estoque','Preco','Valor parado','Ultima venda','Dias parado','Sugestao desconto (%)']];
+    // CSV pra campanha de desconto + histórico de 4 janelas (Entrega 1 Manu)
+    linhas = [['Codigo','Nome','Empresa','Estoque','Preco','Valor parado','Ultima venda','Dias parado',
+               'Vendas 30d','Vendas 90d','Vendas 180d','Vendas 365d',
+               'Media/mes 30d','Media/mes 90d','Media/mes 180d','Media/mes 365d',
+               'Tendencia','Sugestao desconto (%)']];
     for (const it of itens) {
       const dias = Number(it.dias_sem_vender) || null;
       const descSug = !dias ? 30 : dias > 365 ? 50 : dias > 270 ? 40 : 30;
+      const m30  = Number(it.media_mes_30d)  || 0;
+      const m90  = Number(it.media_mes_90d)  || 0;
+      const m365 = Number(it.media_mes_365d) || 0;
+      const tend = m365 > m90 + 0.3 ? 'declinio' : (m30 > m90 + 0.3 && m30 > 0 ? 'reagindo' : (Number(it.qtd_365d) === 0 ? 'sem giro 12m' : 'estavel'));
       linhas.push([
         it.codigo || '',
         (it.nome || '').replace(/[\n;"]/g, ' '),
@@ -27129,6 +27260,15 @@ function estoqueExportarCSV() {
         Number(it.valor_parado || 0).toFixed(2),
         it.ultima_venda ? new Date(it.ultima_venda).toISOString().slice(0,10) : 'nunca',
         dias ?? '',
+        it.qtd_30d ?? 0,
+        it.qtd_90d ?? 0,
+        it.qtd_180d ?? 0,
+        it.qtd_365d ?? 0,
+        m30.toFixed(2),
+        m90.toFixed(2),
+        Number(it.media_mes_180d || 0).toFixed(2),
+        m365.toFixed(2),
+        tend,
         descSug
       ]);
     }
