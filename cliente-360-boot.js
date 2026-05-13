@@ -245,6 +245,34 @@
         uf: phoneToUF(r.celular || r.telefone)
       }));
 
+      // Merge com cliente_metadata pra mostrar status_relacionamento ('contatado',
+      // 'em_negociacao', etc) na tabela. Vendedor precisa ver de relance quem ja foi
+      // contatado pra não esquecer / não recontatar.
+      try {
+        const ids = rows.map(r => r.contato_id).filter(Boolean);
+        if (ids.length > 0) {
+          const chunks = [];
+          for (let i = 0; i < ids.length; i += 500) chunks.push(ids.slice(i, i + 500));
+          const metaMap = new Map();
+          for (const ch of chunks) {
+            const { data: metas } = await state.sb
+              .from('cliente_metadata')
+              .select('contato_id, empresa, status_relacionamento, atualizado_em, atualizado_por_nome')
+              .eq('empresa', state.empresa)
+              .in('contato_id', ch);
+            (metas || []).forEach(m => metaMap.set(m.contato_id, m));
+          }
+          for (const r of rows) {
+            const m = metaMap.get(r.contato_id);
+            if (m) {
+              r.status_relacionamento = m.status_relacionamento;
+              r.status_atualizado_em = m.atualizado_em;
+              r.status_atualizado_por = m.atualizado_por_nome;
+            }
+          }
+        }
+      } catch (e) { console.warn('[c360] merge metadata err:', e?.message || e); }
+
       state.clientes = rows;
       cache[state.empresa] = { rows, ts: Date.now() };
       console.log(`[c360] ${rows.length} clientes (empresa=${state.empresa}) em 1 query`);
@@ -487,12 +515,13 @@
       const bar = scoreColor(score);
       const nome = escapeHtml(c.contato_nome || '—');
       const encoded = encodeURIComponent(c.contato_nome || '');
+      const statusBadge = (typeof mcStatusBadge === 'function') ? mcStatusBadge(c) : '';
 
       return `
         <tr class="border-b border-border/50 hover:bg-white/3 cursor-pointer transition-colors group" onclick="showClientDetail('${encoded}')" style="cursor:pointer">
           <td class="px-4 py-3.5">
             <div>
-              <p class="font-medium text-foreground text-sm group-hover:text-primary transition-colors">${nome}</p>
+              <p class="font-medium text-foreground text-sm group-hover:text-primary transition-colors">${nome}${statusBadge}</p>
               <p class="text-xs text-muted-foreground/60">${EMPRESA_LABELS[c.empresa] || c.empresa}</p>
             </div>
           </td>
@@ -997,6 +1026,23 @@
       }
       const { error } = await state.sb.from('cliente_metadata').upsert(payload, { onConflict: 'contato_id,empresa' });
       if (error) throw error;
+      // Atualiza state.clientes local pra badge aparecer na hora (sem aguardar reload)
+      try {
+        const cid = payload.contato_id;
+        const emp = payload.empresa;
+        const updates = {
+          status_relacionamento: payload.status_relacionamento,
+          status_atualizado_em: payload.atualizado_em,
+          status_atualizado_por: state.profile?.nome || null,
+        };
+        if (Array.isArray(state.clientes)) {
+          for (const c of state.clientes) {
+            if (c.contato_id === cid && c.empresa === emp) Object.assign(c, updates);
+          }
+        }
+        // Invalida cache da lista pra próxima carga vir fresh
+        if (typeof cache !== 'undefined' && cache[emp]) cache[emp].ts = 0;
+      } catch (e) { console.warn('[c360] update local state:', e); }
       if (typeof showToast === 'function') showToast(motivoExtra ? '✓ Motivo de perda registrado' : '✓ Acompanhamento salvo');
       if (btn) { btn.disabled = false; btn.textContent = '✓ Salvo'; setTimeout(() => { if (btn) btn.textContent = '💾 Salvar'; }, 1500); }
     } catch (e) {
@@ -5209,7 +5255,37 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     q = q.order('score', { ascending: false }).limit(limit || 500);
     const { data, error } = await q;
     if (error) { console.error('[mc] clientes error', error); return []; }
-    return data || [];
+    const lista = data || [];
+
+    // ─── Merge com cliente_metadata pra indicar status de relacionamento na tabela ───
+    // (ex: badge "Contatado · há 2d" quando vendedor marcou contatado, pra não se perder)
+    const ids = lista.map(c => c.contato_id).filter(Boolean);
+    if (ids.length > 0) {
+      try {
+        // Chunks pra não estourar URL (Supabase tem limite ~2000 chars no IN)
+        const chunks = [];
+        for (let i = 0; i < ids.length; i += 500) chunks.push(ids.slice(i, i + 500));
+        const metaMap = new Map();
+        for (const ch of chunks) {
+          const { data: metas } = await state.sb
+            .from('cliente_metadata')
+            .select('contato_id, empresa, status_relacionamento, atualizado_em, atualizado_por_nome')
+            .eq('empresa', empresa)
+            .in('contato_id', ch);
+          (metas || []).forEach(m => metaMap.set(m.contato_id + '|' + m.empresa, m));
+        }
+        for (const c of lista) {
+          if (!c.contato_id) continue;
+          const m = metaMap.get(c.contato_id + '|' + c.empresa);
+          if (m) {
+            c.status_relacionamento = m.status_relacionamento;
+            c.status_atualizado_em = m.atualizado_em;
+            c.status_atualizado_por = m.atualizado_por_nome;
+          }
+        }
+      } catch (e) { console.warn('[mc] merge metadata error', e); }
+    }
+    return lista;
   }
 
   // FASE 5 expansão: Filtro produto pra Meus Clientes
@@ -6155,6 +6231,28 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     `;
   }
 
+  // Badge "Contatado · há 2d" etc — aparece junto do nome quando vendedor já mexeu
+  // no status de relacionamento desse cliente. Ajuda vendedor a não recontatar quem
+  // já foi falado e a não esquecer quem está em negociação.
+  function mcStatusBadge(c) {
+    const st = c.status_relacionamento;
+    if (!st || st === 'novo') return '';
+    const cores = {
+      contatado:     { bg: 'rgba(59,130,246,0.18)', fg: '#93c5fd', border: 'rgba(59,130,246,0.4)', label: 'Contatado' },
+      em_negociacao: { bg: 'rgba(245,158,11,0.18)', fg: '#fcd34d', border: 'rgba(245,158,11,0.4)', label: 'Em negociação' },
+      convertido:    { bg: 'rgba(34,197,94,0.18)',  fg: '#86efac', border: 'rgba(34,197,94,0.4)',  label: 'Convertido' },
+      perdido:       { bg: 'rgba(239,68,68,0.18)',  fg: '#fca5a5', border: 'rgba(239,68,68,0.4)',  label: 'Perdido' },
+      sem_interesse: { bg: 'rgba(100,116,139,0.18)', fg: '#cbd5e1', border: 'rgba(100,116,139,0.4)', label: 'Sem interesse' },
+    };
+    const cfg = cores[st] || cores.contatado;
+    let dias = '';
+    if (c.status_atualizado_em) {
+      const d = Math.floor((Date.now() - new Date(c.status_atualizado_em).getTime()) / 86400000);
+      dias = d === 0 ? ' · hoje' : d === 1 ? ' · 1d' : ' · ' + d + 'd';
+    }
+    return ' <span style="font-size:9.5px;padding:1px 6px;border-radius:4px;background:' + cfg.bg + ';color:' + cfg.fg + ';border:1px solid ' + cfg.border + ';margin-left:6px;vertical-align:middle;font-weight:600" title="' + escapeHtml(c.status_atualizado_por || '') + (c.status_atualizado_em ? ' · ' + new Date(c.status_atualizado_em).toLocaleString('pt-BR') : '') + '">' + cfg.label + dias + '</span>';
+  }
+
   function mcTabelaClientes(lista, perms) {
     const rows = lista.slice(0, 500).map(c => {
       const s = SEGMENT_STYLES[c.segmento] || SEGMENT_STYLES['Sem histórico'];
@@ -6167,10 +6265,11 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
         ? `<button onclick="event.stopPropagation();window.c360McReatribuir(${c.contato_id || 0}, '${escapeHtml(c.empresa)}', '${escapeHtml(c.contato_nome).replace(/'/g,'&#39;')}', '${c.vendedor_profile_id || ''}')" style="padding:4px 8px;border-radius:6px;border:1px solid rgba(167,139,250,0.35);background:rgba(167,139,250,0.08);color:#c4b5fd;cursor:pointer;font-size:11px">🔀</button>`
         : '';
       const badgeDMS = ehManual ? ' <span style="font-size:9.5px;padding:1px 6px;border-radius:4px;background:rgba(168,85,247,0.2);color:#c4b5fd;border:1px solid rgba(168,85,247,0.35);margin-left:4px;vertical-align:middle">DMS</span>' : '';
+      const badgeStatus = mcStatusBadge(c);
       const dataAttr = ehManual ? `data-manual="${c.manual_id}"` : `data-cliente="${escapeHtml(c.contato_nome)}"`;
       return `
         <tr ${dataAttr} style="border-top:1px solid rgba(255,255,255,0.06);cursor:pointer">
-          <td style="padding:10px 14px;color:#e2e8f0;font-weight:500">${escapeHtml(c.contato_nome)}${badgeDMS}</td>
+          <td style="padding:10px 14px;color:#e2e8f0;font-weight:500">${escapeHtml(c.contato_nome)}${badgeDMS}${badgeStatus}</td>
           <td style="padding:10px 14px"><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${s.bg.replace('bg-','').replace('/15','')};color:#e2e8f0;border:1px solid rgba(255,255,255,0.1)" class="${s.bg} ${s.fg} ${s.border}">${escapeHtml(c.segmento || '-')}</span></td>
           <td style="padding:10px 14px;color:#e2e8f0;text-align:right;font-variant-numeric:tabular-nums">${c.score || 0}</td>
           <td style="padding:10px 14px;color:#e2e8f0;text-align:right;font-variant-numeric:tabular-nums">${fmtNum(c.total_pedidos || 0)}</td>
