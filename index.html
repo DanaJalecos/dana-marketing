@@ -27411,10 +27411,48 @@ async function estoqueCriarCampanhaModal(linha) {
       <div style="padding:18px 22px">
 
         <!-- Sugestão automática destacada -->
-        <div style="background:linear-gradient(135deg, rgba(124,58,237,0.12), rgba(245,158,11,0.08));border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:14px 16px;margin-bottom:18px">
-          <div style="font-size:10.5px;color:#fbbf24;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">💡 Sugestão automática</div>
-          <div style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:15px;color:var(--text1);margin-bottom:6px">${escapeHtml(sug.labelCurto)}</div>
-          <div style="font-size:12px;color:var(--text2);line-height:1.5">${escapeHtml(sug.argumento || '')}</div>
+        <div style="background:linear-gradient(135deg, rgba(124,58,237,0.12), rgba(245,158,11,0.08));border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:14px 16px;margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+            <div style="flex:1;min-width:240px">
+              <div style="font-size:10.5px;color:#fbbf24;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">💡 Sugestão automática (heurística)</div>
+              <div style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:15px;color:var(--text1);margin-bottom:6px">${escapeHtml(sug.labelCurto)}</div>
+              <div style="font-size:12px;color:var(--text2);line-height:1.5">${escapeHtml(sug.argumento || '')}</div>
+            </div>
+            <button id="btn-ia-sugere" class="btn btn-sm" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;font-size:11.5px;white-space:nowrap;padding:7px 12px;align-self:center" onclick="estoqueIASugerir('${linha.replace(/'/g,"\\'")}')">
+              ✨ Refinar com IA
+            </button>
+          </div>
+        </div>
+
+        <!-- Bloco resultado IA (escondido até gerar) -->
+        <div id="ia-resultado-bloco" style="display:none;background:linear-gradient(135deg, rgba(16,185,129,0.08), rgba(124,58,237,0.06));border:1px solid rgba(16,185,129,0.3);border-radius:10px;padding:14px 16px;margin-bottom:18px">
+          <div style="font-size:10.5px;color:#34d399;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">✨ Recomendação IA <span id="ia-modelo-label" style="opacity:0.6;font-size:10px;text-transform:none;letter-spacing:0;font-weight:500"></span></div>
+          <div id="ia-reasoning" style="font-size:12px;color:var(--text2);line-height:1.55;margin-bottom:10px"></div>
+          <div style="margin-top:10px">
+            <details>
+              <summary style="cursor:pointer;font-size:11.5px;color:var(--text2);font-weight:600">📲 Ver copy pronto pra Instagram e WhatsApp</summary>
+              <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+                <div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:9px 11px">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                    <span style="font-size:10.5px;color:#a78bfa;font-weight:700">📷 INSTAGRAM</span>
+                    <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:2px 8px" onclick="estoqueIACopiarTexto('ia-copy-insta')">copiar</button>
+                  </div>
+                  <div id="ia-copy-insta" style="font-size:12px;color:var(--text1);line-height:1.5;white-space:pre-wrap"></div>
+                </div>
+                <div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:9px 11px">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                    <span style="font-size:10.5px;color:#34d399;font-weight:700">💬 WHATSAPP</span>
+                    <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:2px 8px" onclick="estoqueIACopiarTexto('ia-copy-wpp')">copiar</button>
+                  </div>
+                  <div id="ia-copy-wpp" style="font-size:12px;color:var(--text1);line-height:1.5;white-space:pre-wrap"></div>
+                </div>
+              </div>
+            </details>
+          </div>
+          <div style="margin-top:10px;display:flex;gap:8px">
+            <button class="btn btn-sm" style="background:#10b981;color:#fff;font-size:11.5px" onclick="estoqueIAAplicar()">Aplicar nos campos abaixo</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:11.5px" onclick="document.getElementById('ia-resultado-bloco').style.display='none'">Descartar</button>
+          </div>
         </div>
 
         <!-- Nome da campanha -->
@@ -27580,6 +27618,124 @@ async function estoqueSalvarCampanha(linha) {
     console.warn('salvarCampanha:', e);
     showToast('Erro ao criar campanha: ' + (e.message || e));
   }
+}
+
+// ══════════════════════════════════════════════════════════
+// ENTREGA 3 (Manu) — IA refinada via Edge Function sugerir-campanha-estoque
+// Chama Groq/Gemini e popula campos do modal + entrega 2 copies prontas (Insta + WhatsApp)
+// ══════════════════════════════════════════════════════════
+
+// Estado da última proposta IA (persiste enquanto modal aberto)
+window._estoqueIAProposta = null;
+
+async function estoqueIASugerir(linha) {
+  const grupo = window._estoqueState.grupos[linha];
+  if (!grupo || !grupo.length) return;
+  const btn = document.getElementById('btn-ia-sugere');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span style="display:inline-block;animation:spin 1s linear infinite">✨</span> Consultando IA...';
+  }
+
+  // Monta payload enxuto (max ~25 itens, só os campos necessários)
+  const itens = grupo.slice(0, 25).map(i => ({
+    codigo: i.codigo,
+    nome: i.nome,
+    estoque: Number(i.estoque_virtual) || 0,
+    preco: Number(i.preco) || 0,
+    empresa: i.empresa,
+    ultima_venda: i.ultima_venda || null,
+    dias_sem_vender: Number(i.dias_sem_vender) || null,
+    valor_parado: Number(i.valor_parado) || (Number(i.estoque_virtual)*Number(i.preco)) || 0,
+    qtd_30d:  Number(i.qtd_30d)  || 0,
+    qtd_90d:  Number(i.qtd_90d)  || 0,
+    qtd_180d: Number(i.qtd_180d) || 0,
+    qtd_365d: Number(i.qtd_365d) || 0,
+  }));
+  const totais = {
+    variacoes: grupo.length,
+    unidades: grupo.reduce((s,i) => s + (Number(i.estoque_virtual)||0), 0),
+    valor_parado: Math.round(grupo.reduce((s,i) => s + (Number(i.valor_parado) || Number(i.estoque_virtual)*Number(i.preco) || 0), 0)),
+  };
+
+  try {
+    const { data, error } = await sb.functions.invoke('sugerir-campanha-estoque', {
+      body: { linha_nome: linha, itens, totais }
+    });
+    if (error) throw error;
+    if (!data?.ok) throw new Error(data?.error || 'IA sem resposta');
+
+    window._estoqueIAProposta = data.proposta;
+    estoqueIAMostrarBloco(data);
+  } catch (e) {
+    console.warn('estoqueIASugerir:', e);
+    showToast('Erro IA: ' + (e.message || e));
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '✨ Refinar com IA';
+    }
+  }
+}
+
+function estoqueIAMostrarBloco(data) {
+  const p = data.proposta;
+  const bloco = document.getElementById('ia-resultado-bloco');
+  if (!bloco) return;
+  bloco.style.display = '';
+  document.getElementById('ia-modelo-label').textContent = '(' + (data.provider || data.modelo || 'ia') + ')';
+  const tipoLabel = {
+    desconto:'Desconto', compre_ganhe:'Compre e ganhe', kit:'Kit/Combo',
+    frete_gratis:'Frete grátis', outro:'Personalizada'
+  }[p.tipo_oferta] || p.tipo_oferta;
+  const linhaPercent = (p.tipo_oferta === 'desconto' || p.tipo_oferta === 'kit' || p.tipo_oferta === 'frete_gratis')
+    ? ` · <strong>-${p.percent}%</strong>` : '';
+  document.getElementById('ia-reasoning').innerHTML =
+    `<strong>${escapeHtml(p.nome_campanha)}</strong> · ${tipoLabel}${linhaPercent} · canal: <strong>${escapeHtml(p.canal_recomendado)}</strong> · ${p.periodo_dias} dias` +
+    `<div style="margin-top:6px;color:var(--text2);font-size:11.5px;font-style:italic">"${escapeHtml(p.reasoning)}"</div>` +
+    `<div style="margin-top:8px;font-size:12px;color:var(--text2);line-height:1.55">${escapeHtml(p.argumento)}</div>`;
+  document.getElementById('ia-copy-insta').textContent = p.copy_instagram || '(IA não gerou)';
+  document.getElementById('ia-copy-wpp').textContent = p.copy_whatsapp || '(IA não gerou)';
+}
+
+function estoqueIAAplicar() {
+  const p = window._estoqueIAProposta;
+  if (!p) return;
+  // Nome
+  const elNome = document.getElementById('campanha-nome');
+  if (elNome) elNome.value = p.nome_campanha;
+  // Tipo (clica no radio correto)
+  const radio = document.querySelector(`input[name="campanha-tipo"][value="${p.tipo_oferta}"]`);
+  if (radio) { radio.checked = true; radio.dispatchEvent(new Event('change')); }
+  // Percent
+  const elP = document.getElementById('campanha-percent');
+  if (elP) elP.value = p.percent;
+  // Argumento (concatena IA brief + bullets)
+  const elArg = document.getElementById('campanha-argumento');
+  if (elArg) {
+    elArg.value = `[Recomendação IA] ${p.reasoning}\n\n${p.argumento}\n\n📷 Instagram:\n${p.copy_instagram}\n\n💬 WhatsApp:\n${p.copy_whatsapp}`;
+  }
+  // Data fim baseado em periodo_dias
+  const elFim = document.getElementById('campanha-data-fim');
+  if (elFim) {
+    const fim = new Date(Date.now() + (Number(p.periodo_dias)||14) * 86400000);
+    elFim.value = fim.toISOString().slice(0,10);
+  }
+  // Canal — marca só o recomendado
+  document.querySelectorAll('input[name="campanha-canal"]').forEach(c => {
+    c.checked = (c.value === p.canal_recomendado);
+  });
+  showToast('✨ Sugestão IA aplicada');
+}
+
+function estoqueIACopiarTexto(elId) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const txt = el.textContent || el.innerText || '';
+  navigator.clipboard?.writeText(txt).then(
+    () => showToast('📋 Copiado'),
+    () => { showToast('Falhou ao copiar — selecione manualmente'); }
+  );
 }
 
 // Realtime: só recarrega se a view estiver aberta (evita over-fetch)
