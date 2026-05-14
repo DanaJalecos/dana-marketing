@@ -924,6 +924,16 @@
     panel.style.cssText = 'margin:20px auto 20px;padding:14px 16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;max-width:1200px;width:calc(100% - 40px)';
     const statusCor = METADATA_STATUS.find(s => s.v === status)?.cor || '#94a3b8';
 
+    // Histórico de status (timeline) — carrega async após render
+    const historicoHtml = `
+      <div id="c360-status-historico" style="margin-top:14px;padding:12px;background:rgba(96,165,250,0.04);border:1px solid rgba(96,165,250,0.18);border-radius:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:12.5px;font-weight:700;color:#93c5fd">📜 Histórico de status</div>
+          <div id="c360-historico-count" style="font-size:10.5px;color:#64748b"></div>
+        </div>
+        <div id="c360-historico-conteudo" style="font-size:12px;color:#94a3b8">⏳ Carregando...</div>
+      </div>`;
+
     // FASE 6: card "Próxima oferta sugerida" (carregado async após render)
     const sugestaoHtml = `
       <div id="c360-sugestao-produto" style="margin-top:14px;padding:12px;background:rgba(168,139,250,0.06);border:1px solid rgba(168,139,250,0.2);border-radius:8px">
@@ -957,6 +967,7 @@
         <div style="font-size:10.5px;color:#64748b">💡 Esses campos são locais do DMS — não mexem no Bling.</div>
         <button id="c360-meta-save" onclick="c360SaveMetadata(${contatoId}, '${escapeHtml(empresa)}')" style="padding:7px 16px;border-radius:6px;border:1px solid rgba(167,139,250,0.4);background:rgba(167,139,250,0.15);color:#c4b5fd;cursor:pointer;font-size:12px;font-weight:600">💾 Salvar</button>
       </div>
+      ${historicoHtml}
       ${sugestaoHtml}
     `;
 
@@ -968,6 +979,9 @@
       page.insertBefore(panel, page.firstChild);
     }
 
+    // Histórico de status (audit trail) — carrega async
+    setTimeout(() => _carregarHistoricoStatus(contatoId, empresa), 50);
+
     // FASE 6: carrega sugestões de produto async (após panel no DOM)
     // Skip se cliente devedor — IA já vai priorizar cobrança, não faz sentido sugerir compra
     if (!inad) {
@@ -975,6 +989,65 @@
     } else {
       const div = document.getElementById('c360-sugestao-conteudo');
       if (div) div.innerHTML = `<span style="color:#fca5a5;font-size:11.5px">⚠ Cliente com inadimplência — priorize cobrança antes de nova oferta.</span>`;
+    }
+  }
+
+  // ── Carrega o histórico de mudanças de status (pedido Manu 14/05) ──
+  async function _carregarHistoricoStatus(contatoId, empresa) {
+    const div = document.getElementById('c360-historico-conteudo');
+    const cnt = document.getElementById('c360-historico-count');
+    if (!div) return;
+    try {
+      const { data, error } = await state.sb.rpc('cliente_status_historico_listar', {
+        p_contato_id: contatoId, p_empresa: empresa
+      });
+      if (error) throw error;
+      const lista = data || [];
+      if (cnt) cnt.textContent = lista.length + (lista.length === 1 ? ' mudança' : ' mudanças');
+      if (!lista.length) {
+        div.innerHTML = '<span style="color:#64748b;font-size:11.5px;font-style:italic">Sem mudanças de status ainda. A primeira aparece aqui assim que você salvar um status novo.</span>';
+        return;
+      }
+      const cores = {
+        novo:          { bg:'rgba(148,163,184,0.15)', fg:'#cbd5e1', label:'Novo'         },
+        contatado:     { bg:'rgba(59,130,246,0.15)',  fg:'#93c5fd', label:'Contatado'    },
+        negociando:    { bg:'rgba(245,158,11,0.15)',  fg:'#fcd34d', label:'Em negociação'},
+        em_negociacao: { bg:'rgba(245,158,11,0.15)',  fg:'#fcd34d', label:'Em negociação'},
+        convertido:    { bg:'rgba(34,197,94,0.15)',   fg:'#86efac', label:'Convertido'   },
+        comprou:       { bg:'rgba(34,197,94,0.15)',   fg:'#86efac', label:'Comprou'      },
+        perdido:       { bg:'rgba(239,68,68,0.15)',   fg:'#fca5a5', label:'Perdido'      },
+        sem_interesse: { bg:'rgba(100,116,139,0.15)', fg:'#cbd5e1', label:'Sem interesse'},
+      };
+      const pill = (st) => {
+        const c = cores[st] || cores.novo;
+        return `<span style="font-size:10.5px;padding:2px 8px;border-radius:4px;background:${c.bg};color:${c.fg};font-weight:600;white-space:nowrap">${c.label}</span>`;
+      };
+      const itensHtml = lista.map(it => {
+        const data = new Date(it.mudado_em).toLocaleString('pt-BR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+        const dias = Math.floor((Date.now() - new Date(it.mudado_em).getTime())/86400000);
+        const diasTxt = dias === 0 ? 'hoje' : dias === 1 ? '1 dia atrás' : dias + ' dias atrás';
+        const setaHtml = it.status_anterior
+          ? `${pill(it.status_anterior)} <span style="color:#64748b">→</span> ${pill(it.status_novo)}`
+          : `<span style="font-size:10.5px;color:#64748b">primeira marcação</span> ${pill(it.status_novo)}`;
+        const motivoHtml = it.motivo_perda
+          ? `<div style="font-size:10.5px;color:#fca5a5;margin-top:3px">⚠ Motivo: ${escapeHtml(it.motivo_perda)}${it.motivo_perda_detalhe ? ' — ' + escapeHtml(it.motivo_perda_detalhe) : ''}</div>`
+          : '';
+        const obsHtml = it.observacao
+          ? `<div style="font-size:10.5px;color:#94a3b8;margin-top:3px;font-style:italic">"${escapeHtml(it.observacao)}"</div>`
+          : '';
+        return `<div style="padding:8px 10px;border-left:2px solid rgba(96,165,250,0.4);background:rgba(255,255,255,0.02);border-radius:0 6px 6px 0;margin-bottom:6px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">${setaHtml}</div>
+            <div style="font-size:10px;color:#64748b" title="${escapeHtml(it.mudado_por_nome || '—')} · ${data}">${diasTxt}</div>
+          </div>
+          <div style="font-size:10.5px;color:#64748b;margin-top:3px">por <strong style="color:#94a3b8">${escapeHtml(it.mudado_por_nome || '—')}</strong> · ${data}</div>
+          ${obsHtml}${motivoHtml}
+        </div>`;
+      }).join('');
+      div.innerHTML = `<div style="display:flex;flex-direction:column">${itensHtml}</div>`;
+    } catch (e) {
+      console.warn('[c360] historico status:', e);
+      div.innerHTML = '<span style="color:#fca5a5;font-size:11.5px">Erro ao carregar histórico: ' + escapeHtml(e.message || String(e)) + '</span>';
     }
   }
 
@@ -1045,6 +1118,8 @@
       } catch (e) { console.warn('[c360] update local state:', e); }
       if (typeof showToast === 'function') showToast(motivoExtra ? '✓ Motivo de perda registrado' : '✓ Acompanhamento salvo');
       if (btn) { btn.disabled = false; btn.textContent = '✓ Salvo'; setTimeout(() => { if (btn) btn.textContent = '💾 Salvar'; }, 1500); }
+      // Recarrega timeline pra mostrar a nova entrada (trigger criou no banco)
+      try { setTimeout(() => _carregarHistoricoStatus(payload.contato_id, payload.empresa), 300); } catch {}
     } catch (e) {
       console.error('[c360] salvar metadata', e);
       if (typeof showToast === 'function') showToast('Erro: ' + (e.message || e), 'error');
@@ -5623,6 +5698,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
           ${mcRenderRankingsBloco(state.mcRankingGeralCache, state.mcRankingTotalFatCache)}
         </div>
 
+        ${mcRenderFunilWidget(false)}
+
         ${mcRenderFiltrosBar(filtros, true)}
 
         <div id="mc-tabela-wrap" style="margin-top:14px">
@@ -5631,6 +5708,145 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       </div>
     `;
     mcWireTable(content);
+    setTimeout(() => mcLoadFunilWidget(), 50);
+  }
+
+  // ── Widget de Funil de Relacionamento (pedido Manu 14/05) ──
+  // Default: fechado pra vendedora, aberto pra admin/gerente.
+  function mcRenderFunilWidget(defaultOpen) {
+    const aberto = defaultOpen ? '' : ' style="display:none"';
+    return `
+      <div id="mc-funil-widget" style="margin-top:6px;margin-bottom:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px 14px">
+        <div onclick="window.c360McFunilToggle()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:13.5px;font-weight:700;color:#a78bfa">📊 Funil de relacionamento</span>
+            <span id="mc-funil-resumo" style="font-size:11px;color:#64748b">…</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select id="mc-funil-periodo" onchange="event.stopPropagation();window.c360McFunilReload()" onclick="event.stopPropagation()" style="padding:4px 8px;border-radius:5px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:11.5px">
+              <option value="7">últimos 7d</option>
+              <option value="30" selected>últimos 30d</option>
+              <option value="90">últimos 90d</option>
+              <option value="180">últimos 180d</option>
+              <option value="365">últimos 365d</option>
+            </select>
+            <span id="mc-funil-toggle-icon" style="font-size:11px;color:#94a3b8">${defaultOpen ? '▼' : '▶'}</span>
+          </div>
+        </div>
+        <div id="mc-funil-conteudo"${aberto}>
+          <div style="padding:12px 0;text-align:center;color:#64748b;font-size:12px">⏳ Carregando funil…</div>
+        </div>
+      </div>
+    `;
+  }
+
+  window.c360McFunilToggle = function() {
+    const c = document.getElementById('mc-funil-conteudo');
+    const ic = document.getElementById('mc-funil-toggle-icon');
+    if (!c) return;
+    const fechado = c.style.display === 'none';
+    c.style.display = fechado ? '' : 'none';
+    if (ic) ic.textContent = fechado ? '▼' : '▶';
+  };
+
+  window.c360McFunilReload = function() {
+    mcLoadFunilWidget();
+  };
+
+  async function mcLoadFunilWidget() {
+    const cont = document.getElementById('mc-funil-conteudo');
+    const resumoEl = document.getElementById('mc-funil-resumo');
+    if (!cont) return;
+    const empresa = state.empresa || 'todas';
+    const periodo = Number(document.getElementById('mc-funil-periodo')?.value || 30);
+    try {
+      const { data, error } = await state.sb.rpc('cliente_funil_stats', {
+        empresa_filter: empresa,
+        periodo_dias: periodo
+      });
+      if (error) throw error;
+      const stats = data || {};
+      const a = stats.atual || {};
+      const f = stats.fluxo_periodo || {};
+      const conv = stats.conversao_periodo || {};
+
+      const totalAtual = (a.contatado||0) + (a.negociando||0) + (a.convertido||0);
+      const totalMudou = (f.contatado||0) + (f.negociando||0) + (f.convertido||0) + (f.perdido||0) + (f.sem_interesse||0);
+
+      // Resumo curto pro header (sempre visível)
+      if (resumoEl) {
+        resumoEl.textContent = totalMudou > 0
+          ? `${totalMudou} mudanças em ${periodo}d · ${a.negociando||0} em negociação hoje`
+          : `${a.contatado||0} contatados · ${a.negociando||0} em negociação`;
+      }
+
+      // Taxa de conversão
+      const txContatadoNeg = (a.contatado||0) + (a.negociando||0) + (a.convertido||0) > 0
+        ? Math.round(100 * conv.contatado_para_negociando / Math.max(1, conv.contatado_para_negociando + (a.contatado||0)))
+        : 0;
+      const txNegConv = (conv.negociando_para_convertido + (a.negociando||0)) > 0
+        ? Math.round(100 * conv.negociando_para_convertido / Math.max(1, conv.negociando_para_convertido + (a.negociando||0)))
+        : 0;
+
+      // Cards do funil em horizontal (snapshot atual)
+      const stageCard = (label, qt, cor, icon) => `
+        <div style="flex:1;min-width:130px;background:rgba(255,255,255,0.02);border:1px solid ${cor};border-radius:8px;padding:10px 12px">
+          <div style="font-size:10.5px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">${icon} ${label}</div>
+          <div style="font-size:22px;font-weight:800;color:#f1f5f9">${qt||0}</div>
+          <div style="font-size:10px;color:#64748b">${f[label==='Novo'?'novo':label==='Contatado'?'contatado':label==='Negociando'?'negociando':label==='Convertido'?'convertido':label==='Perdido'?'perdido':'sem_interesse']||0} entraram em ${periodo}d</div>
+        </div>`;
+
+      cont.innerHTML = `
+        <div style="padding-top:12px">
+          <div style="font-size:10.5px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">📷 Snapshot atual</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+            <div style="flex:1;min-width:120px;background:rgba(255,255,255,0.02);border:1px solid rgba(148,163,184,0.3);border-radius:8px;padding:10px 12px">
+              <div style="font-size:10.5px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">🆕 Novos</div>
+              <div style="font-size:22px;font-weight:800;color:#f1f5f9">${a.novo||0}</div>
+              <div style="font-size:10px;color:#64748b">aguardando 1º contato</div>
+            </div>
+            <div style="align-self:center;color:#475569;font-size:14px">→</div>
+            <div style="flex:1;min-width:120px;background:rgba(59,130,246,0.05);border:1px solid rgba(59,130,246,0.4);border-radius:8px;padding:10px 12px">
+              <div style="font-size:10.5px;color:#93c5fd;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">💬 Contatados</div>
+              <div style="font-size:22px;font-weight:800;color:#dbeafe">${a.contatado||0}</div>
+              <div style="font-size:10px;color:#64748b">${f.contatado||0} novos em ${periodo}d</div>
+            </div>
+            <div style="align-self:center;color:#475569;font-size:14px">→</div>
+            <div style="flex:1;min-width:120px;background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.4);border-radius:8px;padding:10px 12px">
+              <div style="font-size:10.5px;color:#fcd34d;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">🤝 Em negociação</div>
+              <div style="font-size:22px;font-weight:800;color:#fef3c7">${a.negociando||0}</div>
+              <div style="font-size:10px;color:#64748b">${f.negociando||0} novos em ${periodo}d</div>
+            </div>
+            <div style="align-self:center;color:#475569;font-size:14px">→</div>
+            <div style="flex:1;min-width:120px;background:rgba(34,197,94,0.05);border:1px solid rgba(34,197,94,0.4);border-radius:8px;padding:10px 12px">
+              <div style="font-size:10.5px;color:#86efac;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">✅ Convertidos</div>
+              <div style="font-size:22px;font-weight:800;color:#bbf7d0">${a.convertido||0}</div>
+              <div style="font-size:10px;color:#64748b">${f.convertido||0} convertidos em ${periodo}d</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:12px">
+            <div style="background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.3);border-radius:8px;padding:10px 12px">
+              <div style="font-size:10.5px;color:#c4b5fd;text-transform:uppercase;letter-spacing:0.4px">📈 Contatado → Negociando</div>
+              <div style="font-size:18px;font-weight:700;color:#f1f5f9;margin-top:3px">${conv.contatado_para_negociando||0} <span style="font-size:11.5px;color:#94a3b8">avançaram em ${periodo}d</span></div>
+            </div>
+            <div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:10px 12px">
+              <div style="font-size:10.5px;color:#86efac;text-transform:uppercase;letter-spacing:0.4px">🎯 Negociando → Convertido</div>
+              <div style="font-size:18px;font-weight:700;color:#f1f5f9;margin-top:3px">${conv.negociando_para_convertido||0} <span style="font-size:11.5px;color:#94a3b8">fecharam em ${periodo}d</span></div>
+            </div>
+            <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 12px">
+              <div style="font-size:10.5px;color:#fca5a5;text-transform:uppercase;letter-spacing:0.4px">❌ Perdidos / sem interesse</div>
+              <div style="font-size:18px;font-weight:700;color:#f1f5f9;margin-top:3px">${conv.total_perdidos||0} <span style="font-size:11.5px;color:#94a3b8">em ${periodo}d</span></div>
+            </div>
+          </div>
+
+          <div style="font-size:10.5px;color:#64748b;font-style:italic">💡 Snapshot = onde estão hoje · Fluxo = quantos passaram pelo status no período · Conversão = quantos avançaram pra próximo estágio</div>
+        </div>
+      `;
+    } catch (e) {
+      console.warn('[mc] funil widget:', e);
+      cont.innerHTML = `<div style="padding:10px;color:#fca5a5;font-size:11.5px">Erro: ${escapeHtml(e.message || String(e))}</div>`;
+    }
   }
 
   // ─── Bloco de Ranking pra vendedora (sua posição + top 5) ───
@@ -5736,6 +5952,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
         ${state.mcAdminVendedores.length === 0 ? mcEmptyMapping() : ''}
 
+        ${mcRenderFunilWidget(true)}
+
         <div style="margin-bottom:24px">
           ${mcRenderRankingsBloco(ranking, totalFat)}
         </div>
@@ -5748,6 +5966,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       </div>
     `;
     mcWireTable(content);
+    setTimeout(() => mcLoadFunilWidget(), 50);
   }
 
   // ─── Helpers de UI ───
@@ -5820,7 +6039,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
             <option value="">Todos</option>
             <option value="__nao_contatado__" ${sr==='__nao_contatado__'?'selected':''}>Não contatado ainda</option>
             <option value="contatado" ${sr==='contatado'?'selected':''}>Contatado</option>
-            <option value="em_negociacao" ${sr==='em_negociacao'?'selected':''}>Em negociação</option>
+            <option value="negociando" ${sr==='negociando'?'selected':''}>Em negociação</option>
             <option value="convertido" ${sr==='convertido'?'selected':''}>Convertido</option>
             <option value="perdido" ${sr==='perdido'?'selected':''}>Perdido</option>
             <option value="sem_interesse" ${sr==='sem_interesse'?'selected':''}>Sem interesse</option>
@@ -6255,7 +6474,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     if (!st || st === 'novo') return '';
     const cores = {
       contatado:     { bg: 'rgba(59,130,246,0.18)', fg: '#93c5fd', border: 'rgba(59,130,246,0.4)', label: 'Contatado' },
-      em_negociacao: { bg: 'rgba(245,158,11,0.18)', fg: '#fcd34d', border: 'rgba(245,158,11,0.4)', label: 'Em negociação' },
+      negociando:    { bg: 'rgba(245,158,11,0.18)', fg: '#fcd34d', border: 'rgba(245,158,11,0.4)', label: 'Em negociação' },
+      em_negociacao: { bg: 'rgba(245,158,11,0.18)', fg: '#fcd34d', border: 'rgba(245,158,11,0.4)', label: 'Em negociação' }, // alias legacy (não removo pra não quebrar registros antigos)
       convertido:    { bg: 'rgba(34,197,94,0.18)',  fg: '#86efac', border: 'rgba(34,197,94,0.4)',  label: 'Convertido' },
       perdido:       { bg: 'rgba(239,68,68,0.18)',  fg: '#fca5a5', border: 'rgba(239,68,68,0.4)',  label: 'Perdido' },
       sem_interesse: { bg: 'rgba(100,116,139,0.18)', fg: '#cbd5e1', border: 'rgba(100,116,139,0.4)', label: 'Sem interesse' },
