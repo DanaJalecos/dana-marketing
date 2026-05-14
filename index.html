@@ -10369,6 +10369,21 @@ const SUBTAB_SWITCHERS = {
   briefingvisual:  (btn, tab) => (typeof switchBriefingTab === 'function') && switchBriefingTab(btn, tab),
   criativos:       (btn, tab) => (typeof switchCri === 'function') && switchCri(btn, tab),
   mercado:         (btn, tab) => (typeof switchMkt === 'function') && switchMkt(btn, tab),
+  // C360 vive num iframe — manda postMessage pra trocar de page lá dentro.
+  // Como o iframe carrega async, espera o JS interno (showPage) ficar disponível.
+  cliente360:      (btn, tab) => {
+    const iframe = document.getElementById('cliente360-iframe');
+    if (!iframe) return;
+    const send = () => {
+      try { iframe.contentWindow?.postMessage({ type: 'c360_open_tab', tab }, '*'); } catch(e) {}
+    };
+    // Se o iframe já carregou e o JS interno está pronto, manda agora
+    try {
+      if (iframe.contentWindow?.showPage) { send(); return; }
+    } catch(e) {}
+    // Senão, espera o iframe carregar + 150ms pro boot interno terminar
+    iframe.addEventListener('load', () => setTimeout(send, 150), { once: true });
+  },
 };
 const VALID_SUBTABS = {
   prospeccao:      ['lista','kanban'],
@@ -10377,6 +10392,7 @@ const VALID_SUBTABS = {
   briefingvisual:  ['salvos','materiais','brandkit'],
   criativos:       ['aguardando','aprovados','reprovados','todo','publicados'],
   mercado:         ['noticias','tendencias','concorrentes','oportunidades'],
+  cliente360:      ['dashboard','clientes','meus-clientes','segmentos','campanhas','sincronizacao','configuracoes','logs'],
 };
 const DEFAULT_SUBTAB = {
   prospeccao:      'kanban',
@@ -10385,6 +10401,7 @@ const DEFAULT_SUBTAB = {
   briefingvisual:  'salvos',
   criativos:       'aguardando',
   mercado:         'noticias',
+  cliente360:      'dashboard',
 };
 
 // Procura o botão de aba via onclick (seletor reusa o padrão de cada switcher).
@@ -10723,6 +10740,23 @@ window.addEventListener('popstate', () => {
   if (!parsed.viewId) return;
   const navEl = document.querySelector('[onclick*="\''+parsed.viewId+'\'"]');
   go(navEl, parsed.viewId, { fromHistory: true, subtab: parsed.subtab });
+});
+
+// Escuta mudanças de página DENTRO do iframe do Cliente 360 e sincroniza URL.
+// (Manu pediu 14/05: /cliente360/dashboard, /cliente360/clientes, etc)
+window.addEventListener('message', (e) => {
+  if (!e?.data || e.data.type !== 'c360_page_changed') return;
+  // Só atualiza URL se a view atual é cliente360 (evita poluir URL quando user tá em outra view)
+  const activeView = document.querySelector('.view.active')?.id?.replace(/^view-/, '');
+  if (activeView !== 'cliente360') return;
+  const page = String(e.data.page || '').replace(/[^a-z0-9-]/gi, '');
+  if (!VALID_SUBTABS.cliente360.includes(page)) return;
+  const newPath = '/cliente360/' + page;
+  // replaceState (não pushState) — evita acumular entries no histórico a cada clique interno do C360.
+  // Pra back/forward funcionar normal, o popstate principal já manda postMessage de volta.
+  if (location.pathname !== newPath) {
+    history.replaceState(null, '', newPath);
+  }
 });
 
 // Views que exportam PDF (action='Exportar PDF' no VIEW_META)

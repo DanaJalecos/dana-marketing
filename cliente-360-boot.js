@@ -3833,6 +3833,7 @@
   }
 
   // Hook: quando showPage('segmentos') for chamado, renderiza dados reais
+  // + avisa o pai (DMS) pra atualizar a URL → /cliente360/<page>
   const origShowPage = window.showPage;
   if (typeof origShowPage === 'function') {
     window.showPage = function(id) {
@@ -3843,8 +3844,26 @@
       if (id === 'configuracoes') renderConfiguracoesPage();
       if (id === 'logs') renderLogsPage();
       if (id === 'meus-clientes') renderMeusClientesPage();
+      // Path-based routing (Manu pediu 14/05) — sincroniza URL do pai
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'c360_page_changed', page: id }, '*');
+        }
+      } catch (e) { /* iframe isolado, ignora */ }
     };
   }
+
+  // Avisa o pai a página inicial assim que o iframe carrega
+  // (sem isso, ?cliente360/dashboard direto via F5 não atualiza a URL pra .../dashboard)
+  setTimeout(() => {
+    try {
+      if (window.parent && window.parent !== window) {
+        const active = document.querySelector('.page-section.active');
+        const initialPage = active?.id?.replace(/^page-/, '') || 'dashboard';
+        window.parent.postMessage({ type: 'c360_page_changed', page: initialPage, initial: true }, '*');
+      }
+    } catch (e) {}
+  }, 100);
 
   // Expoe helper pra c360SetEmpresa poder chamar
   window.c360ReRenderSegmentosIfActive = async function() {
