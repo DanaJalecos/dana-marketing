@@ -16,14 +16,12 @@ const MODEL = 'gemini-2.5-flash-image'
 // Logo Dana "Principal Horizontal" (midia kit) pra usar como referencia em image-to-image
 const LOGO_DANA_URL = 'https://comlppiwzniskjbeneos.supabase.co/storage/v1/object/public/kanban/brandkit-logo-1776433663865-vn4wml.png'
 
-// PIN Dana — plaquinha em losango com coroa estilizada (vem em ouro, prata, esmaltado).
-// 4 referencias: 1 isolada (forma limpa) + 3 in-context (mostram posicionamento no jaleco).
+// PIN Dana — plaquinha em losango com coroa estilizada cortada no centro.
+// 2 referencias: PIN isolado (forma+material limpos) + PIN em jaleco bordô ouro (proporção/posição reais).
 // Aplicado sempre que tiver jaleco/scrub no prompt (mesma regra que o logo).
 const PIN_DANA_URLS = [
   'https://wltmiqbhziefusnzmmkt.supabase.co/storage/v1/object/public/kanban/brandkit-pins/pin-isolado.png',
-  'https://wltmiqbhziefusnzmmkt.supabase.co/storage/v1/object/public/kanban/brandkit-pins/pin-jaleco-azul-prata.jpg',
   'https://wltmiqbhziefusnzmmkt.supabase.co/storage/v1/object/public/kanban/brandkit-pins/pin-jaleco-bordo-ouro.jpg',
-  'https://wltmiqbhziefusnzmmkt.supabase.co/storage/v1/object/public/kanban/brandkit-pins/pin-jaleco-rosa-esmaltado.jpg',
 ]
 
 // Palavras-chave que indicam que o prompt eh sobre roupa Dana (jaleco/scrub/uniforme)
@@ -226,26 +224,54 @@ ${temLogoRef
   : `- A small embroidered Dana Jalecos wordmark on the LEFT chest, tone-on-tone, ~3-4cm wide.`
 }
 
-══ ELEMENT #2: METAL PIN BADGE (on RIGHT chest) — SIGNATURE DETAIL ══
+══ ELEMENT #2: METAL PIN BADGE (on RIGHT CHEST — NOT shoulder, NOT sleeve) — SIGNATURE DETAIL ══
 ${temPinRef
-  ? `- A small physical METAL PIN (badge/brooch), shown in attached ${pinRefDesc}.
-- THIS IS NOT TEXT, NOT EMBROIDERY, NOT A LOGO. It is a SOLID METAL PLAQUE pinned through the fabric like a brooch.
-- Shape: diamond / rhombus (4-sided, rotated 45°), ~1-1.5cm wide.
-- Design: A stylized CROWN silhouette is CUT OUT through the center of the metal plaque, so the fabric color shows through the crown shape.
-- Material: gold-tone metal on warm/dark fabrics (burgundy, navy, charcoal, brown); silver-tone on cool/neutral fabrics (gray, white, light blue); white enamel with navy crown on light fabrics (pink, rose, pastel).
-- Placement: on the RIGHT chest (the model's right side, viewer's left side when facing camera), mirroring the logo position. Roughly 5-7cm to the right of the center seam/zipper, at the same height as the embroidered logo on the opposite side.
-- Attachment: 2 tiny visible thread loops / clip points where the pin pierces the fabric (looks like a brooch pinned through).
-- The pin is the AUTHENTICITY MARKER of every Dana Jalecos garment — without it, the product looks like a generic imitation. It must be CLEARLY VISIBLE in the final image, recognizable from medium distance, and DISTINCT from the embroidered logo (different position, different material, different shape).
-- DO NOT replace the pin with embroidery, a printed graphic, or text. It is a real 3D metal object affixed to the fabric.`
-  : `- A small diamond-shaped metal pin badge with a crown cutout, ~1.5cm wide, pinned on the RIGHT chest.`
+  ? `🔴 THIS IS THE MOST IMPORTANT ELEMENT OF THE ENTIRE IMAGE. STUDY THE REFERENCE IMAGES ${pinRefDesc} CAREFULLY BEFORE GENERATING.
+
+WHAT IT IS:
+- A real 3D physical METAL PIN BADGE (brooch), pierced through the fabric.
+- NOT text. NOT embroidery. NOT a printed graphic. NOT a sticker. NOT a button.
+- It is a SOLID METAL PLAQUE with weight, depth, and a metallic reflective surface.
+
+EXACT DESIGN (copy from reference images):
+- Outer shape: DIAMOND / RHOMBUS — a 4-sided square rotated 45° so points face up/down/left/right.
+- Center cutout: a stylized CROWN silhouette (3-point classic crown with rounded peaks) is REMOVED from the center of the plaque, creating a window. The fabric color of the garment shows THROUGH this crown-shaped hole.
+- Material: polished gold-tone metal (warm yellow/gold finish) for most garments. On white/light fabrics it can also be silver-tone or white enamel with navy crown.
+- The metal edge of the diamond has a thin raised border/frame — visible as a darker outline around the diamond shape.
+- Size: ~1.5-2cm wide (clearly visible at medium distance, NOT tiny).
+- Two visible attachment threads: tiny loops where the pin pierces through the fabric (left and right corners of the diamond).
+
+POSITION — CRITICAL, READ TWICE:
+✅ PLACE IT HERE: On the upper RIGHT CHEST area, directly on the FRONT CHEST FABRIC PANEL of the garment. Specifically:
+   - Vertically: at the same HEIGHT as the embroidered logo on the opposite side (~10-15cm below the collar/neckline).
+   - Horizontally: ~6-10cm to the right of the center seam (or zipper) of the garment, on the model's RIGHT chest (viewer's left when model faces camera).
+   - Picture a chest pocket area or where a name badge would normally go — that's the spot.
+
+❌ DO NOT PLACE IT HERE (these are WRONG positions seen in previous failed generations):
+   - NOT on the shoulder (top of shoulder line).
+   - NOT on the sleeve / arm (anywhere below the shoulder seam).
+   - NOT on the collar or lapel.
+   - NOT centered on the chest (it must be off-center to the right).
+   - NOT on the pocket flap below waist height.
+
+SIZE / VISIBILITY:
+- Must be clearly recognizable. If the model is shown from waist-up or full-body, the pin should still be sharp and readable as a diamond+crown shape (no blur).
+- DO NOT make it microscopic. Slightly larger than expected is better than slightly smaller.
+
+The pin is the AUTHENTICITY MARKER of every Dana Jalecos garment. Without a correctly-shaped, correctly-positioned pin, the garment looks like a generic imitation. DO NOT skip, simplify, miniaturize, or relocate it.`
+  : `- A small diamond-shaped metal pin badge with a crown cutout, ~1.5-2cm wide, pinned on the RIGHT CHEST (NOT shoulder, NOT sleeve), at the same height as the logo on the opposite side.`
 }
 
 ══ FINAL CHECK BEFORE RENDERING ══
 1. ✅ Is the embroidered logo visible on the LEFT chest? (matches reference exactly, not invented)
-2. ✅ Is the diamond-shaped metal pin badge visible on the RIGHT chest? (separate from the logo, different physical object)
-3. ✅ Did you avoid inventing a cursive "Dana" script or any text that isn't in the official logo reference?
+2. ✅ Is the diamond-shaped metal pin visible on the RIGHT CHEST FABRIC (front panel)?
+   ❌ If the pin is on the shoulder, sleeve, collar, or anywhere above the chest line → WRONG, fix it.
+3. ✅ Is the pin clearly a DIAMOND shape (rhombus, points up/down/left/right) with a CROWN cut out in the center?
+   ❌ If the pin is round, square (corners up), oval, or has no visible crown cutout → WRONG, fix it.
+4. ✅ Is the pin LARGE ENOUGH to be recognizable (~1.5-2cm wide, not a tiny dot)?
+5. ✅ Did you avoid inventing a cursive "Dana" script or any text that isn't in the official logo reference?
 
-If any answer is NO, regenerate. The pin is non-negotiable.
+If any answer is NO, regenerate. The pin on the correct position is non-negotiable.
 ═══════════════════════════════════════════════════════════════
 `
       // Prepend brand block ao prompt — ganha prioridade de atenção
