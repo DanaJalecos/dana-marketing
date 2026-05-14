@@ -937,40 +937,23 @@
     panel.style.cssText = 'margin:20px auto 20px;padding:14px 16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;max-width:1200px;width:calc(100% - 40px)';
     const statusCor = METADATA_STATUS.find(s => s.v === status)?.cor || '#94a3b8';
 
-    // Histórico de status (timeline) — carrega async após render
-    const historicoHtml = `
-      <div id="c360-status-historico" style="margin-top:14px;padding:12px;background:rgba(96,165,250,0.04);border:1px solid rgba(96,165,250,0.18);border-radius:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div style="font-size:12.5px;font-weight:700;color:#93c5fd">📜 Histórico de status</div>
-          <div id="c360-historico-count" style="font-size:10.5px;color:#64748b"></div>
-        </div>
-        <div id="c360-historico-conteudo" style="font-size:12px;color:#94a3b8">⏳ Carregando...</div>
-      </div>`;
-
-    // FASE 6: card "Próxima oferta sugerida" (carregado async após render)
-    const sugestaoHtml = `
-      <div id="c360-sugestao-produto" style="margin-top:14px;padding:12px;background:rgba(168,139,250,0.06);border:1px solid rgba(168,139,250,0.2);border-radius:8px">
-        <div style="font-size:12.5px;font-weight:700;color:#c4b5fd;margin-bottom:8px">🎁 Próxima oferta sugerida</div>
-        <div id="c360-sugestao-conteudo" style="font-size:12px;color:#94a3b8">⏳ Calculando sugestões...</div>
-      </div>`;
-
-    // Default minimizado (Manu pediu — fica menos poluído). Persiste em localStorage.
-    const acompExpandido = localStorage.getItem('c360_acomp_expanded') === '1';
-    const iconArrow = acompExpandido ? '▼' : '▶';
-    const formDisplay = acompExpandido ? '' : ' style="display:none"';
+    // Sempre default minimizado (cada cliente abre fechado — Manu 14/05).
+    // Se quiser persistir em localStorage no futuro, dá pra adicionar aqui.
+    const formDisplay = ' style="display:none"';
+    const iconArrow = '▶';
 
     panel.innerHTML = `
       ${inadHtml}
-      <div onclick="c360MetaToggleExpand()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap;user-select:none">
+      <div onclick="c360MetaToggleExpand()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;user-select:none">
         <div style="display:flex;align-items:center;gap:8px">
           <span id="c360-meta-arrow" style="color:#94a3b8;font-size:11px;width:14px;display:inline-block">${iconArrow}</span>
           <span style="font-family:'Playfair Display',serif;font-size:14px;font-weight:600;color:#f1f5f9">📝 Acompanhamento comercial</span>
-          <span id="c360-meta-resumo-status" style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(124,58,237,0.15);color:#c4b5fd;font-weight:600">${escapeHtml(METADATA_STATUS.find(s=>s.v===status)?.l || '🆕 Novo')}</span>
+          <span id="c360-meta-resumo-status" style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(124,58,237,0.15);color:#c4b5fd;font-weight:600">${escapeHtml(METADATA_STATUS.find(s=>s.v===status)?.l || '🆕 Não contatado')}</span>
         </div>
         ${meta?.atualizado_em ? `<div style="font-size:10.5px;color:#64748b">${escapeHtml(meta.atualizado_por_nome || '—')} · ${new Date(meta.atualizado_em).toLocaleString('pt-BR')}</div>` : ''}
       </div>
-      <div id="c360-meta-form-body"${formDisplay}>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
+      <div id="c360-acomp-body"${formDisplay}>
+        <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
           <div>
             <label style="display:block;font-size:10.5px;color:#64748b;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Status do relacionamento</label>
             <select id="c360-meta-status" style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:12.5px">
@@ -990,9 +973,16 @@
           <div style="font-size:10.5px;color:#64748b">💡 Esses campos são locais do DMS — não mexem no Bling.</div>
           <button id="c360-meta-save" onclick="c360SaveMetadata(${contatoId}, '${escapeHtml(empresa)}')" style="padding:7px 16px;border-radius:6px;border:1px solid rgba(167,139,250,0.4);background:rgba(167,139,250,0.15);color:#c4b5fd;cursor:pointer;font-size:12px;font-weight:600">💾 Salvar</button>
         </div>
+
+        <!-- Histórico de status — agora dentro do mesmo bloco que minimiza junto -->
+        <div id="c360-status-historico" style="margin-top:14px;padding:12px;background:rgba(96,165,250,0.04);border:1px solid rgba(96,165,250,0.18);border-radius:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-size:12.5px;font-weight:700;color:#93c5fd">📜 Histórico de status</div>
+            <div id="c360-historico-count" style="font-size:10.5px;color:#64748b"></div>
+          </div>
+          <div id="c360-historico-conteudo" style="font-size:12px;color:#94a3b8">⏳ Carregando...</div>
+        </div>
       </div>
-      ${historicoHtml}
-      ${sugestaoHtml}
     `;
 
     // Insere DEPOIS do botao "Voltar" (primeiro botao do page)
@@ -1002,6 +992,25 @@
     } else {
       page.insertBefore(panel, page.firstChild);
     }
+
+    // Painel separado: 🎁 Próxima oferta sugerida (Manu pediu separar do Acompanhamento)
+    // Default minimizado, com toggle próprio
+    const sugestaoPanel = document.createElement('div');
+    sugestaoPanel.id = 'c360-sugestao-panel';
+    sugestaoPanel.style.cssText = 'margin:0 auto 20px;padding:14px 16px;background:rgba(168,139,250,0.04);border:1px solid rgba(168,139,250,0.2);border-radius:10px;max-width:1200px;width:calc(100% - 40px)';
+    sugestaoPanel.innerHTML = `
+      <div onclick="c360SugestaoToggleExpand()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;user-select:none">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="c360-sugestao-arrow" style="color:#94a3b8;font-size:11px;width:14px;display:inline-block">▶</span>
+          <span style="font-family:'Playfair Display',serif;font-size:14px;font-weight:600;color:#c4b5fd">🎁 Próxima oferta sugerida</span>
+          <span style="font-size:10.5px;color:#64748b">3 produtos calculados por similaridade</span>
+        </div>
+      </div>
+      <div id="c360-sugestao-body" style="display:none;margin-top:12px">
+        <div id="c360-sugestao-conteudo" style="font-size:12px;color:#94a3b8">⏳ Calculando sugestões...</div>
+      </div>
+    `;
+    panel.parentNode.insertBefore(sugestaoPanel, panel.nextSibling);
 
     // Histórico de status (audit trail) — carrega async
     setTimeout(() => _carregarHistoricoStatus(contatoId, empresa), 50);
@@ -1079,20 +1088,24 @@
   }
 
   // ── Toggle expand/collapse do Acompanhamento Comercial (pedido Manu 14/05) ──
+  // Esconde TUDO junto: form + histórico de status. Sempre default minimizado.
   window.c360MetaToggleExpand = function() {
-    const body = document.getElementById('c360-meta-form-body');
+    const body = document.getElementById('c360-acomp-body');
     const arrow = document.getElementById('c360-meta-arrow');
     if (!body) return;
     const aberto = body.style.display !== 'none';
-    if (aberto) {
-      body.style.display = 'none';
-      if (arrow) arrow.textContent = '▶';
-      localStorage.setItem('c360_acomp_expanded', '0');
-    } else {
-      body.style.display = '';
-      if (arrow) arrow.textContent = '▼';
-      localStorage.setItem('c360_acomp_expanded', '1');
-    }
+    body.style.display = aberto ? 'none' : '';
+    if (arrow) arrow.textContent = aberto ? '▶' : '▼';
+  };
+
+  // Toggle do painel "Próxima oferta sugerida" (card separado a partir de 14/05)
+  window.c360SugestaoToggleExpand = function() {
+    const body = document.getElementById('c360-sugestao-body');
+    const arrow = document.getElementById('c360-sugestao-arrow');
+    if (!body) return;
+    const aberto = body.style.display !== 'none';
+    body.style.display = aberto ? 'none' : '';
+    if (arrow) arrow.textContent = aberto ? '▶' : '▼';
   };
 
   window.c360SaveMetadata = async function(contatoId, empresa) {
