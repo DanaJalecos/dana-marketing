@@ -7654,6 +7654,7 @@ updateDynamicField('foto');
     <button class="tab" data-estoque-tab="resolvidos" onclick="estoqueSwitchTab(this,'resolvidos')">Resolvidos <span style="opacity:0.65;font-size:11px;margin-left:4px">(30d)</span></button>
     <button class="tab" data-estoque-tab="ignorados" onclick="estoqueSwitchTab(this,'ignorados')">Ignorados</button>
     <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+      <button class="btn btn-ghost btn-sm" id="btn-sync-custos" onclick="estoqueSyncCustos()" title="Sincroniza ficha técnica de custos do sistema Tecidos Projeto. Admin only.">💰 Atualizar custos</button>
       <button class="btn btn-ghost btn-sm" id="estoque-export-btn" onclick="estoqueExportarCSV()" title="Exporta CSV pra confecção/produção">Exportar CSV</button>
       <button class="btn btn-ghost btn-sm" onclick="loadEstoque()" title="Atualizar">Atualizar</button>
     </div>
@@ -27533,10 +27534,16 @@ async function estoqueCriarCampanhaModal(linha) {
         <div id="campanha-percent-bloco" style="margin-bottom:14px">
           <label style="display:block;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Desconto / oferta</label>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
-            ${[20,30,40,50].map(p => `<button type="button" class="chip" data-percent="${p}" onclick="document.getElementById('campanha-percent').value='${p}';document.querySelectorAll('[data-percent]').forEach(b=>b.classList.toggle('chip-active', b===this))" ${p===sug.percent?'style="background:rgba(124,58,237,0.2);color:#a78bfa;border-color:rgba(124,58,237,0.4)"':''}>-${p}%</button>`).join('')}
-            <input id="campanha-percent" type="number" min="0" max="80" placeholder="custom" value="${sug.percent}" class="input" style="width:80px;font-size:12px;padding:5px 8px"/>
+            ${[20,30,40,50].map(p => `<button type="button" class="chip" data-percent="${p}" onclick="document.getElementById('campanha-percent').value='${p}';document.querySelectorAll('[data-percent]').forEach(b=>b.classList.toggle('chip-active', b===this));estoqueAtualizarMargem()" ${p===sug.percent?'style="background:rgba(124,58,237,0.2);color:#a78bfa;border-color:rgba(124,58,237,0.4)"':''}>-${p}%</button>`).join('')}
+            <input id="campanha-percent" type="number" min="0" max="80" placeholder="custom" value="${sug.percent}" class="input" style="width:80px;font-size:12px;padding:5px 8px" oninput="estoqueAtualizarMargem()"/>
             <span style="color:var(--text3);font-size:11px;align-self:center">% off</span>
           </div>
+        </div>
+
+        <!-- Análise de margem (Manu pediu 14/05) — preenchido async após render -->
+        <div id="campanha-margem-bloco" style="margin-bottom:14px;background:rgba(96,165,250,0.04);border:1px solid rgba(96,165,250,0.18);border-radius:10px;padding:12px 14px">
+          <div style="font-size:10.5px;color:#60a5fa;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">💰 Análise de margem (custos do Tecidos Projeto)</div>
+          <div id="campanha-margem-conteudo" style="font-size:12px;color:#94a3b8">⏳ Consultando planilha de custos…</div>
         </div>
 
         <!-- Datas -->
@@ -27581,6 +27588,8 @@ ${grupo.slice(0,8).map(i => '• ' + (i.codigo||'') + ' — ' + (i.nome||'') + '
   document.body.appendChild(modal);
   // Atualiza visibilidade do bloco % conforme tipo selecionado
   estoqueCampanhaAtualizarDescPadrao();
+  // Carrega análise de margem assíncrono (Entrega Manu 14/05)
+  setTimeout(() => estoqueCarregarMargem(linha), 50);
 }
 
 // Ajusta texto auxiliar conforme tipo de oferta
@@ -27590,6 +27599,187 @@ function estoqueCampanhaAtualizarDescPadrao() {
   if (!bloco) return;
   // Esconde o bloco de % quando "compre e ganhe" ou "outro"
   bloco.style.display = (tipo === 'compre_ganhe' || tipo === 'outro') ? 'none' : '';
+}
+
+// ══════════════════════════════════════════════════════════
+// Sync manual dos custos (admin) — força refresh do Tecidos pro DMS
+// Cron diário ('sync_custos_tecidos_diario') já roda 04:35 UTC
+// ══════════════════════════════════════════════════════════
+async function estoqueSyncCustos() {
+  const cargo = currentProfile?.cargo;
+  if (!['admin', 'gerente_financeiro', 'gerente_marketing'].includes(cargo)) {
+    showToast('🚫 Sync de custos é restrito a admin/gerentes');
+    return;
+  }
+  const btn = document.getElementById('btn-sync-custos');
+  const orig = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Sincronizando...'; }
+  try {
+    const { data, error } = await sb.functions.invoke('sync-custos-tecidos', { body: {} });
+    if (error) throw error;
+    if (!data?.ok) throw new Error(data?.error || 'Falhou');
+    showToast(`✅ ${data.total_lidos} fichas sincronizadas (${data.novos} novas, ${data.atualizados} atualizadas)`);
+  } catch (e) {
+    console.warn('syncCustos:', e);
+    showToast('Erro: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = orig || '💰 Atualizar custos'; }
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// Análise de margem (Manu pediu 14/05) — consulta produtos_custos
+// ══════════════════════════════════════════════════════════
+window._estoqueMargemCache = null;
+
+async function estoqueCarregarMargem(linha) {
+  const grupo = window._estoqueState.grupos?.[linha];
+  if (!grupo) return;
+  const div = document.getElementById('campanha-margem-conteudo');
+  if (!div) return;
+
+  // Códigos do grupo (SKUs do Bling)
+  const codigos = [...new Set(grupo.map(g => g.codigo).filter(Boolean))];
+  if (!codigos.length) {
+    div.innerHTML = '<span style="color:#94a3b8;font-style:italic">Sem códigos pra consultar.</span>';
+    return;
+  }
+
+  try {
+    const { data, error } = await sb.rpc('produtos_custos_lookup', { p_codigos: codigos });
+    if (error) throw error;
+    const items = data || [];
+    const comCusto = items.filter(i => i.custo_unitario != null && Number(i.custo_unitario) > 0);
+
+    if (!comCusto.length) {
+      window._estoqueMargemCache = { temCusto: false };
+      div.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;color:#fbbf24">
+          <span>⚠</span>
+          <span style="font-size:11.5px">Esses SKUs não tem custo cadastrado na ficha técnica do Tecidos Projeto. Análise de margem indisponível.</span>
+        </div>
+        <div style="font-size:10.5px;color:#64748b;margin-top:4px">Dica: cadastre a ficha técnica desses produtos no sistema de Tecidos pra ativar a análise automática.</div>`;
+      return;
+    }
+
+    // Calcula médias ponderadas por estoque (quem tem mais peso na campanha pesa mais)
+    let somaCusto = 0, somaPreco = 0, pesoTotal = 0;
+    for (const it of comCusto) {
+      const sku = grupo.find(g => g.codigo === it.produto_codigo);
+      const peso = Number(sku?.estoque_virtual) || 1;
+      somaCusto += Number(it.custo_unitario) * peso;
+      somaPreco += Number(it.preco) * peso;
+      pesoTotal += peso;
+    }
+    const custoMedio = pesoTotal > 0 ? somaCusto / pesoTotal : 0;
+    const precoMedio = pesoTotal > 0 ? somaPreco / pesoTotal : 0;
+    const estoqueTotal = grupo.reduce((s, g) => s + (Number(g.estoque_virtual) || 0), 0);
+
+    window._estoqueMargemCache = {
+      temCusto: true,
+      custoMedio, precoMedio, estoqueTotal,
+      coberturaPct: Math.round((comCusto.length / codigos.length) * 100),
+      itens: comCusto,
+    };
+
+    estoqueAtualizarMargem();
+  } catch (e) {
+    console.warn('carregarMargem:', e);
+    div.innerHTML = `<span style="color:#fca5a5">Erro: ${(e.message || e)}</span>`;
+  }
+}
+
+// Re-renderiza o card de margem usando o cache + percent atual do input.
+// Chamado a cada mudança no input de desconto.
+function estoqueAtualizarMargem() {
+  const cache = window._estoqueMargemCache;
+  const div = document.getElementById('campanha-margem-conteudo');
+  if (!div || !cache) return;
+  if (!cache.temCusto) return; // já mostrou o aviso "sem custo"
+
+  const percent = Math.max(0, Math.min(80, Number(document.getElementById('campanha-percent')?.value) || 0));
+  const { custoMedio, precoMedio, estoqueTotal, coberturaPct } = cache;
+  const precoFinal = precoMedio * (1 - percent / 100);
+  const lucroUnit = precoFinal - custoMedio;
+  const margemAtual = precoMedio > 0 ? ((precoMedio - custoMedio) / precoMedio * 100) : 0;
+  const margemNova = precoFinal > 0 ? ((precoFinal - custoMedio) / precoFinal * 100) : -100;
+  const fmtR = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // Cor/ícone conforme situação
+  let cor, icon, tag;
+  if (lucroUnit < 0) {
+    cor = '#ef4444'; icon = '🚨'; tag = 'PREJUÍZO';
+  } else if (margemNova < 10) {
+    cor = '#fbbf24'; icon = '⚠'; tag = 'MARGEM BAIXA';
+  } else if (margemNova < 25) {
+    cor = '#fb923c'; icon = '⚡'; tag = 'MARGEM REDUZIDA';
+  } else {
+    cor = '#22c55e'; icon = '✅'; tag = 'OK';
+  }
+
+  // Desconto máximo seguro pra manter 10% de margem
+  // precoFinal = custoMedio / (1 - 0.10) = custoMedio / 0.9
+  // desconto = 1 - (custoMedio/0.9) / precoMedio
+  const descMaxSeguro = Math.max(0, Math.floor((1 - (custoMedio / 0.9) / precoMedio) * 100));
+
+  // Tabela de simulação
+  const niveis = [20, 30, 40, 50, 60].map(p => {
+    const pf = precoMedio * (1 - p / 100);
+    const m = pf > 0 ? ((pf - custoMedio) / pf * 100) : -100;
+    const ehAtual = p === percent;
+    let c = m < 0 ? '#ef4444' : m < 10 ? '#fbbf24' : m < 25 ? '#fb923c' : '#22c55e';
+    let i = m < 0 ? '❌' : m < 10 ? '⚠' : m < 25 ? '⚡' : '✅';
+    return `<tr style="${ehAtual ? 'background:rgba(124,58,237,0.12);font-weight:700' : ''}">
+      <td style="padding:3px 8px;color:${ehAtual?'#a78bfa':'var(--text2)'}">-${p}%</td>
+      <td style="padding:3px 8px;color:var(--text2)">${fmtR(pf)}</td>
+      <td style="padding:3px 8px;text-align:right;color:${c}">${i} ${pf < custoMedio ? '<strong>prejuízo</strong>' : `margem <strong>${Math.round(m)}%</strong>`}</td>
+    </tr>`;
+  }).join('');
+
+  div.innerHTML = `
+    <!-- Resumo -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:10px">
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase">Custo médio</div><div style="font-size:14px;font-weight:700;color:var(--text1)">${fmtR(custoMedio)}</div></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase">Preço médio atual</div><div style="font-size:14px;font-weight:700;color:var(--text1)">${fmtR(precoMedio)}</div></div>
+      <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase">Margem atual</div><div style="font-size:14px;font-weight:700;color:${margemAtual < 10 ? '#fbbf24' : '#22c55e'}">${Math.round(margemAtual)}%</div></div>
+    </div>
+
+    <!-- Selecionado -->
+    <div style="background:rgba(124,58,237,0.08);border:1px solid rgba(124,58,237,0.25);border-radius:6px;padding:8px 10px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <div>
+          <span style="font-size:10.5px;color:#a78bfa;font-weight:700;text-transform:uppercase">Com -${percent}% selecionado:</span>
+          <span style="font-size:13px;color:var(--text1);margin-left:6px"><strong>${fmtR(precoFinal)}</strong></span>
+        </div>
+        <div style="font-size:11.5px;color:${cor};font-weight:700">${icon} ${tag} · ${lucroUnit < 0 ? 'prejuízo' : 'margem'} ${lucroUnit < 0 ? fmtR(-lucroUnit) : Math.round(margemNova)+'%'}/un</div>
+      </div>
+      ${lucroUnit < 0 ? `
+        <div style="margin-top:6px;font-size:11px;color:#fca5a5">
+          ⚠ Esse desconto deixa o produto <strong>${fmtR(-lucroUnit)} abaixo do custo</strong>. Total: <strong>${fmtR(-lucroUnit * estoqueTotal)}</strong> em ${estoqueTotal} un.
+        </div>` : ''}
+      <div style="margin-top:6px;font-size:10.5px;color:var(--text3)">
+        💡 Desconto máximo sem cair abaixo de 10% margem: <strong style="color:#a78bfa">-${descMaxSeguro}%</strong>
+      </div>
+    </div>
+
+    <!-- Tabela de simulação -->
+    <div style="font-size:10.5px;color:var(--text3);text-transform:uppercase;font-weight:600;margin-bottom:4px">Simulação por nível de desconto:</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11.5px">
+      <thead>
+        <tr style="color:var(--text3);text-align:left;font-size:10px;text-transform:uppercase">
+          <th style="padding:3px 8px;font-weight:600">Desc.</th>
+          <th style="padding:3px 8px;font-weight:600">Preço final</th>
+          <th style="padding:3px 8px;font-weight:600;text-align:right">Resultado</th>
+        </tr>
+      </thead>
+      <tbody>${niveis}</tbody>
+    </table>
+
+    ${coberturaPct < 100 ? `
+      <div style="margin-top:8px;font-size:10.5px;color:var(--text3);font-style:italic">
+        ℹ ${coberturaPct}% dos SKUs dessa linha tem ficha técnica. O cálculo usa média ponderada por estoque dos SKUs com custo conhecido.
+      </div>` : ''}
+  `;
 }
 
 // Salva campanha em campanhas_internas
@@ -27605,6 +27795,23 @@ async function estoqueSalvarCampanha(linha) {
   const canais = Array.from(document.querySelectorAll('input[name="campanha-canal"]:checked')).map(i => i.value);
 
   if (!nome) { showToast('Dê um nome pra campanha'); return; }
+
+  // Aviso de margem perigosa (Manu pediu 14/05) — confirma antes de criar
+  const cache = window._estoqueMargemCache;
+  if (cache?.temCusto && (tipo === 'desconto' || tipo === 'kit' || tipo === 'frete_gratis') && percent > 0) {
+    const precoFinal = cache.precoMedio * (1 - percent / 100);
+    const lucroUnit = precoFinal - cache.custoMedio;
+    const margemNova = precoFinal > 0 ? ((precoFinal - cache.custoMedio) / precoFinal * 100) : -100;
+    const fmtR = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (lucroUnit < 0) {
+      const prejTot = -lucroUnit * (cache.estoqueTotal || 1);
+      const ok = confirm(`🚨 ATENÇÃO — PREJUÍZO\n\nCom -${percent}% o preço final fica ${fmtR(precoFinal)} mas o custo é ${fmtR(cache.custoMedio)}.\nVai dar prejuízo de ${fmtR(-lucroUnit)} por unidade (~${fmtR(prejTot)} total).\n\nQuer criar a campanha mesmo assim?`);
+      if (!ok) return;
+    } else if (margemNova < 10) {
+      const ok = confirm(`⚠ Margem baixa\n\nCom -${percent}% sobra só ${Math.round(margemNova)}% de margem (preço final ${fmtR(precoFinal)} / custo ${fmtR(cache.custoMedio)}).\n\nCriar a campanha mesmo assim?`);
+      if (!ok) return;
+    }
+  }
 
   const tipoLabel = {
     desconto:     'Desconto direto',
