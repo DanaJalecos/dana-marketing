@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS cupons_aniversario (
 
 CREATE INDEX IF NOT EXISTS idx_cupons_contato ON cupons_aniversario (contato_id);
 CREATE INDEX IF NOT EXISTS idx_cupons_status_validade ON cupons_aniversario (status, validade_ate);
-CREATE INDEX IF NOT EXISTS idx_cupons_created_year ON cupons_aniversario ((EXTRACT(YEAR FROM created_at)));
+CREATE INDEX IF NOT EXISTS idx_cupons_created_at ON cupons_aniversario (created_at DESC);
 
 -- RLS
 ALTER TABLE cupons_aniversario ENABLE ROW LEVEL SECURITY;
@@ -182,39 +182,44 @@ $$;
 
 -- ─── 4) RPC contatos_para_sync_nascimento ───
 -- Retorna fila priorizada de contatos pra sincronizar dataNascimento
--- modo='carteira' → só quem tem vendedor (~3.600) — FASE 1
--- modo='ativos'   → contatos com pedido 12m sem vendedor (~2.400) — FASE 2
+-- modo='carteira' → quem tem vendedor (manual ou Bling via vendedor_mapping)
+-- modo='ativos'   → contatos com pedido 12m sem vendedor (FASE 2)
 -- modo='todos'    → varredura ampla (background)
+--
+-- IMPORTANTE: NÃO usa a view cliente_scoring_vendedor (cara demais ~7s timeout).
+-- Em vez disso, junta direto contatos + cliente_vendedor_manual + (pedidos JOIN vendedor_mapping).
 DROP FUNCTION IF EXISTS contatos_para_sync_nascimento(TEXT, INT);
 CREATE OR REPLACE FUNCTION contatos_para_sync_nascimento(
   modo TEXT DEFAULT 'carteira',
   p_limite INT DEFAULT 500
 )
 RETURNS TABLE (contato_id BIGINT, empresa TEXT, nome TEXT)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT c.id, c.empresa, c.nome
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $func$
+  SELECT DISTINCT ON (c.id) c.id, c.empresa, c.nome
   FROM contatos c
   WHERE c.data_nascimento IS NULL
-    AND c.nascimento_sincronizado_em IS NULL  -- já tentamos? skip
+    AND c.nascimento_sincronizado_em IS NULL
     AND (
-      (modo = 'carteira' AND EXISTS (
-        SELECT 1 FROM cliente_scoring_vendedor csv
-        WHERE csv.contato_id = c.id
-          AND csv.vendedor_profile_id IS NOT NULL
+      modo = 'todos'
+      OR (modo = 'carteira' AND (
+        EXISTS (SELECT 1 FROM cliente_vendedor_manual mvm WHERE mvm.contato_id = c.id)
+        OR EXISTS (
+          SELECT 1 FROM pedidos pe
+          JOIN vendedor_mapping vm ON vm.bling_vendedor_id = pe.vendedor_id AND vm.ativo
+          WHERE pe.contato_nome = c.nome
+            AND pe.data >= NOW() - INTERVAL '24 months'
+        )
       ))
-      OR
-      (modo = 'ativos' AND EXISTS (
+      OR (modo = 'ativos' AND EXISTS (
         SELECT 1 FROM pedidos pe
         WHERE pe.contato_nome = c.nome
           AND pe.data >= NOW() - INTERVAL '12 months'
           AND pe.situacao_id <> 12
       ))
-      OR
-      modo = 'todos'
     )
   ORDER BY c.id
   LIMIT p_limite;
-$$;
+$func$;
 
 -- ─── 5) RPC marcar_cupom_enviado ───
 -- Vendedora clica "Marcar como enviado" no widget → updates enviado_em
@@ -239,10 +244,9 @@ BEGIN
 END $$;
 
 -- ─── 6) Diagnóstico imediato ───
--- (rodar depois do primeiro burst pra ver progresso)
-SELECT
-  (SELECT COUNT(*) FROM contatos WHERE data_nascimento IS NOT NULL) AS com_nascimento,
-  (SELECT COUNT(*) FROM contatos WHERE nascimento_sincronizado_em IS NOT NULL AND data_nascimento IS NULL) AS sincronizados_sem_data,
-  (SELECT COUNT(*) FROM contatos WHERE nascimento_sincronizado_em IS NULL AND data_nascimento IS NULL) AS nao_sincronizados,
-  (SELECT COUNT(*) FROM contatos_para_sync_nascimento('carteira', 99999)) AS fila_fase1_carteira,
-  (SELECT COUNT(*) FROM contatos_para_sync_nascimento('ativos', 99999)) AS fila_fase2_ativos;
+-- (rodar SEPARADAMENTE depois do primeiro burst — é caro)
+-- SELECT
+--   (SELECT COUNT(*) FROM contatos WHERE data_nascimento IS NOT NULL) AS com_nascimento,
+--   (SELECT COUNT(*) FROM contatos WHERE nascimento_sincronizado_em IS NOT NULL AND data_nascimento IS NULL) AS sincronizados_sem_data,
+--   (SELECT COUNT(*) FROM contatos WHERE nascimento_sincronizado_em IS NULL AND data_nascimento IS NULL) AS nao_sincronizados,
+--   (SELECT COUNT(*) FROM contatos_para_sync_nascimento('carteira', 5000)) AS fila_fase1_carteira_amostra;
