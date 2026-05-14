@@ -898,7 +898,7 @@
   // METADATA do cliente Bling (status, tel alt, obs rapida)
   // ══════════════════════════════════
   const METADATA_STATUS = [
-    { v: 'novo', l: '🆕 Novo contato', cor: '#94a3b8' },
+    { v: 'novo', l: '🆕 Não contatado', cor: '#94a3b8' },
     { v: 'contatado', l: '💬 Contatado', cor: '#60a5fa' },
     { v: 'negociando', l: '🤝 Em negociação', cor: '#fbbf24' },
     { v: 'comprou', l: '✅ Comprou', cor: '#22c55e' },
@@ -5805,7 +5805,29 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     mcLoadFunilWidget();
   };
 
+  // Realtime: quando alguém mexe em cliente_metadata, recarrega o widget (debounced)
+  // Só ativa uma vez global — idempotente
+  function _mcEnsureFunilRealtime() {
+    if (window._mcFunilRealtimeOn) return;
+    window._mcFunilRealtimeOn = true;
+    let timer = null;
+    const recarregar = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        // só se o widget está no DOM
+        if (document.getElementById('mc-funil-conteudo')) mcLoadFunilWidget();
+      }, 600); // debounce 600ms
+    };
+    try {
+      state.sb.channel('realtime-funil-relacionamento')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'cliente_metadata' }, recarregar)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'cliente_status_historico' }, recarregar)
+        .subscribe();
+    } catch (e) { console.warn('[mc] realtime funil:', e); }
+  }
+
   async function mcLoadFunilWidget() {
+    _mcEnsureFunilRealtime();
     const cont = document.getElementById('mc-funil-conteudo');
     const resumoEl = document.getElementById('mc-funil-resumo');
     if (!cont) return;
@@ -5827,9 +5849,10 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
       // Resumo curto pro header (sempre visível)
       if (resumoEl) {
+        const naoCont = a.nao_contatado || 0;
         resumoEl.textContent = totalMudou > 0
-          ? `${totalMudou} mudanças em ${periodo}d · ${a.negociando||0} em negociação hoje`
-          : `${a.contatado||0} contatados · ${a.negociando||0} em negociação`;
+          ? `${totalMudou} mudanças em ${periodo}d · ${a.negociando||0} em negociação · ${naoCont} não contatado${naoCont!==1?'s':''}`
+          : `${naoCont} não contatado${naoCont!==1?'s':''} · ${a.contatado||0} contatados · ${a.negociando||0} em negociação`;
       }
 
       // Taxa de conversão
@@ -5861,11 +5884,11 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
           <div style="font-size:10.5px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">📷 Snapshot atual</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
             ${card({
-              modo:'snapshot', status:'novo', titulo:'Novos clientes (aguardando 1º contato)',
-              estilo:'flex:1;min-width:120px;background:rgba(255,255,255,0.02);border:1px solid rgba(148,163,184,0.3);border-radius:8px;padding:10px 12px',
-              html:`<div style="font-size:10.5px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">🆕 Novos</div>
-                    <div style="font-size:22px;font-weight:800;color:#f1f5f9">${a.novo||0}</div>
-                    <div style="font-size:10px;color:#64748b">aguardando 1º contato</div>`
+              modo:'nao_contatado', titulo:'Clientes não contatados (ativos 12m, sem contato há 90d+)',
+              estilo:'flex:1;min-width:140px;background:rgba(251,146,60,0.06);border:1px solid rgba(251,146,60,0.4);border-radius:8px;padding:10px 12px',
+              html:`<div style="font-size:10.5px;color:#fdba74;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">🆕 Não contatados</div>
+                    <div style="font-size:22px;font-weight:800;color:#fed7aa">${(a.nao_contatado||0).toLocaleString('pt-BR')}</div>
+                    <div style="font-size:10px;color:#64748b">ativos 12m · sem contato há 90d+</div>`
             })}
             <div style="align-self:center;color:#475569;font-size:14px">→</div>
             ${card({
@@ -5986,7 +6009,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       }
 
       const corDoStatus = {
-        novo:          { bg:'rgba(148,163,184,0.15)', fg:'#cbd5e1', label:'Novo'         },
+        nao_contatado: { bg:'rgba(251,146,60,0.15)',  fg:'#fdba74', label:'Não contatado'},
+        novo:          { bg:'rgba(148,163,184,0.15)', fg:'#cbd5e1', label:'Não contatado'},
         contatado:     { bg:'rgba(59,130,246,0.15)',  fg:'#93c5fd', label:'Contatado'    },
         negociando:    { bg:'rgba(245,158,11,0.15)',  fg:'#fcd34d', label:'Em negociação'},
         em_negociacao: { bg:'rgba(245,158,11,0.15)',  fg:'#fcd34d', label:'Em negociação'},
