@@ -9216,6 +9216,7 @@ updateDynamicField('foto');
     <div style="margin-bottom:16px"><label class="label">Cargo</label>
       <select class="input" id="new-user-cargo">
         <option value="vendedor">Vendedor</option>
+        <option value="vendedor_b2b">Vendedor B2B</option>
         <option value="expedicao">Expedição</option>
         <option value="designer">Designer</option>
         <option value="trafego_pago">Tráfego Pago</option>
@@ -10496,7 +10497,7 @@ function firstAllowedView() {
   // Vendedor: principal e o C360 (que internamente abre a aba "Meus Clientes"
   // pra cargo vendedor automaticamente). NAO existe mais view-meus_clientes
   // standalone — virou aba dentro do C360.
-  if (currentProfile?.cargo === 'vendedor') {
+  if (currentProfile?.cargo === 'vendedor' || currentProfile?.cargo === 'vendedor_b2b') {
     if (userPermissoes['cliente360'] !== false) return 'cliente360';
     return 'perfil';
   }
@@ -21934,6 +21935,7 @@ const CARGO_LABELS = {
   designer: 'Designer',
   analista_marketplace: 'Analista de Marketplace',
   vendedor: 'Vendedor',
+  vendedor_b2b: 'Vendedor B2B',
   expedicao: 'Expedição',
 };
 
@@ -23537,7 +23539,7 @@ async function doLogin() {
         // Override antibug: se o ultimo localStorage foi cliente360 e o cargo
         // NAO e vendedor, ignora (vai pra firstAllowedView). Isso evita ficar
         // preso no C360 quando o user caiu la por engano em sessao anterior.
-        if (salva === 'cliente360' && currentProfile?.cargo !== 'vendedor') {
+        if (salva === 'cliente360' && currentProfile?.cargo !== 'vendedor' && currentProfile?.cargo !== 'vendedor_b2b') {
           salva = null;
           localStorage.removeItem('dms-active-view');
         }
