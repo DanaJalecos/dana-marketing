@@ -24204,7 +24204,7 @@ window.estCarregarGaleria = async function() {
     wrap.innerHTML = data.map(p => {
       const podeExcluir = podeExcluirGlobal || (meuId && p.criado_por === meuId);
       return `
-      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface);position:relative" title="${esc(p.produto_nome)} · ${esc(p.tema || 'genérico')}">
+      <div class="est-peca-card" data-peca-id="${p.id}" style="border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface);position:relative" title="${esc(p.produto_nome)} · ${esc(p.tema || 'genérico')}">
         ${podeExcluir ? `<button onclick="event.stopPropagation();estExcluirPeca('${p.id}', this)" title="Excluir esta peça" style="position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:6px;border:none;background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;opacity:0;transition:opacity 0.15s;z-index:2" class="est-btn-del">🗑</button>` : ''}
         <a href="${esc(p.imagem_url)}" target="_blank" style="display:block;aspect-ratio:${aspectMap[p.tipo_peca] || '1/1'};background:#0a0a0a;overflow:hidden">
           <img src="${esc(p.imagem_url)}" loading="lazy" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none'">
@@ -24235,10 +24235,14 @@ window.estExcluirPeca = async function(pecaId, btn) {
   const original = btn?.textContent;
   if (btn) { btn.disabled = true; btn.textContent = '⏳'; btn.style.opacity = '1'; }
   try {
-    const { error } = await sb.from('estudio_pecas').delete().eq('id', pecaId);
+    // Delete com retorno explicito pra detectar se RLS bloqueou (count 0)
+    const { data: deleted, error } = await sb.from('estudio_pecas').delete().eq('id', pecaId).select('id');
     if (error) throw error;
-    // Anima o card sumindo
-    const card = btn?.closest('[title]') || btn?.parentElement;
+    if (!deleted || deleted.length === 0) {
+      throw new Error('Sem permissão pra excluir essa peça (RLS bloqueou).');
+    }
+    // Anima o card sumindo — busca pelo data-peca-id (botão tem title próprio, .closest('[title]') retornaria ele mesmo)
+    const card = document.querySelector(`.est-peca-card[data-peca-id="${pecaId}"]`);
     if (card) {
       card.style.transition = 'opacity 0.25s, transform 0.25s';
       card.style.opacity = '0';
@@ -24250,7 +24254,7 @@ window.estExcluirPeca = async function(pecaId, btn) {
   } catch (e) {
     console.warn('[estudio] excluir:', e);
     if (typeof showToast === 'function') showToast('Erro ao excluir: ' + (e.message || e));
-    if (btn) { btn.disabled = false; btn.textContent = original || '🗑'; }
+    if (btn) { btn.disabled = false; btn.textContent = original || '🗑'; btn.style.opacity = '1'; }
   }
 };
 
