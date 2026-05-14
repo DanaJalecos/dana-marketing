@@ -10752,10 +10752,16 @@ window.addEventListener('message', (e) => {
   const page = String(e.data.page || '').replace(/[^a-z0-9-]/gi, '');
   if (!VALID_SUBTABS.cliente360.includes(page)) return;
   const newPath = '/cliente360/' + page;
-  // replaceState (não pushState) — evita acumular entries no histórico a cada clique interno do C360.
-  // Pra back/forward funcionar normal, o popstate principal já manda postMessage de volta.
-  if (location.pathname !== newPath) {
+  if (location.pathname === newPath) return; // já está certo, ignora
+
+  // initial=true → boot do iframe acabou de carregar (sincroniza URL inicial, sem histórico)
+  // silent=true  → mudança veio do popstate ou de URL direta (não duplica histórico)
+  // (default)    → user clicou numa aba interna → pushState pra back/forward funcionar
+  const usaReplace = !!(e.data.initial || e.data.silent);
+  if (usaReplace) {
     history.replaceState(null, '', newPath);
+  } else {
+    history.pushState(null, '', newPath);
   }
 });
 

@@ -3069,7 +3069,16 @@
       await openClienteFromSpec(e.data.spec);
     } else if (e.data.type === 'c360_open_tab') {
       console.log('[c360] postMessage deep-link tab:', e.data.tab);
-      if (typeof window.showPage === 'function') window.showPage(e.data.tab);
+      // Flag pra avisar que essa mudança vem do pai (back/forward, URL direta),
+      // então o postMessage de volta deve ser silent (replaceState — não pushState
+      // — pra não duplicar entries no histórico).
+      window.__c360_silent_change = true;
+      try {
+        if (typeof window.showPage === 'function') window.showPage(e.data.tab);
+      } finally {
+        // Limpa flag depois do showPage (sincrono — postMessage volta no mesmo tick)
+        setTimeout(() => { window.__c360_silent_change = false; }, 0);
+      }
     }
   });
 
@@ -3847,7 +3856,12 @@
       // Path-based routing (Manu pediu 14/05) — sincroniza URL do pai
       try {
         if (window.parent && window.parent !== window) {
-          window.parent.postMessage({ type: 'c360_page_changed', page: id }, '*');
+          // silent=true quando a mudança veio do pai (popstate/URL direta) —
+          // assim o pai sabe que NÃO deve fazer pushState (evita loop / lixo no histórico).
+          // silent=false quando o user clicou direto numa aba interna do C360 —
+          // aí o pai faz pushState pra que back/forward funcione entre as abas.
+          const silent = !!window.__c360_silent_change;
+          window.parent.postMessage({ type: 'c360_page_changed', page: id, silent }, '*');
         }
       } catch (e) { /* iframe isolado, ignora */ }
     };
