@@ -954,31 +954,42 @@
         <div id="c360-sugestao-conteudo" style="font-size:12px;color:#94a3b8">⏳ Calculando sugestões...</div>
       </div>`;
 
+    // Default minimizado (Manu pediu — fica menos poluído). Persiste em localStorage.
+    const acompExpandido = localStorage.getItem('c360_acomp_expanded') === '1';
+    const iconArrow = acompExpandido ? '▼' : '▶';
+    const formDisplay = acompExpandido ? '' : ' style="display:none"';
+
     panel.innerHTML = `
       ${inadHtml}
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap">
-        <div style="font-family:'Playfair Display',serif;font-size:14px;font-weight:600;color:#f1f5f9">📝 Acompanhamento comercial</div>
+      <div onclick="c360MetaToggleExpand()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap;user-select:none">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="c360-meta-arrow" style="color:#94a3b8;font-size:11px;width:14px;display:inline-block">${iconArrow}</span>
+          <span style="font-family:'Playfair Display',serif;font-size:14px;font-weight:600;color:#f1f5f9">📝 Acompanhamento comercial</span>
+          <span id="c360-meta-resumo-status" style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(124,58,237,0.15);color:#c4b5fd;font-weight:600">${escapeHtml(METADATA_STATUS.find(s=>s.v===status)?.l || '🆕 Novo')}</span>
+        </div>
         ${meta?.atualizado_em ? `<div style="font-size:10.5px;color:#64748b">${escapeHtml(meta.atualizado_por_nome || '—')} · ${new Date(meta.atualizado_em).toLocaleString('pt-BR')}</div>` : ''}
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
-        <div>
-          <label style="display:block;font-size:10.5px;color:#64748b;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Status do relacionamento</label>
-          <select id="c360-meta-status" style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:12.5px">
-            ${METADATA_STATUS.map(s => `<option value="${s.v}" ${status===s.v?'selected':''}>${s.l}</option>`).join('')}
-          </select>
+      <div id="c360-meta-form-body"${formDisplay}>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
+          <div>
+            <label style="display:block;font-size:10.5px;color:#64748b;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Status do relacionamento</label>
+            <select id="c360-meta-status" style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:12.5px">
+              ${METADATA_STATUS.map(s => `<option value="${s.v}" ${status===s.v?'selected':''}>${s.l}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:10.5px;color:#64748b;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Telefone alternativo</label>
+            <input id="c360-meta-tel" type="tel" value="${escapeHtml(tel)}" placeholder="(47) 99999-0000" style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:12.5px">
+          </div>
+          <div style="grid-column:span 2;min-width:0">
+            <label style="display:block;font-size:10.5px;color:#64748b;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Observação rápida</label>
+            <input id="c360-meta-obs" value="${escapeHtml(obs)}" placeholder="Ex: marcar ligação pra terça / cliente pediu catálogo..." style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:12.5px">
+          </div>
         </div>
-        <div>
-          <label style="display:block;font-size:10.5px;color:#64748b;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Telefone alternativo</label>
-          <input id="c360-meta-tel" type="tel" value="${escapeHtml(tel)}" placeholder="(47) 99999-0000" style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:12.5px">
+        <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="font-size:10.5px;color:#64748b">💡 Esses campos são locais do DMS — não mexem no Bling.</div>
+          <button id="c360-meta-save" onclick="c360SaveMetadata(${contatoId}, '${escapeHtml(empresa)}')" style="padding:7px 16px;border-radius:6px;border:1px solid rgba(167,139,250,0.4);background:rgba(167,139,250,0.15);color:#c4b5fd;cursor:pointer;font-size:12px;font-weight:600">💾 Salvar</button>
         </div>
-        <div style="grid-column:span 2;min-width:0">
-          <label style="display:block;font-size:10.5px;color:#64748b;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Observação rápida</label>
-          <input id="c360-meta-obs" value="${escapeHtml(obs)}" placeholder="Ex: marcar ligação pra terça / cliente pediu catálogo..." style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:12.5px">
-        </div>
-      </div>
-      <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-        <div style="font-size:10.5px;color:#64748b">💡 Esses campos são locais do DMS — não mexem no Bling.</div>
-        <button id="c360-meta-save" onclick="c360SaveMetadata(${contatoId}, '${escapeHtml(empresa)}')" style="padding:7px 16px;border-radius:6px;border:1px solid rgba(167,139,250,0.4);background:rgba(167,139,250,0.15);color:#c4b5fd;cursor:pointer;font-size:12px;font-weight:600">💾 Salvar</button>
       </div>
       ${historicoHtml}
       ${sugestaoHtml}
@@ -1067,6 +1078,23 @@
     }
   }
 
+  // ── Toggle expand/collapse do Acompanhamento Comercial (pedido Manu 14/05) ──
+  window.c360MetaToggleExpand = function() {
+    const body = document.getElementById('c360-meta-form-body');
+    const arrow = document.getElementById('c360-meta-arrow');
+    if (!body) return;
+    const aberto = body.style.display !== 'none';
+    if (aberto) {
+      body.style.display = 'none';
+      if (arrow) arrow.textContent = '▶';
+      localStorage.setItem('c360_acomp_expanded', '0');
+    } else {
+      body.style.display = '';
+      if (arrow) arrow.textContent = '▼';
+      localStorage.setItem('c360_acomp_expanded', '1');
+    }
+  };
+
   window.c360SaveMetadata = async function(contatoId, empresa) {
     const btn = document.getElementById('c360-meta-save');
     if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
@@ -1131,6 +1159,12 @@
         }
         // Invalida cache da lista pra próxima carga vir fresh
         if (typeof cache !== 'undefined' && cache[emp]) cache[emp].ts = 0;
+        // Atualiza o pill de status no header minimizado (pra refletir a mudança ao vivo)
+        const pillEl = document.getElementById('c360-meta-resumo-status');
+        if (pillEl) {
+          const cfg = METADATA_STATUS.find(s => s.v === payload.status_relacionamento);
+          pillEl.textContent = cfg?.l || '🆕 Novo';
+        }
       } catch (e) { console.warn('[c360] update local state:', e); }
       if (typeof showToast === 'function') showToast(motivoExtra ? '✓ Motivo de perda registrado' : '✓ Acompanhamento salvo');
       if (btn) { btn.disabled = false; btn.textContent = '✓ Salvo'; setTimeout(() => { if (btn) btn.textContent = '💾 Salvar'; }, 1500); }
@@ -5814,51 +5848,73 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
           <div style="font-size:10px;color:#64748b">${f[label==='Novo'?'novo':label==='Contatado'?'contatado':label==='Negociando'?'negociando':label==='Convertido'?'convertido':label==='Perdido'?'perdido':'sem_interesse']||0} entraram em ${periodo}d</div>
         </div>`;
 
+      // Helper: monta um card clicável que abre o modal com a lista de clientes
+      const card = (cfg) => {
+        const dataset = `data-funil-modo="${cfg.modo}" data-funil-status="${cfg.status||''}" data-funil-anterior="${cfg.anterior||''}" data-funil-titulo="${cfg.titulo}"`;
+        return `<div ${dataset} class="mc-funil-card" style="${cfg.estilo};cursor:pointer;transition:transform 0.12s ease, box-shadow 0.12s ease" onclick="window.c360McAbrirFunilDetalhe(this)" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 18px rgba(124,58,237,0.15)'" onmouseout="this.style.transform='';this.style.boxShadow=''" title="Clique pra ver os clientes">
+          ${cfg.html}
+        </div>`;
+      };
+
       cont.innerHTML = `
         <div style="padding-top:12px">
           <div style="font-size:10.5px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">📷 Snapshot atual</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-            <div style="flex:1;min-width:120px;background:rgba(255,255,255,0.02);border:1px solid rgba(148,163,184,0.3);border-radius:8px;padding:10px 12px">
-              <div style="font-size:10.5px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">🆕 Novos</div>
-              <div style="font-size:22px;font-weight:800;color:#f1f5f9">${a.novo||0}</div>
-              <div style="font-size:10px;color:#64748b">aguardando 1º contato</div>
-            </div>
+            ${card({
+              modo:'snapshot', status:'novo', titulo:'Novos clientes (aguardando 1º contato)',
+              estilo:'flex:1;min-width:120px;background:rgba(255,255,255,0.02);border:1px solid rgba(148,163,184,0.3);border-radius:8px;padding:10px 12px',
+              html:`<div style="font-size:10.5px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">🆕 Novos</div>
+                    <div style="font-size:22px;font-weight:800;color:#f1f5f9">${a.novo||0}</div>
+                    <div style="font-size:10px;color:#64748b">aguardando 1º contato</div>`
+            })}
             <div style="align-self:center;color:#475569;font-size:14px">→</div>
-            <div style="flex:1;min-width:120px;background:rgba(59,130,246,0.05);border:1px solid rgba(59,130,246,0.4);border-radius:8px;padding:10px 12px">
-              <div style="font-size:10.5px;color:#93c5fd;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">💬 Contatados</div>
-              <div style="font-size:22px;font-weight:800;color:#dbeafe">${a.contatado||0}</div>
-              <div style="font-size:10px;color:#64748b">${f.contatado||0} novos em ${periodo}d</div>
-            </div>
+            ${card({
+              modo:'snapshot', status:'contatado', titulo:'Clientes em status Contatado',
+              estilo:'flex:1;min-width:120px;background:rgba(59,130,246,0.05);border:1px solid rgba(59,130,246,0.4);border-radius:8px;padding:10px 12px',
+              html:`<div style="font-size:10.5px;color:#93c5fd;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">💬 Contatados</div>
+                    <div style="font-size:22px;font-weight:800;color:#dbeafe">${a.contatado||0}</div>
+                    <div style="font-size:10px;color:#64748b">${f.contatado||0} novos em ${periodo}d</div>`
+            })}
             <div style="align-self:center;color:#475569;font-size:14px">→</div>
-            <div style="flex:1;min-width:120px;background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.4);border-radius:8px;padding:10px 12px">
-              <div style="font-size:10.5px;color:#fcd34d;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">🤝 Em negociação</div>
-              <div style="font-size:22px;font-weight:800;color:#fef3c7">${a.negociando||0}</div>
-              <div style="font-size:10px;color:#64748b">${f.negociando||0} novos em ${periodo}d</div>
-            </div>
+            ${card({
+              modo:'snapshot', status:'negociando', titulo:'Clientes em negociação',
+              estilo:'flex:1;min-width:120px;background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.4);border-radius:8px;padding:10px 12px',
+              html:`<div style="font-size:10.5px;color:#fcd34d;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">🤝 Em negociação</div>
+                    <div style="font-size:22px;font-weight:800;color:#fef3c7">${a.negociando||0}</div>
+                    <div style="font-size:10px;color:#64748b">${f.negociando||0} novos em ${periodo}d</div>`
+            })}
             <div style="align-self:center;color:#475569;font-size:14px">→</div>
-            <div style="flex:1;min-width:120px;background:rgba(34,197,94,0.05);border:1px solid rgba(34,197,94,0.4);border-radius:8px;padding:10px 12px">
-              <div style="font-size:10.5px;color:#86efac;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">✅ Convertidos</div>
-              <div style="font-size:22px;font-weight:800;color:#bbf7d0">${a.convertido||0}</div>
-              <div style="font-size:10px;color:#64748b">${f.convertido||0} convertidos em ${periodo}d</div>
-            </div>
+            ${card({
+              modo:'snapshot', status:'convertido', titulo:'Clientes convertidos',
+              estilo:'flex:1;min-width:120px;background:rgba(34,197,94,0.05);border:1px solid rgba(34,197,94,0.4);border-radius:8px;padding:10px 12px',
+              html:`<div style="font-size:10.5px;color:#86efac;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">✅ Convertidos</div>
+                    <div style="font-size:22px;font-weight:800;color:#bbf7d0">${a.convertido||0}</div>
+                    <div style="font-size:10px;color:#64748b">${f.convertido||0} convertidos em ${periodo}d</div>`
+            })}
           </div>
 
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:12px">
-            <div style="background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.3);border-radius:8px;padding:10px 12px">
-              <div style="font-size:10.5px;color:#c4b5fd;text-transform:uppercase;letter-spacing:0.4px">📈 Contatado → Negociando</div>
-              <div style="font-size:18px;font-weight:700;color:#f1f5f9;margin-top:3px">${conv.contatado_para_negociando||0} <span style="font-size:11.5px;color:#94a3b8">avançaram em ${periodo}d</span></div>
-            </div>
-            <div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:10px 12px">
-              <div style="font-size:10.5px;color:#86efac;text-transform:uppercase;letter-spacing:0.4px">🎯 Negociando → Convertido</div>
-              <div style="font-size:18px;font-weight:700;color:#f1f5f9;margin-top:3px">${conv.negociando_para_convertido||0} <span style="font-size:11.5px;color:#94a3b8">fecharam em ${periodo}d</span></div>
-            </div>
-            <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 12px">
-              <div style="font-size:10.5px;color:#fca5a5;text-transform:uppercase;letter-spacing:0.4px">❌ Perdidos / sem interesse</div>
-              <div style="font-size:18px;font-weight:700;color:#f1f5f9;margin-top:3px">${conv.total_perdidos||0} <span style="font-size:11.5px;color:#94a3b8">em ${periodo}d</span></div>
-            </div>
+            ${card({
+              modo:'conversao', status:'negociando', anterior:'contatado', titulo:'Clientes que avançaram Contatado → Negociando',
+              estilo:'background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.3);border-radius:8px;padding:10px 12px',
+              html:`<div style="font-size:10.5px;color:#c4b5fd;text-transform:uppercase;letter-spacing:0.4px">📈 Contatado → Negociando</div>
+                    <div style="font-size:18px;font-weight:700;color:#f1f5f9;margin-top:3px">${conv.contatado_para_negociando||0} <span style="font-size:11.5px;color:#94a3b8">avançaram em ${periodo}d</span></div>`
+            })}
+            ${card({
+              modo:'conversao', status:'convertido', anterior:'negociando', titulo:'Clientes que fecharam Negociando → Convertido',
+              estilo:'background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:10px 12px',
+              html:`<div style="font-size:10.5px;color:#86efac;text-transform:uppercase;letter-spacing:0.4px">🎯 Negociando → Convertido</div>
+                    <div style="font-size:18px;font-weight:700;color:#f1f5f9;margin-top:3px">${conv.negociando_para_convertido||0} <span style="font-size:11.5px;color:#94a3b8">fecharam em ${periodo}d</span></div>`
+            })}
+            ${card({
+              modo:'perdidos', titulo:'Clientes perdidos ou sem interesse',
+              estilo:'background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 12px',
+              html:`<div style="font-size:10.5px;color:#fca5a5;text-transform:uppercase;letter-spacing:0.4px">❌ Perdidos / sem interesse</div>
+                    <div style="font-size:18px;font-weight:700;color:#f1f5f9;margin-top:3px">${conv.total_perdidos||0} <span style="font-size:11.5px;color:#94a3b8">em ${periodo}d</span></div>`
+            })}
           </div>
 
-          <div style="font-size:10.5px;color:#64748b;font-style:italic">💡 Snapshot = onde estão hoje · Fluxo = quantos passaram pelo status no período · Conversão = quantos avançaram pra próximo estágio</div>
+          <div style="font-size:10.5px;color:#64748b;font-style:italic">💡 Clique em qualquer card pra ver os clientes · Snapshot = onde estão hoje · Fluxo = quantos passaram pelo status · Conversão = quantos avançaram</div>
         </div>
       `;
     } catch (e) {
@@ -5866,6 +5922,144 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       cont.innerHTML = `<div style="padding:10px;color:#fca5a5;font-size:11.5px">Erro: ${escapeHtml(e.message || String(e))}</div>`;
     }
   }
+
+  // ── Modal: detalhe do card do funil (clientes + quem mudou) ──
+  window.c360McAbrirFunilDetalhe = async function(cardEl) {
+    const modo = cardEl?.dataset?.funilModo;
+    const status = cardEl?.dataset?.funilStatus || null;
+    const anterior = cardEl?.dataset?.funilAnterior || null;
+    const titulo = cardEl?.dataset?.funilTitulo || 'Detalhes';
+    if (!modo) return;
+    const empresa = state.empresa || 'todas';
+    const periodo = Number(document.getElementById('mc-funil-periodo')?.value || 30);
+
+    // Remove modal antigo se houver
+    document.getElementById('mc-funil-modal')?.remove();
+
+    // Cria modal com loading
+    const modal = document.createElement('div');
+    modal.id = 'mc-funil-modal';
+    modal.style.cssText = `
+      position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;
+      display:flex;align-items:center;justify-content:center;padding:20px;
+      backdrop-filter:blur(4px);
+    `;
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    modal.innerHTML = `
+      <div style="background:#0a0a0a;border:1px solid rgba(255,255,255,0.1);border-radius:14px;max-width:880px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.6);overflow:hidden">
+        <div style="padding:16px 22px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;gap:12px">
+          <div style="flex:1;min-width:0">
+            <div style="font-family:'Playfair Display',serif;font-size:17px;font-weight:700;color:#f1f5f9">${escapeHtml(titulo)}</div>
+            <div style="font-size:11px;color:#64748b;margin-top:3px" id="mc-funil-modal-sub">Carregando...</div>
+          </div>
+          <button onclick="document.getElementById('mc-funil-modal').remove()" style="background:none;border:none;color:#94a3b8;font-size:24px;cursor:pointer;line-height:1;padding:0 6px">×</button>
+        </div>
+        <div id="mc-funil-modal-body" style="flex:1;overflow-y:auto;padding:8px 0">
+          <div style="padding:40px;text-align:center;color:#64748b;font-size:13px">⏳ Buscando clientes…</div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    try {
+      const { data, error } = await state.sb.rpc('cliente_funil_detalhes', {
+        modo,
+        status_filtro: status || null,
+        empresa_filter: empresa,
+        status_anterior_filtro: anterior || null,
+        periodo_dias: periodo,
+      });
+      if (error) throw error;
+      const lista = data || [];
+      const sub = document.getElementById('mc-funil-modal-sub');
+      const body = document.getElementById('mc-funil-modal-body');
+      if (!body) return;
+
+      if (sub) {
+        sub.textContent = `${lista.length} ${lista.length === 1 ? 'cliente' : 'clientes'}` +
+          (modo === 'snapshot' ? ' · estado atual' : ` · últimos ${periodo} dias`);
+      }
+
+      if (!lista.length) {
+        body.innerHTML = `<div style="padding:40px;text-align:center;color:#64748b;font-size:13px">Nenhum cliente encontrado pra esse filtro.</div>`;
+        return;
+      }
+
+      const corDoStatus = {
+        novo:          { bg:'rgba(148,163,184,0.15)', fg:'#cbd5e1', label:'Novo'         },
+        contatado:     { bg:'rgba(59,130,246,0.15)',  fg:'#93c5fd', label:'Contatado'    },
+        negociando:    { bg:'rgba(245,158,11,0.15)',  fg:'#fcd34d', label:'Em negociação'},
+        em_negociacao: { bg:'rgba(245,158,11,0.15)',  fg:'#fcd34d', label:'Em negociação'},
+        convertido:    { bg:'rgba(34,197,94,0.15)',   fg:'#86efac', label:'Convertido'   },
+        comprou:       { bg:'rgba(34,197,94,0.15)',   fg:'#86efac', label:'Comprou'      },
+        perdido:       { bg:'rgba(239,68,68,0.15)',   fg:'#fca5a5', label:'Perdido'      },
+        sem_interesse: { bg:'rgba(100,116,139,0.15)', fg:'#cbd5e1', label:'Sem interesse'},
+      };
+      const pill = (st) => {
+        if (!st) return '';
+        const c = corDoStatus[st] || corDoStatus.novo;
+        return `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:${c.bg};color:${c.fg};font-weight:600;white-space:nowrap">${c.label}</span>`;
+      };
+
+      const rowsHtml = lista.map((c, idx) => {
+        const dias = diasCorridos(c.mudado_em);
+        const diasTxt = dias == null ? '—'
+                      : dias === 0 ? 'hoje'
+                      : dias === 1 ? 'ontem'
+                      : dias + 'd atrás';
+        const dataFmt = c.mudado_em
+          ? new Date(c.mudado_em).toLocaleString('pt-BR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
+          : '—';
+        const movHtml = c.status_anterior
+          ? `${pill(c.status_anterior)} <span style="color:#475569">→</span> ${pill(c.status_novo)}`
+          : pill(c.status_novo);
+        const empBadge = c.empresa
+          ? `<span style="font-size:9.5px;padding:1px 6px;border-radius:3px;background:${c.empresa==='matriz'?'#3b82f6':'#10b981'};color:#fff;font-weight:700;letter-spacing:0.3px">${c.empresa==='matriz'?'Matriz':'BC'}</span>`
+          : '';
+        const obsHtml = c.observacao
+          ? `<div style="font-size:10.5px;color:#94a3b8;margin-top:3px;font-style:italic">"${escapeHtml(c.observacao)}"</div>`
+          : '';
+        const motivoHtml = c.motivo_perda
+          ? `<div style="font-size:10.5px;color:#fca5a5;margin-top:3px">⚠ ${escapeHtml(c.motivo_perda)}</div>`
+          : '';
+        const nomeEsc = (c.cliente_nome || '').replace(/'/g,'&#39;');
+        const nomeBtn = c.cliente_nome
+          ? `<a href="#" onclick="event.preventDefault();document.getElementById('mc-funil-modal').remove();window.showClientDetail&&window.showClientDetail(encodeURIComponent('${nomeEsc}'))" style="color:#a78bfa;text-decoration:none;font-weight:600">${escapeHtml(c.cliente_nome)}</a>`
+          : '<span style="color:#64748b">— sem nome —</span>';
+
+        return `<div style="display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:10px 22px;border-bottom:1px solid rgba(255,255,255,0.04);${idx % 2 ? 'background:rgba(255,255,255,0.015)' : ''}">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:46px">
+            ${empBadge}
+            <span style="font-size:9.5px;color:#64748b">#${idx+1}</span>
+          </div>
+          <div style="min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              ${nomeBtn}
+              ${movHtml}
+            </div>
+            <div style="font-size:10.5px;color:#64748b;margin-top:3px">
+              por <strong style="color:#94a3b8">${escapeHtml(c.mudado_por_nome || '—')}</strong> · ${dataFmt}
+            </div>
+            ${obsHtml}${motivoHtml}
+          </div>
+          <div style="text-align:right;font-size:10.5px;color:#64748b;white-space:nowrap">${diasTxt}</div>
+        </div>`;
+      }).join('');
+
+      body.innerHTML = `
+        <div style="padding:6px 22px 4px;font-size:10.5px;color:#64748b;text-transform:uppercase;letter-spacing:0.4px;font-weight:600;display:grid;grid-template-columns:auto 1fr auto;gap:12px">
+          <div style="min-width:46px">Empr.</div>
+          <div>Cliente · status</div>
+          <div>Quando</div>
+        </div>
+        ${rowsHtml}
+      `;
+    } catch (e) {
+      const body = document.getElementById('mc-funil-modal-body');
+      if (body) body.innerHTML = `<div style="padding:30px;text-align:center;color:#fca5a5;font-size:12px">Erro: ${escapeHtml(e.message || String(e))}</div>`;
+      console.warn('[mc] funil detalhe:', e);
+    }
+  };
 
   // ─── Bloco de Ranking pra vendedora (sua posição + top 5) ───
   function mcRenderRankingVendedora(rankingGeral, rankingMensal, perms) {
