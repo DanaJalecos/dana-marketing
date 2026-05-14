@@ -27073,8 +27073,23 @@ function renderEstoqueGrupoCard(linha, itens, tab) {
         <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:11px" onclick="estoqueResolverGrupo('${linha.replace(/'/g,"\\'")}','reabastecido')">Linha toda</button>
       </div>`;
   } else if (tab === 'parados' && valorParadoLinha > 0) {
-    footer = `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:12px;color:var(--text2)">
-        Capital parado nessa linha: <strong style="color:#f87171">${fmtR(valorParadoLinha)}</strong> · sugestão de campanha
+    // Sugestão automática (Entrega 2 Manu) — heurística com base em estoque+valor+idade+tendência
+    const sug = _estoqueSugerirCampanha(itens);
+    const sugIcon = sug.tipo === 'desconto' ? '🏷️'
+                  : sug.tipo === 'compre_ganhe' ? '🎁'
+                  : sug.tipo === 'kit' ? '📦'
+                  : sug.tipo === 'frete_gratis' ? '🚚'
+                  : '💡';
+    footer = `<div style="display:flex;align-items:center;gap:10px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:12px;color:var(--text2);flex-wrap:wrap">
+        <div>Capital parado: <strong style="color:#f87171">${fmtR(valorParadoLinha)}</strong></div>
+        <div style="display:flex;align-items:center;gap:6px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);padding:4px 9px;border-radius:6px;font-size:11.5px">
+          <span>${sugIcon}</span>
+          <span style="color:#fbbf24;font-weight:700">Sugestão IA:</span>
+          <span style="color:var(--text2)">${escapeHtml(sug.labelCurto)}</span>
+        </div>
+        <button class="btn btn-sm" style="margin-left:auto;font-size:11.5px;background:#7c3aed;color:#fff" onclick="estoqueCriarCampanhaModal('${linha.replace(/'/g,"\\'")}')">
+          🚀 Criar campanha
+        </button>
       </div>`;
   }
 
@@ -27297,6 +27312,274 @@ function estoqueExportarCSV() {
   a.href = URL.createObjectURL(blob);
   a.download = nomeArquivo;
   document.body.appendChild(a); a.click(); a.remove();
+}
+
+// ══════════════════════════════════════════════════════════
+// ENTREGA 2 (Manu) — Criar campanha de liquidação de estoque parado
+// Heurística automática + modal + INSERT em campanhas_internas
+// ══════════════════════════════════════════════════════════
+
+// Heurística: dado um grupo de produtos parados, recomenda o tipo de oferta.
+// Critérios (em ordem):
+//   1. Estoque alto (>20 un na linha) + parado +12m → desconto pesado (-50%)
+//   2. Linha completa parada (3+ variações com 0 vendas 90d) → kit/combo
+//   3. Estoque baixíssimo (<3 un total) + preço baixo (<R$ 50) → vira brinde em compre-e-ganhe
+//   4. Valor empatado alto (>R$ 2.000) → frete grátis + -30%
+//   5. Default → desconto -30%
+function _estoqueSugerirCampanha(itens) {
+  if (!itens || !itens.length) return { tipo: 'desconto', percent: 30, labelCurto: '-30% off' };
+
+  const totalUnid = itens.reduce((s,i) => s + (Number(i.estoque_virtual)||0), 0);
+  const valorTotal = itens.reduce((s,i) => s + (Number(i.valor_parado) || (Number(i.estoque_virtual)*Number(i.preco)) || 0), 0);
+  const precoMedio = itens.reduce((s,i) => s + (Number(i.preco)||0), 0) / itens.length;
+  const variacoes = itens.length;
+  const maxDias = Math.max(...itens.map(i => Number(i.dias_sem_vender) || 0));
+  const semGiro90 = itens.filter(i => (Number(i.qtd_90d)||0) === 0).length;
+  const allSemGiro90 = semGiro90 === itens.length;
+
+  // 1. Estoque alto + muito tempo parado → desconto pesado
+  if (totalUnid > 20 && maxDias > 365) {
+    return {
+      tipo: 'desconto', percent: 50,
+      labelCurto: '-50% off (estoque alto + 12m+ parado)',
+      argumento: `${variacoes} SKUs com ${totalUnid} un total, sem girar há ${Math.floor(maxDias/30)} meses. Desconto agressivo (-50%) pra liberar capital de R$ ${Math.round(valorTotal).toLocaleString('pt-BR')}.`
+    };
+  }
+
+  // 2. Linha completa parada (3+ variações sem giro 90d) → kit
+  if (variacoes >= 3 && allSemGiro90) {
+    return {
+      tipo: 'kit', percent: 35,
+      labelCurto: 'Kit/Combo (linha completa parada)',
+      argumento: `Linha tem ${variacoes} variações todas paradas há 3m+. Montar kit com 2-3 SKUs por preço reduzido (-35%) faz girar todas de uma vez.`
+    };
+  }
+
+  // 3. Estoque baixo + preço baixo → brinde em compre-e-ganhe
+  if (totalUnid < 8 && precoMedio < 50) {
+    return {
+      tipo: 'compre_ganhe', percent: 0,
+      labelCurto: 'Compre e ganhe (vira brinde)',
+      argumento: `Linha tem só ${totalUnid} un total e preço médio R$ ${precoMedio.toFixed(0)}. Em vez de desconto, vira brinde grátis numa compra acima de R$ X — gera percepção de valor + escoa estoque sem ruído de preço.`
+    };
+  }
+
+  // 4. Valor empatado alto → frete grátis + desconto leve
+  if (valorTotal > 2000) {
+    return {
+      tipo: 'frete_gratis', percent: 30,
+      labelCurto: 'Frete grátis + -30%',
+      argumento: `R$ ${Math.round(valorTotal).toLocaleString('pt-BR')} parados — combinar -30% com frete grátis aumenta conversão sem queimar margem inteira.`
+    };
+  }
+
+  // 5. Default
+  return {
+    tipo: 'desconto', percent: 30,
+    labelCurto: '-30% off',
+    argumento: `${variacoes} SKUs · ${totalUnid} un · R$ ${Math.round(valorTotal).toLocaleString('pt-BR')} parados. Desconto direto -30% pra puxar saída.`
+  };
+}
+
+// ── Modal: criar campanha de liquidação ──
+async function estoqueCriarCampanhaModal(linha) {
+  const grupo = window._estoqueState.grupos[linha];
+  if (!grupo || !grupo.length) { showToast('Linha não encontrada'); return; }
+
+  const sug = _estoqueSugerirCampanha(grupo);
+  const totalUnid = grupo.reduce((s,i) => s + (Number(i.estoque_virtual)||0), 0);
+  const valorTotal = grupo.reduce((s,i) => s + (Number(i.valor_parado) || (Number(i.estoque_virtual)*Number(i.preco)) || 0), 0);
+  const fmtR = (v) => 'R$ ' + Math.round(Number(v)||0).toLocaleString('pt-BR');
+
+  // Cria/reusa overlay
+  let modal = document.getElementById('estoque-campanha-modal');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'estoque-campanha-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)';
+  modal.innerHTML = `
+    <div style="background:var(--card,#0a0a0a);border:1px solid var(--line);border-radius:14px;max-width:680px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 24px 80px rgba(0,0,0,0.5)">
+      <div style="padding:18px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px">
+        <div style="font-size:22px">🚀</div>
+        <div style="flex:1">
+          <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:17px;color:var(--text1)">Criar campanha de liquidação</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px">${escapeHtml(linha)} · ${grupo.length} SKUs · ${totalUnid} un · ${fmtR(valorTotal)} parado</div>
+        </div>
+        <button onclick="document.getElementById('estoque-campanha-modal').remove()" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;line-height:1">×</button>
+      </div>
+
+      <div style="padding:18px 22px">
+
+        <!-- Sugestão automática destacada -->
+        <div style="background:linear-gradient(135deg, rgba(124,58,237,0.12), rgba(245,158,11,0.08));border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:14px 16px;margin-bottom:18px">
+          <div style="font-size:10.5px;color:#fbbf24;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">💡 Sugestão automática</div>
+          <div style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:15px;color:var(--text1);margin-bottom:6px">${escapeHtml(sug.labelCurto)}</div>
+          <div style="font-size:12px;color:var(--text2);line-height:1.5">${escapeHtml(sug.argumento || '')}</div>
+        </div>
+
+        <!-- Nome da campanha -->
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Nome da campanha</label>
+        <input id="campanha-nome" class="input" style="width:100%;margin-bottom:14px"
+               value="Liquidação: ${linha.replace(/"/g,'&quot;')}" />
+
+        <!-- Tipo de oferta -->
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Tipo de oferta</label>
+        <div id="campanha-tipo-opts" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:14px">
+          ${[
+            {v:'desconto',     icon:'🏷️', l:'Desconto direto', sub:'-30/-40/-50%'},
+            {v:'compre_ganhe', icon:'🎁', l:'Compre e ganhe',   sub:'brinde grátis'},
+            {v:'kit',          icon:'📦', l:'Kit / Combo',       sub:'junta 2-3 SKUs'},
+            {v:'frete_gratis', icon:'🚚', l:'Frete grátis',      sub:'puxa conversão'},
+            {v:'outro',        icon:'💡', l:'Outro',              sub:'descreva abaixo'},
+          ].map(o => `
+            <label style="cursor:pointer;border:1px solid ${o.v===sug.tipo?'rgba(124,58,237,0.5)':'var(--line)'};background:${o.v===sug.tipo?'rgba(124,58,237,0.08)':'rgba(255,255,255,0.02)'};border-radius:8px;padding:8px 10px;display:flex;gap:8px;align-items:center;transition:all 0.15s ease" onmouseover="this.style.borderColor='#7c3aed';this.style.background='rgba(124,58,237,0.08)'" onmouseout="if(!this.querySelector('input').checked){this.style.borderColor='var(--line)';this.style.background='rgba(255,255,255,0.02)'}">
+              <input type="radio" name="campanha-tipo" value="${o.v}" ${o.v===sug.tipo?'checked':''} onchange="document.querySelectorAll('#campanha-tipo-opts label').forEach(l=>{l.style.borderColor='var(--line)';l.style.background='rgba(255,255,255,0.02)'});this.closest('label').style.borderColor='rgba(124,58,237,0.5)';this.closest('label').style.background='rgba(124,58,237,0.08)';estoqueCampanhaAtualizarDescPadrao()" style="margin:0"/>
+              <span style="font-size:18px">${o.icon}</span>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12.5px;font-weight:600;color:var(--text1)">${o.l}</div>
+                <div style="font-size:10.5px;color:var(--text3)">${o.sub}</div>
+              </div>
+            </label>
+          `).join('')}
+        </div>
+
+        <!-- Desconto / valor (visível só pra tipos que pedem) -->
+        <div id="campanha-percent-bloco" style="margin-bottom:14px">
+          <label style="display:block;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Desconto / oferta</label>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${[20,30,40,50].map(p => `<button type="button" class="chip" data-percent="${p}" onclick="document.getElementById('campanha-percent').value='${p}';document.querySelectorAll('[data-percent]').forEach(b=>b.classList.toggle('chip-active', b===this))" ${p===sug.percent?'style="background:rgba(124,58,237,0.2);color:#a78bfa;border-color:rgba(124,58,237,0.4)"':''}>-${p}%</button>`).join('')}
+            <input id="campanha-percent" type="number" min="0" max="80" placeholder="custom" value="${sug.percent}" class="input" style="width:80px;font-size:12px;padding:5px 8px"/>
+            <span style="color:var(--text3);font-size:11px;align-self:center">% off</span>
+          </div>
+        </div>
+
+        <!-- Datas -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+          <div>
+            <label style="display:block;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Início</label>
+            <input id="campanha-data-inicio" type="date" class="input" style="width:100%" value="${new Date().toISOString().slice(0,10)}"/>
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Fim</label>
+            <input id="campanha-data-fim" type="date" class="input" style="width:100%" value="${new Date(Date.now()+15*86400000).toISOString().slice(0,10)}"/>
+          </div>
+        </div>
+
+        <!-- Argumento / brief -->
+        <label style="display:block;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Brief / argumento (vai pra equipe de marketing)</label>
+        <textarea id="campanha-argumento" class="input" rows="4" style="width:100%;font-family:'DM Sans',sans-serif;font-size:12.5px;line-height:1.5;resize:vertical">${escapeHtml(sug.argumento || '')}
+
+SKUs incluídos (${grupo.length}):
+${grupo.slice(0,8).map(i => '• ' + (i.codigo||'') + ' — ' + (i.nome||'') + ' (' + (i.estoque_virtual||0) + ' un)').join('\n')}${grupo.length>8 ? '\n... +' + (grupo.length-8) + ' SKUs' : ''}</textarea>
+
+        <!-- Canais -->
+        <div style="margin-top:14px">
+          <label style="display:block;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Canais</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${['Instagram','WhatsApp','E-mail','Site/Mktp','Loja física'].map(c => `
+              <label style="display:flex;align-items:center;gap:5px;background:rgba(255,255,255,0.04);padding:5px 10px;border-radius:6px;border:1px solid var(--line);cursor:pointer;font-size:12px">
+                <input type="checkbox" name="campanha-canal" value="${c}" ${(c==='Instagram'||c==='WhatsApp')?'checked':''} style="margin:0"/>
+                ${c}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+
+      </div>
+
+      <div style="padding:14px 22px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px;background:rgba(0,0,0,0.2)">
+        <button class="btn btn-ghost" onclick="document.getElementById('estoque-campanha-modal').remove()">Cancelar</button>
+        <button class="btn" style="background:#7c3aed;color:#fff" onclick="estoqueSalvarCampanha('${linha.replace(/'/g,"\\'")}')">🚀 Criar campanha</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  // Atualiza visibilidade do bloco % conforme tipo selecionado
+  estoqueCampanhaAtualizarDescPadrao();
+}
+
+// Ajusta texto auxiliar conforme tipo de oferta
+function estoqueCampanhaAtualizarDescPadrao() {
+  const tipo = document.querySelector('input[name="campanha-tipo"]:checked')?.value || 'desconto';
+  const bloco = document.getElementById('campanha-percent-bloco');
+  if (!bloco) return;
+  // Esconde o bloco de % quando "compre e ganhe" ou "outro"
+  bloco.style.display = (tipo === 'compre_ganhe' || tipo === 'outro') ? 'none' : '';
+}
+
+// Salva campanha em campanhas_internas
+async function estoqueSalvarCampanha(linha) {
+  const grupo = window._estoqueState.grupos[linha];
+  if (!grupo) return;
+  const nome = document.getElementById('campanha-nome')?.value?.trim();
+  const tipo = document.querySelector('input[name="campanha-tipo"]:checked')?.value || 'desconto';
+  const percent = Number(document.getElementById('campanha-percent')?.value) || 0;
+  const dataInicio = document.getElementById('campanha-data-inicio')?.value;
+  const dataFim = document.getElementById('campanha-data-fim')?.value;
+  const argumento = document.getElementById('campanha-argumento')?.value || '';
+  const canais = Array.from(document.querySelectorAll('input[name="campanha-canal"]:checked')).map(i => i.value);
+
+  if (!nome) { showToast('Dê um nome pra campanha'); return; }
+
+  const tipoLabel = {
+    desconto:     'Desconto direto',
+    compre_ganhe: 'Compre e ganhe',
+    kit:          'Kit / Combo',
+    frete_gratis: 'Frete grátis',
+    outro:        'Outro'
+  }[tipo] || tipo;
+
+  const ofertaPrincipal = tipo === 'compre_ganhe' ? 'Compre e ganhe (brinde)'
+                        : tipo === 'kit'          ? `Kit -${percent}%`
+                        : tipo === 'frete_gratis' ? `Frete grátis ${percent ? `+ -${percent}%`:''}`
+                        : tipo === 'outro'        ? 'Personalizada'
+                        :                           `-${percent}% off`;
+
+  const produtosFoco = grupo.map(i => `${i.codigo||'?'} - ${i.nome||''} (${i.estoque_virtual||0} un)`).join('\n');
+
+  // Resolve quem está criando
+  const u = (await sb.auth.getUser())?.data?.user;
+  const criadorNome = (typeof currentProfile !== 'undefined' && currentProfile?.nome) || u?.email || 'Sistema';
+
+  try {
+    const { data, error } = await sb.from('campanhas_internas').insert({
+      nome,
+      tipo: 'venda',              // categoria DMS — campanha de venda/liquidação
+      status: 'planejamento',
+      objetivo: 'Liquidar estoque parado: ' + linha,
+      meta_tipo: tipo === 'desconto' ? 'venda_unidades' : 'engajamento',
+      meta_valor: grupo.reduce((s,i) => s + (Number(i.estoque_virtual)||0), 0),
+      publico_alvo: 'Base de clientes — campanha de oportunidade',
+      canais: canais.length ? canais : null,
+      oferta_principal: ofertaPrincipal,
+      produtos_foco: produtosFoco,
+      argumento_central: argumento,
+      data_inicio: dataInicio || null,
+      data_fim: dataFim || null,
+      criado_por: u?.id || null,
+      criado_por_nome: criadorNome,
+      responsavel_id: u?.id || null,
+      responsavel_nome: criadorNome,
+    }).select().single();
+
+    if (error) throw error;
+    showToast('🚀 Campanha "' + nome + '" criada (' + tipoLabel + ')');
+    document.getElementById('estoque-campanha-modal')?.remove();
+
+    // Pergunta se quer abrir
+    setTimeout(() => {
+      if (confirm('Campanha criada com sucesso. Abrir em Campanhas Internas pra continuar editando?')) {
+        // Tenta deep-link
+        history.pushState(null, '', '?abrir=' + data.id);
+        if (typeof go === 'function') {
+          const nav = document.querySelector('[onclick*="campanhas-internas"]');
+          if (nav) go(nav, 'campanhas-internas');
+        }
+      }
+    }, 300);
+  } catch (e) {
+    console.warn('salvarCampanha:', e);
+    showToast('Erro ao criar campanha: ' + (e.message || e));
+  }
 }
 
 // Realtime: só recarrega se a view estiver aberta (evita over-fetch)
