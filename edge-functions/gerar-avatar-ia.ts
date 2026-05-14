@@ -166,27 +166,21 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 7b. LOGO DANA (existente): adiciona logo embroidered no peito
+    // 7b. LOGO DANA (existente): adiciona logo embroidered no peito ESQUERDO
     let temLogoRef = false
     if (incluirLogo) {
       const logo = await fetchImagemBase64(LOGO_DANA_URL)
       if (logo) {
         parts.push({ inlineData: { mimeType: logo.mime, data: logo.b64 } })
         temLogoRef = true
-        // Quando tem produto ref + logo, instrucao especifica menciona "second reference image"
-        const refDesc = temProdutoRef ? 'second attached reference image (the brand logo)' : 'attached reference image'
-        promptFinal = promptFinal + `\n\nBRAND REQUIREMENT: The lab coat / medical uniform / scrub must have the Dana Jalecos brand logo (shown in the ${refDesc}) embroidered or printed subtly on the chest pocket area. Keep the logo recognizable but integrated tastefully into the garment — tonal embroidery (cream/beige on white fabric) preferred, or small discrete placement. Use the exact logo shape and proportions from the reference.`
-      } else {
-        promptFinal = promptFinal + `\n\nBRAND REQUIREMENT: Include a small, elegant embroidered brand wordmark "Dana" on the chest pocket of the lab coat / uniform.`
       }
     }
 
     // 7c. PIN DANA — plaquinha em losango com coroa estilizada (signature da marca).
     // Aplicado sempre que tem jaleco/scrub. 4 referencias visuais (1 isolada + 3 in-context).
-    // Anexa apenas se incluirLogo (mesma regra: e roupa medica).
     let temPinRef = false
+    let pinsResolvidos: { mime: string, b64: string }[] = []
     if (incluirLogo) {
-      const pinsResolvidos: { mime: string, b64: string }[] = []
       for (const url of PIN_DANA_URLS) {
         const p = await fetchImagemBase64(url)
         if (p) pinsResolvidos.push(p)
@@ -196,23 +190,66 @@ Deno.serve(async (req) => {
           parts.push({ inlineData: { mimeType: p.mime, data: p.b64 } })
         }
         temPinRef = true
-        // Calcula ordem das referencias pra mencionar corretamente
-        // Order: [produto?, logo?, pin1, pin2, pin3, pin4]
-        let pinFirstIdx = 1
-        if (temProdutoRef) pinFirstIdx++
-        if (temLogoRef) pinFirstIdx++
-        const pinLastIdx = pinFirstIdx + pinsResolvidos.length - 1
-        const pinRefDesc = pinsResolvidos.length === 1
-          ? `attached reference image #${pinFirstIdx}`
-          : `attached reference images #${pinFirstIdx}-${pinLastIdx}`
-
-        promptFinal = promptFinal + `\n\nDANA PIN REQUIREMENT (signature brand element): The lab coat / scrub / medical uniform in the final image MUST have the Dana Jalecos signature pin attached to the fabric. The pin design is shown in the ${pinRefDesc}:
-- Shape: small diamond/rhombus-shaped metal plaque (~1-1.5cm wide).
-- Design: stylized crown silhouette cut out in the center of the plaque (the crown shows the fabric color through it).
-- Material: matches the garment context — gold-tone metal on warm colors (burgundy, navy), silver-tone on cool colors (navy, gray, white), or white enamel with navy crown on lighter fabrics (pink, rose).
-- Placement: pinned discreetly through the fabric on the upper chest area, OPPOSITE side of the brand logo (logo on one chest pocket, pin on the other side OR slightly above/below). Two tiny stitch threads visible where the pin clips into the fabric.
-- The pin is a SIGNATURE detail of every Dana Jalecos garment — it must always be visible and recognizable in the final image, even from medium distance. Do not omit, simplify, or replace the pin design.`
       }
+    }
+
+    // Monta o block consolidado de branding (logo + pin) com instruções CLARAS sobre
+    // os DOIS elementos físicos distintos. Coloca ANTES do prompt original pra ganhar
+    // prioridade na atenção do Gemini (evita o modelo "consolidar" em um Dana cursivo).
+    if (temLogoRef || temPinRef) {
+      // Calcula índices das referências anexadas (1-based)
+      let idx = 1
+      if (temProdutoRef) idx++
+      const logoIdx = temLogoRef ? idx++ : 0
+      const pinFirstIdx = temPinRef ? idx : 0
+      const pinLastIdx = temPinRef ? idx + pinsResolvidos.length - 1 : 0
+      const pinRefDesc = pinsResolvidos.length === 1
+        ? `reference image #${pinFirstIdx}`
+        : `reference images #${pinFirstIdx}-${pinLastIdx}`
+
+      const brandBlock = `
+
+═══════════════════════════════════════════════════════════════
+🚨 CRITICAL DANA JALECOS BRANDING — READ BEFORE GENERATING 🚨
+═══════════════════════════════════════════════════════════════
+
+The garment MUST show TWO DISTINCT physical brand elements on the chest area. These are NOT the same thing — they are TWO SEPARATE pieces. Failing to include BOTH is unacceptable.
+
+⚠️ IGNORE any text in this prompt that mentions "brand emblem", "brand logo", "embroidered name", "Dana wordmark", or similar generic phrasing. Those are descriptions of the OFFICIAL elements defined below — do NOT invent a cursive "Dana" script or a generic emblem.
+
+══ ELEMENT #1: EMBROIDERED LOGO (on LEFT chest) ══
+${temLogoRef
+  ? `- The Dana Jalecos brand logo is shown in attached reference image #${logoIdx}.
+- Use the EXACT shape, typography, and proportions from that reference. Do NOT invent or stylize.
+- Placement: on the LEFT chest (the model's left side, viewer's right side when facing camera), at chest pocket height.
+- Style: small (~3-4 cm wide), embroidered tone-on-tone (subtle, professional). On gray/dark fabrics use white/cream thread; on white fabrics use beige/light gray thread.`
+  : `- A small embroidered Dana Jalecos wordmark on the LEFT chest, tone-on-tone, ~3-4cm wide.`
+}
+
+══ ELEMENT #2: METAL PIN BADGE (on RIGHT chest) — SIGNATURE DETAIL ══
+${temPinRef
+  ? `- A small physical METAL PIN (badge/brooch), shown in attached ${pinRefDesc}.
+- THIS IS NOT TEXT, NOT EMBROIDERY, NOT A LOGO. It is a SOLID METAL PLAQUE pinned through the fabric like a brooch.
+- Shape: diamond / rhombus (4-sided, rotated 45°), ~1-1.5cm wide.
+- Design: A stylized CROWN silhouette is CUT OUT through the center of the metal plaque, so the fabric color shows through the crown shape.
+- Material: gold-tone metal on warm/dark fabrics (burgundy, navy, charcoal, brown); silver-tone on cool/neutral fabrics (gray, white, light blue); white enamel with navy crown on light fabrics (pink, rose, pastel).
+- Placement: on the RIGHT chest (the model's right side, viewer's left side when facing camera), mirroring the logo position. Roughly 5-7cm to the right of the center seam/zipper, at the same height as the embroidered logo on the opposite side.
+- Attachment: 2 tiny visible thread loops / clip points where the pin pierces the fabric (looks like a brooch pinned through).
+- The pin is the AUTHENTICITY MARKER of every Dana Jalecos garment — without it, the product looks like a generic imitation. It must be CLEARLY VISIBLE in the final image, recognizable from medium distance, and DISTINCT from the embroidered logo (different position, different material, different shape).
+- DO NOT replace the pin with embroidery, a printed graphic, or text. It is a real 3D metal object affixed to the fabric.`
+  : `- A small diamond-shaped metal pin badge with a crown cutout, ~1.5cm wide, pinned on the RIGHT chest.`
+}
+
+══ FINAL CHECK BEFORE RENDERING ══
+1. ✅ Is the embroidered logo visible on the LEFT chest? (matches reference exactly, not invented)
+2. ✅ Is the diamond-shaped metal pin badge visible on the RIGHT chest? (separate from the logo, different physical object)
+3. ✅ Did you avoid inventing a cursive "Dana" script or any text that isn't in the official logo reference?
+
+If any answer is NO, regenerate. The pin is non-negotiable.
+═══════════════════════════════════════════════════════════════
+`
+      // Prepend brand block ao prompt — ganha prioridade de atenção
+      promptFinal = brandBlock + '\n\n' + promptFinal
     }
 
     parts.push({ text: promptFinal })
