@@ -164,15 +164,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 7b. LOGO DANA (existente): adiciona logo embroidered no peito ESQUERDO
-    let temLogoRef = false
-    if (incluirLogo) {
-      const logo = await fetchImagemBase64(LOGO_DANA_URL)
-      if (logo) {
-        parts.push({ inlineData: { mimeType: logo.mime, data: logo.b64 } })
-        temLogoRef = true
-      }
-    }
+    // 7b. LOGO DANA — DESATIVADO (decisão Juan 14/05):
+    // O logo bordado/embroidered no peito esquerdo gerava "Dana Jalecos" cursivo
+    // inventado, que poluía a peça. A signature visual da marca é APENAS o pin.
+    // Mantemos a variável `temLogoRef = false` pra compatibilidade com o brand block.
+    const temLogoRef = false
 
     // 7c. PIN DANA — plaquinha em losango com coroa estilizada (signature da marca).
     // Aplicado sempre que tem jaleco/scrub. 4 referencias visuais (1 isolada + 3 in-context).
@@ -191,16 +187,14 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Monta o block consolidado de branding (logo + pin) com instruções CLARAS sobre
-    // os DOIS elementos físicos distintos. Coloca ANTES do prompt original pra ganhar
-    // prioridade na atenção do Gemini (evita o modelo "consolidar" em um Dana cursivo).
-    if (temLogoRef || temPinRef) {
+    // Monta o brand block — APENAS pin (logo bordado foi removido, decisão Juan).
+    // Vai ANTES do prompt original pra ganhar prioridade na atenção do Gemini.
+    if (temPinRef) {
       // Calcula índices das referências anexadas (1-based)
       let idx = 1
       if (temProdutoRef) idx++
-      const logoIdx = temLogoRef ? idx++ : 0
-      const pinFirstIdx = temPinRef ? idx : 0
-      const pinLastIdx = temPinRef ? idx + pinsResolvidos.length - 1 : 0
+      const pinFirstIdx = idx
+      const pinLastIdx = idx + pinsResolvidos.length - 1
       const pinRefDesc = pinsResolvidos.length === 1
         ? `reference image #${pinFirstIdx}`
         : `reference images #${pinFirstIdx}-${pinLastIdx}`
@@ -211,29 +205,28 @@ Deno.serve(async (req) => {
 🚨 CRITICAL DANA JALECOS BRANDING — READ BEFORE GENERATING 🚨
 ═══════════════════════════════════════════════════════════════
 
-The garment MUST show TWO DISTINCT physical brand elements on the chest area. These are NOT the same thing — they are TWO SEPARATE pieces. Failing to include BOTH is unacceptable.
+🚫 ABSOLUTE RULE: NO TEXT, NO EMBROIDERY, NO PRINTED LOGO ANYWHERE ON THE GARMENT.
+The garment must be COMPLETELY CLEAN of any text, wordmark, monogram, brand name, or embroidered script.
 
-⚠️ IGNORE any text in this prompt that mentions "brand emblem", "brand logo", "embroidered name", "Dana wordmark", or similar generic phrasing. Those are descriptions of the OFFICIAL elements defined below — do NOT invent a cursive "Dana" script or a generic emblem.
+⚠️ IGNORE any text in this prompt that mentions "brand emblem", "brand logo", "embroidered name", "Dana wordmark", "metallic emblem on chest", "cursive script", or similar. The ONLY brand element allowed is the metal pin described below. If the original prompt asks for embroidery or a brand emblem, IGNORE that instruction.
 
-══ ELEMENT #1: EMBROIDERED LOGO (on LEFT chest) ══
-${temLogoRef
-  ? `- The Dana Jalecos brand logo is shown in attached reference image #${logoIdx}.
-- Use the EXACT shape, typography, and proportions from that reference. Do NOT invent or stylize.
-- Placement: on the LEFT chest (the model's left side, viewer's right side when facing camera), at chest pocket height.
-- Style: small (~3-4 cm wide), embroidered tone-on-tone (subtle, professional). On gray/dark fabrics use white/cream thread; on white fabrics use beige/light gray thread.`
-  : `- A small embroidered Dana Jalecos wordmark on the LEFT chest, tone-on-tone, ~3-4cm wide.`
-}
+NEGATIVE EXAMPLES (what the final image must NOT contain):
+❌ NO "Dana" written in cursive anywhere on the fabric.
+❌ NO "Dana Jalecos" wordmark embroidered on the chest.
+❌ NO brand name printed, screen-printed, or stitched on any part of the garment.
+❌ NO monogram, initials, or text patches.
+❌ NO logo on pocket flaps, sleeves, collar, back, or anywhere else.
+❌ The garment fabric must be VISUALLY CLEAN — pure color, no graphic elements EXCEPT the single pin.
 
-══ ELEMENT #2: METAL PIN BADGE (on RIGHT CHEST — NOT shoulder, NOT sleeve) — SIGNATURE DETAIL ══
-${temPinRef
-  ? `🔴 THIS IS THE MOST IMPORTANT ELEMENT OF THE ENTIRE IMAGE. STUDY THE REFERENCE IMAGES ${pinRefDesc} CAREFULLY BEFORE GENERATING.
+══ THE ONLY BRAND ELEMENT: METAL PIN BADGE ══
+${pinRefDesc.toUpperCase()} SHOW THE PIN. Study them carefully before generating.
 
 WHAT IT IS:
 - A real 3D physical METAL PIN BADGE (brooch), pierced through the fabric.
 - NOT text. NOT embroidery. NOT a printed graphic. NOT a sticker. NOT a button.
 - It is a SOLID METAL PLAQUE with weight, depth, and a metallic reflective surface.
 
-EXACT DESIGN (copy from reference images):
+EXACT DESIGN (copy from ${pinRefDesc}):
 - Outer shape: DIAMOND / RHOMBUS — a 4-sided square rotated 45° so points face up/down/left/right.
 - Center cutout: a stylized CROWN silhouette (3-point classic crown with rounded peaks) is REMOVED from the center of the plaque, creating a window. The fabric color of the garment shows THROUGH this crown-shaped hole.
 - Material: polished gold-tone metal (warm yellow/gold finish) for most garments. On white/light fabrics it can also be silver-tone or white enamel with navy crown.
@@ -243,11 +236,11 @@ EXACT DESIGN (copy from reference images):
 
 POSITION — CRITICAL, READ TWICE:
 ✅ PLACE IT HERE: On the upper RIGHT CHEST area, directly on the FRONT CHEST FABRIC PANEL of the garment. Specifically:
-   - Vertically: at the same HEIGHT as the embroidered logo on the opposite side (~10-15cm below the collar/neckline).
+   - Vertically: ~10-15cm below the collar/neckline (chest pocket height).
    - Horizontally: ~6-10cm to the right of the center seam (or zipper) of the garment, on the model's RIGHT chest (viewer's left when model faces camera).
    - Picture a chest pocket area or where a name badge would normally go — that's the spot.
 
-❌ DO NOT PLACE IT HERE (these are WRONG positions seen in previous failed generations):
+❌ DO NOT PLACE IT HERE:
    - NOT on the shoulder (top of shoulder line).
    - NOT on the sleeve / arm (anywhere below the shoulder seam).
    - NOT on the collar or lapel.
@@ -258,20 +251,16 @@ SIZE / VISIBILITY:
 - Must be clearly recognizable. If the model is shown from waist-up or full-body, the pin should still be sharp and readable as a diamond+crown shape (no blur).
 - DO NOT make it microscopic. Slightly larger than expected is better than slightly smaller.
 
-The pin is the AUTHENTICITY MARKER of every Dana Jalecos garment. Without a correctly-shaped, correctly-positioned pin, the garment looks like a generic imitation. DO NOT skip, simplify, miniaturize, or relocate it.`
-  : `- A small diamond-shaped metal pin badge with a crown cutout, ~1.5-2cm wide, pinned on the RIGHT CHEST (NOT shoulder, NOT sleeve), at the same height as the logo on the opposite side.`
-}
-
 ══ FINAL CHECK BEFORE RENDERING ══
-1. ✅ Is the embroidered logo visible on the LEFT chest? (matches reference exactly, not invented)
+1. ✅ Is the garment completely CLEAN of text, wordmarks, embroidered names, or cursive scripts?
+   ❌ If there is ANY "Dana", "Jalecos", initials, or text on the fabric → WRONG, remove it.
 2. ✅ Is the diamond-shaped metal pin visible on the RIGHT CHEST FABRIC (front panel)?
-   ❌ If the pin is on the shoulder, sleeve, collar, or anywhere above the chest line → WRONG, fix it.
+   ❌ If the pin is on the shoulder, sleeve, collar, or anywhere above the chest line → WRONG, relocate it.
 3. ✅ Is the pin clearly a DIAMOND shape (rhombus, points up/down/left/right) with a CROWN cut out in the center?
-   ❌ If the pin is round, square (corners up), oval, or has no visible crown cutout → WRONG, fix it.
+   ❌ If the pin is round, square (corners up), oval, or has no visible crown cutout → WRONG, redraw it.
 4. ✅ Is the pin LARGE ENOUGH to be recognizable (~1.5-2cm wide, not a tiny dot)?
-5. ✅ Did you avoid inventing a cursive "Dana" script or any text that isn't in the official logo reference?
 
-If any answer is NO, regenerate. The pin on the correct position is non-negotiable.
+The pin is the ONLY brand element. The fabric must otherwise be completely clean.
 ═══════════════════════════════════════════════════════════════
 `
       // Prepend brand block ao prompt — ganha prioridade de atenção
