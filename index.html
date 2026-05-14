@@ -27602,28 +27602,280 @@ function estoqueCampanhaAtualizarDescPadrao() {
 }
 
 // ══════════════════════════════════════════════════════════
-// Sync manual dos custos (admin) — força refresh do Tecidos pro DMS
-// Cron diário ('sync_custos_tecidos_diario') já roda 04:35 UTC
+// Diagnóstico de custos (admin) — modal completo com 3 abas:
+//   1. Resumo (KPIs + botão sincronizar)
+//   2. Cobertura por modelo (ficha → qtd SKUs)
+//   3. Produtos sem custo (804+ SKUs pra revisar)
+// Cron diário 'sync_custos_tecidos_diario' já roda 04:35 UTC
 // ══════════════════════════════════════════════════════════
 async function estoqueSyncCustos() {
   const cargo = currentProfile?.cargo;
   if (!['admin', 'gerente_financeiro', 'gerente_marketing'].includes(cargo)) {
-    showToast('🚫 Sync de custos é restrito a admin/gerentes');
+    showToast('🚫 Diagnóstico de custos é restrito a admin/gerentes');
     return;
   }
-  const btn = document.getElementById('btn-sync-custos');
+  // Abre modal direto (sync vira ação interna)
+  estoqueAbrirModalDiagnosticoCustos();
+}
+
+async function estoqueAbrirModalDiagnosticoCustos() {
+  // Remove modal antigo
+  document.getElementById('estoque-custos-modal')?.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'estoque-custos-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:#0a0a0a;border:1px solid rgba(255,255,255,0.1);border-radius:14px;max-width:1000px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden">
+      <!-- Header -->
+      <div style="padding:16px 22px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;gap:12px">
+        <div>
+          <div style="font-family:'Playfair Display',serif;font-size:18px;font-weight:700;color:var(--text1)">💰 Diagnóstico de Custos de Produção</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:3px">Matching SKUs Bling ↔ Ficha Técnica Tecidos Projeto</div>
+        </div>
+        <button onclick="document.getElementById('estoque-custos-modal').remove()" style="background:none;border:none;color:var(--text3);font-size:24px;cursor:pointer;line-height:1">×</button>
+      </div>
+
+      <!-- KPIs + Botão Sync -->
+      <div style="padding:14px 22px;border-bottom:1px solid rgba(255,255,255,0.05);background:rgba(255,255,255,0.02)">
+        <div id="custos-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:10px">
+          <div style="text-align:center;color:var(--text3);font-size:12px;padding:14px">⏳ Carregando estatísticas…</div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap">
+          <span id="custos-ultimo-sync" style="font-size:10.5px;color:var(--text3);margin-right:auto"></span>
+          <button id="btn-sync-custos-modal" class="btn btn-sm" style="background:#7c3aed;color:#fff;font-size:12px" onclick="estoqueSyncCustosAgora()">🔄 Sincronizar do Tecidos Projeto</button>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div style="display:flex;border-bottom:1px solid rgba(255,255,255,0.08);padding:0 22px">
+        <button class="custos-tab-btn" data-tab="cobertura" onclick="estoqueCustosSwitchTab('cobertura')" style="background:none;border:none;color:#a78bfa;border-bottom:2px solid #7c3aed;padding:10px 14px;cursor:pointer;font-size:12.5px;font-weight:600">📊 Cobertura por modelo</button>
+        <button class="custos-tab-btn" data-tab="sem-custo" onclick="estoqueCustosSwitchTab('sem-custo')" style="background:none;border:none;color:var(--text3);border-bottom:2px solid transparent;padding:10px 14px;cursor:pointer;font-size:12.5px;font-weight:600">⚠ Produtos sem custo</button>
+      </div>
+
+      <!-- Container conteúdo -->
+      <div id="custos-tab-cobertura" class="custos-tab" style="flex:1;overflow-y:auto;padding:0">
+        <div style="padding:40px;text-align:center;color:var(--text3);font-size:12px">⏳ Carregando cobertura…</div>
+      </div>
+      <div id="custos-tab-sem-custo" class="custos-tab" style="display:none;flex:1;overflow-y:auto;padding:0">
+        <div style="padding:40px;text-align:center;color:var(--text3);font-size:12px">⏳ Carregando produtos sem custo…</div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  // Carrega dados em paralelo
+  estoqueCarregarKpisCustos();
+  estoqueCarregarCobertura();
+  estoqueCarregarSemCusto();
+}
+
+function estoqueCustosSwitchTab(tab) {
+  document.querySelectorAll('.custos-tab-btn').forEach(b => {
+    const active = b.dataset.tab === tab;
+    b.style.color = active ? '#a78bfa' : 'var(--text3)';
+    b.style.borderBottomColor = active ? '#7c3aed' : 'transparent';
+  });
+  document.getElementById('custos-tab-cobertura').style.display = (tab === 'cobertura') ? '' : 'none';
+  document.getElementById('custos-tab-sem-custo').style.display = (tab === 'sem-custo') ? '' : 'none';
+}
+
+async function estoqueCarregarKpisCustos() {
+  const kpiDiv = document.getElementById('custos-kpis');
+  const ultSyncDiv = document.getElementById('custos-ultimo-sync');
+  if (!kpiDiv) return;
+  try {
+    // Conta direto na view
+    const { data: stats, error } = await sb.from('produtos_custos')
+      .select('codigo_ficha, sincronizado_em', { count: 'exact', head: false })
+      .eq('ativo', true)
+      .order('sincronizado_em', { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    const totalFichas = stats?.length === 1 ? (await sb.from('produtos_custos').select('*', { count: 'exact', head: true }).eq('ativo', true)).count : 0;
+    const ultSync = stats?.[0]?.sincronizado_em;
+    if (ultSyncDiv && ultSync) {
+      const d = new Date(ultSync);
+      ultSyncDiv.textContent = `Última sync: ${d.toLocaleString('pt-BR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}`;
+    }
+
+    // RPC pra cobertura
+    const { data: cobertura } = await sb.rpc('produtos_custos_cobertura_modelos', { empresa_filter: 'todas' });
+    const fichasComMatch = (cobertura || []).filter(c => Number(c.qtd_skus_bling) > 0).length;
+    const fichasOrfas = (cobertura || []).filter(c => Number(c.qtd_skus_bling) === 0).length;
+
+    const { count: produtosTotal } = await sb.from('produtos').select('*', { count: 'exact', head: true }).eq('situacao', 'A').eq('tipo', 'P');
+    const { data: semCusto } = await sb.rpc('produtos_sem_custo', { empresa_filter: 'todas', p_limit: 1 });
+    const totalSemCusto = (await sb.rpc('produtos_sem_custo', { empresa_filter: 'todas', p_limit: 9999 })).data?.length || 0;
+    const totalComCusto = (produtosTotal || 0) - totalSemCusto;
+    const coberturaPct = produtosTotal > 0 ? Math.round((totalComCusto / produtosTotal) * 100) : 0;
+
+    kpiDiv.innerHTML = `
+      <div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:10px 12px">
+        <div style="font-size:10px;color:#86efac;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">✅ Cobertura</div>
+        <div style="font-size:20px;font-weight:800;color:#bbf7d0">${coberturaPct}%</div>
+        <div style="font-size:10px;color:var(--text3)">${totalComCusto.toLocaleString('pt-BR')} de ${(produtosTotal||0).toLocaleString('pt-BR')} SKUs</div>
+      </div>
+      <div style="background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.3);border-radius:8px;padding:10px 12px">
+        <div style="font-size:10px;color:#c4b5fd;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">📋 Fichas técnicas</div>
+        <div style="font-size:20px;font-weight:800;color:var(--text1)">${totalFichas || 0}</div>
+        <div style="font-size:10px;color:var(--text3)">${fichasComMatch} cobrindo SKUs · ${fichasOrfas} órfãs</div>
+      </div>
+      <div style="background:rgba(251,146,60,0.06);border:1px solid rgba(251,146,60,0.3);border-radius:8px;padding:10px 12px">
+        <div style="font-size:10px;color:#fdba74;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">⚠ Sem custo</div>
+        <div style="font-size:20px;font-weight:800;color:#fed7aa">${totalSemCusto.toLocaleString('pt-BR')}</div>
+        <div style="font-size:10px;color:var(--text3)">SKUs sem ficha matched</div>
+      </div>
+    `;
+  } catch (e) {
+    console.warn('kpisCustos:', e);
+    kpiDiv.innerHTML = `<div style="color:#fca5a5;font-size:12px">Erro: ${e.message || e}</div>`;
+  }
+}
+
+async function estoqueCarregarCobertura() {
+  const cont = document.getElementById('custos-tab-cobertura');
+  if (!cont) return;
+  try {
+    const { data, error } = await sb.rpc('produtos_custos_cobertura_modelos', { empresa_filter: 'todas' });
+    if (error) throw error;
+    const lista = data || [];
+    const fmtR = v => 'R$ ' + Math.round(Number(v)||0).toLocaleString('pt-BR');
+    const origemBadge = (o) => {
+      const cores = {
+        especifico_nome:    { bg:'rgba(34,197,94,0.15)',  fg:'#86efac', label:'Específico' },
+        generico_categoria: { bg:'rgba(251,146,60,0.15)', fg:'#fdba74', label:'Genérico' },
+        misto:              { bg:'rgba(124,58,237,0.15)', fg:'#c4b5fd', label:'Misto' },
+        sem_match:          { bg:'rgba(239,68,68,0.15)',  fg:'#fca5a5', label:'Sem match' },
+      };
+      const c = cores[o] || cores.sem_match;
+      return `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:${c.bg};color:${c.fg};font-weight:600">${c.label}</span>`;
+    };
+
+    const rows = lista.map(f => {
+      const qt = Number(f.qtd_skus_bling) || 0;
+      const corQt = qt === 0 ? '#fca5a5' : qt < 5 ? '#fdba74' : qt < 20 ? '#fcd34d' : '#86efac';
+      return `<tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+        <td style="padding:8px 12px;font-family:monospace;font-size:11px;color:var(--text3)">${escapeHtml(f.codigo_ficha || '')}</td>
+        <td style="padding:8px 12px;font-size:12.5px;color:var(--text1);font-weight:600">${escapeHtml(f.nome_ficha || '')}</td>
+        <td style="padding:8px 12px;font-size:11.5px;color:var(--text2)">${escapeHtml(f.tipo || '—')}</td>
+        <td style="padding:8px 12px;text-align:right;font-size:12px;color:#86efac;font-weight:700">${fmtR(f.custo_total)}</td>
+        <td style="padding:8px 12px;text-align:right;font-size:14px;color:${corQt};font-weight:800">${qt}</td>
+        <td style="padding:8px 12px;text-align:center">${origemBadge(f.origem_match)}</td>
+      </tr>`;
+    }).join('');
+
+    cont.innerHTML = `
+      <div style="padding:10px 22px;font-size:11px;color:var(--text3);font-style:italic;background:rgba(255,255,255,0.015)">
+        💡 Ordenado por quantidade de SKUs que cada ficha cobre.
+        Badge <strong>Específico</strong> = matched por nome único (LOREN, MARTA, CONFY...).
+        <strong>Genérico</strong> = fallback por categoria (TURBANTE, GORRO LISO...).
+        <strong>Sem match</strong> = ficha existe mas nenhum SKU bate.
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="position:sticky;top:0;background:#1f2937;color:#fff;z-index:5">
+            <th style="padding:9px 12px;text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">Código</th>
+            <th style="padding:9px 12px;text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">Modelo</th>
+            <th style="padding:9px 12px;text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">Tipo</th>
+            <th style="padding:9px 12px;text-align:right;font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">Custo</th>
+            <th style="padding:9px 12px;text-align:right;font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">SKUs Bling</th>
+            <th style="padding:9px 12px;text-align:center;font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">Match</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  } catch (e) {
+    console.warn('carregarCobertura:', e);
+    cont.innerHTML = `<div style="padding:30px;color:#fca5a5;font-size:12px">Erro: ${escapeHtml(e.message || e)}</div>`;
+  }
+}
+
+async function estoqueCarregarSemCusto() {
+  const cont = document.getElementById('custos-tab-sem-custo');
+  if (!cont) return;
+  try {
+    const { data, error } = await sb.rpc('produtos_sem_custo', { empresa_filter: 'todas', p_limit: 1000 });
+    if (error) throw error;
+    const lista = data || [];
+
+    // Agrupa por categoria provável
+    const porCat = {};
+    for (const p of lista) {
+      const cat = p.categoria_provavel || '(outros)';
+      (porCat[cat] = porCat[cat] || []).push(p);
+    }
+
+    const fmtR = v => v ? 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+    const empBadge = (emp) => {
+      if (emp === 'matriz') return '<span style="font-size:9.5px;padding:1px 6px;border-radius:3px;background:#3b82f6;color:#fff;font-weight:700">Matriz</span>';
+      if (emp === 'bc') return '<span style="font-size:9.5px;padding:1px 6px;border-radius:3px;background:#10b981;color:#fff;font-weight:700">BC</span>';
+      return '';
+    };
+
+    // Categorias ordenadas por qtd
+    const cats = Object.keys(porCat).sort((a,b) => porCat[b].length - porCat[a].length);
+
+    const categoriasHtml = cats.map(cat => {
+      const itens = porCat[cat];
+      const tot = itens.length;
+      const valorEstoque = itens.reduce((s,i) => s + (Number(i.estoque_virtual)||0) * (Number(i.preco)||0), 0);
+      return `
+        <details style="border-bottom:1px solid rgba(255,255,255,0.04)">
+          <summary style="padding:10px 22px;cursor:pointer;background:rgba(255,255,255,0.02);font-size:12.5px;font-weight:600;color:var(--text1);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;list-style:none">
+            <span>📦 ${escapeHtml(cat)} <span style="color:var(--text3);font-weight:500;margin-left:6px">(${tot} SKUs)</span></span>
+            <span style="font-size:10.5px;color:var(--text3);font-weight:500">Estoque empatado: <strong style="color:#fbbf24">${fmtR(valorEstoque)}</strong></span>
+          </summary>
+          <div style="max-height:400px;overflow-y:auto">
+            ${itens.map((p, idx) => `
+              <div style="display:grid;grid-template-columns:auto 1fr auto auto auto;gap:10px;align-items:center;padding:6px 22px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:12px;${idx % 2 ? 'background:rgba(255,255,255,0.015)':''}">
+                <div>${empBadge(p.empresa)}</div>
+                <div style="min-width:0">
+                  <div style="color:var(--text2)">${escapeHtml(p.produto_nome || '')}</div>
+                  <div style="font-size:10px;color:var(--text3);font-family:monospace">${escapeHtml(p.produto_codigo || '')}</div>
+                </div>
+                <div style="font-size:11px;color:var(--text2)">${fmtR(p.preco)}</div>
+                <div style="font-size:11px;color:var(--text3);text-align:right;min-width:50px">${p.estoque_virtual || 0} un</div>
+                <div style="font-size:10.5px;color:var(--text3)">${p.empresa === 'matriz' ? 'M' : 'BC'}</div>
+              </div>
+            `).join('')}
+          </div>
+        </details>`;
+    }).join('');
+
+    cont.innerHTML = `
+      <div style="padding:10px 22px;font-size:11px;color:var(--text3);font-style:italic;background:rgba(255,255,255,0.015)">
+        💡 ${lista.length} SKUs sem ficha técnica matched. Agrupados por categoria provável.
+        Use isso pra <strong>cadastrar fichas faltantes</strong> no Tecidos Projeto ou <strong>ignorar</strong> categorias que não fabricamos (tênis, máscaras, brindes externos).
+      </div>
+      ${categoriasHtml}
+    `;
+  } catch (e) {
+    console.warn('carregarSemCusto:', e);
+    cont.innerHTML = `<div style="padding:30px;color:#fca5a5;font-size:12px">Erro: ${escapeHtml(e.message || e)}</div>`;
+  }
+}
+
+async function estoqueSyncCustosAgora() {
+  const btn = document.getElementById('btn-sync-custos-modal');
   const orig = btn?.textContent;
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Sincronizando...'; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Sincronizando…'; }
   try {
     const { data, error } = await sb.functions.invoke('sync-custos-tecidos', { body: {} });
     if (error) throw error;
     if (!data?.ok) throw new Error(data?.error || 'Falhou');
-    showToast(`✅ ${data.total_lidos} fichas sincronizadas (${data.novos} novas, ${data.atualizados} atualizadas)`);
+    showToast(`✅ ${data.total_lidos} fichas sincronizadas (${data.novos} novas)`);
+    // Recarrega tudo do modal
+    estoqueCarregarKpisCustos();
+    estoqueCarregarCobertura();
+    estoqueCarregarSemCusto();
   } catch (e) {
-    console.warn('syncCustos:', e);
+    console.warn('syncCustosAgora:', e);
     showToast('Erro: ' + (e.message || e));
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = orig || '💰 Atualizar custos'; }
+    if (btn) { btn.disabled = false; btn.textContent = orig || '🔄 Sincronizar do Tecidos Projeto'; }
   }
 }
 
