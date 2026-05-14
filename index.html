@@ -24198,8 +24198,14 @@ window.estCarregarGaleria = async function() {
     }
     const tipoEmoji = { banner_site:'🖼', post_feed:'📷', story_reel:'📱', anuncio_meta:'💰' };
     const aspectMap = { banner_site:'21/9', post_feed:'1/1', story_reel:'9/16', anuncio_meta:'1/1' };
-    wrap.innerHTML = data.map(p => `
-      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface)" title="${esc(p.produto_nome)} · ${esc(p.tema || 'genérico')}">
+    const meuId = currentUser?.id || null;
+    const meuCargo = currentProfile?.cargo || '';
+    const podeExcluirGlobal = ['admin','gerente_comercial','gerente_financeiro'].includes(meuCargo);
+    wrap.innerHTML = data.map(p => {
+      const podeExcluir = podeExcluirGlobal || (meuId && p.criado_por === meuId);
+      return `
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface);position:relative" title="${esc(p.produto_nome)} · ${esc(p.tema || 'genérico')}">
+        ${podeExcluir ? `<button onclick="event.stopPropagation();estExcluirPeca('${p.id}', this)" title="Excluir esta peça" style="position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:6px;border:none;background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;opacity:0;transition:opacity 0.15s;z-index:2" class="est-btn-del">🗑</button>` : ''}
         <a href="${esc(p.imagem_url)}" target="_blank" style="display:block;aspect-ratio:${aspectMap[p.tipo_peca] || '1/1'};background:#0a0a0a;overflow:hidden">
           <img src="${esc(p.imagem_url)}" loading="lazy" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none'">
         </a>
@@ -24209,9 +24215,42 @@ window.estCarregarGaleria = async function() {
           <button class="btn btn-ghost btn-sm" onclick="estAbrirVincularCampanha('${p.id}')" style="font-size:10.5px;width:100%;margin-top:6px;padding:5px;text-align:center" title="Vincular essa peça a uma campanha interna">🔗 Vincular a campanha</button>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
+    // Mostra botão de excluir no hover (CSS via JS pra evitar conflito)
+    wrap.querySelectorAll('.est-btn-del').forEach(btn => {
+      const card = btn.parentElement;
+      card.addEventListener('mouseenter', () => { btn.style.opacity = '1'; });
+      card.addEventListener('mouseleave', () => { btn.style.opacity = '0'; });
+    });
   } catch (e) {
     console.warn('[estudio] galeria:', e);
+  }
+};
+
+// ─── Excluir peça gerada (admin/gerente ou dono) ───
+window.estExcluirPeca = async function(pecaId, btn) {
+  const ok = confirm('Excluir essa peça da galeria? A imagem fica hospedada no ImgBB mas some daqui.');
+  if (!ok) return;
+  const original = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; btn.style.opacity = '1'; }
+  try {
+    const { error } = await sb.from('estudio_pecas').delete().eq('id', pecaId);
+    if (error) throw error;
+    // Anima o card sumindo
+    const card = btn?.closest('[title]') || btn?.parentElement;
+    if (card) {
+      card.style.transition = 'opacity 0.25s, transform 0.25s';
+      card.style.opacity = '0';
+      card.style.transform = 'scale(0.92)';
+      setTimeout(() => card.remove(), 260);
+    }
+    if (typeof showToast === 'function') showToast('Peça excluída');
+    if (typeof logActivity === 'function') logActivity('excluiu_peca_estudio', pecaId, 'estudio_pecas');
+  } catch (e) {
+    console.warn('[estudio] excluir:', e);
+    if (typeof showToast === 'function') showToast('Erro ao excluir: ' + (e.message || e));
+    if (btn) { btn.disabled = false; btn.textContent = original || '🗑'; }
   }
 };
 
