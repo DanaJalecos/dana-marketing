@@ -5712,8 +5712,10 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
   }
 
   // ── Widget de Funil de Relacionamento (pedido Manu 14/05) ──
-  // Default: fechado pra vendedora, aberto pra admin/gerente.
+  // Restrito: admin + gerente_comercial. Vendedoras não veem.
   function mcRenderFunilWidget(defaultOpen) {
+    const cargo = state.profile?.cargo || '';
+    if (!['admin', 'gerente_comercial'].includes(cargo)) return '';
     const aberto = defaultOpen ? '' : ' style="display:none"';
     return `
       <div id="mc-funil-widget" style="margin-top:6px;margin-bottom:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px 14px">
