@@ -9015,4 +9015,308 @@ Pedido literal (transcrito do áudio):
 
 ---
 
-**Fim da documentação · Atualizado em 13/05/2026 noite — Sections 87-90 (Central Tráfego + Email + Calendário + Fonts + C360 status + AI Chat + Tecidos Ajuste + plano Manu campanha estoque) · v12.7**
+## 91. CICLO 14/05/2026 — Sessão master (estoque margens, funil drill-down, URLs C360, custos Tecidos)
+
+Sessão LONGA — executou Section 90 (3 entregas Manu pra Gestão de Estoque) + 7 features adicionais. Antes do compact, documento aqui pra próxima sessão continuar.
+
+### 91.1 Manu — Gestão de Estoque (Section 90 inteira EXECUTADA)
+
+**Entrega 1: Filtros + histórico 4 janelas no tab "Estoque parado"**
+- View `produtos_velocidade_multi_janelas_mat` (materialized) com vendas em 30/90/180/365d
+- RPC `listar_estoque_parados_v2(empresa, qty_min, qty_max, valor_min)` aceita filtros server-side
+- Frontend: 2ª barra de filtros (Qtd mín/máx + Valor parado ≥ R$ + Foco janela select)
+- Card mostra trilha temporal: `12m: 3.2/m → 6m: 1.8/m → 3m: 0.4/m → 1m: 0` + ícone tendência (↓/→/↑)
+- CSV de campanha desconto ganhou 7 colunas (vendas+médias+tendência)
+
+**Entrega 2: Modal "Criar campanha" com heurística automática**
+- Footer de cada grupo Parado ganha sugestão IA (heurística local) + botão "🚀 Criar campanha"
+- Modal com 5 tipos (desconto/compre-e-ganhe/kit/frete-grátis/outro) + 4 chips de desconto + select de canais
+- Heurística `_estoqueSugerirCampanha()` com 5 níveis:
+  - Estoque alto + 12m+ → -50%
+  - Linha completa parada → kit -35%
+  - Estoque baixo + barato → compre-e-ganhe (brinde)
+  - Valor empatado >R$2k → frete grátis + -30%
+  - Default → -30%
+- Brief pré-preenchido com SKUs + argumento
+- INSERT em `campanhas_internas` (status=planejamento, tipo=venda)
+
+**Entrega 3: Edge Function `sugerir-campanha-estoque` (IA refinada)**
+- Cascade Groq Llama 3.3 70B → Gemini 2.5 Flash (fallback)
+- `response_format=json_object` no Groq pra garantir saída parseável
+- System prompt conhece Dana Jalecos (público B2B/B2C, canais, linhas, sazonalidade)
+- Retorna: `tipo_oferta, percent, nome_campanha, argumento, copy_instagram, copy_whatsapp, canal_recomendado, periodo_dias, reasoning`
+- Tabela `propostas_campanha_ia` (log com RLS, FK pra campanhas_internas.id se aceita)
+- Botão "✨ Refinar com IA" no modal de criar campanha → bloco verde com proposta + 2 copies (Insta + WhatsApp)
+- Botão "Aplicar nos campos abaixo" preenche tudo do form (nome, tipo, %, argumento, data_fim, canais)
+
+**FIX perf (depois reportado pela Manu como timeout 500):**
+- Causa: 4 LATERAL JOINs por produto × 4.785 = >8s, statement_timeout estouro
+- Fix: materialized view com 1 pass GROUP BY + 3 índices em `pedidos_itens(codigo)`, `pedidos(data,empresa,situacao_id)`
+- Cron `refresh_pvmj_diario` 04:30 UTC
+- Resultado: 8s+ → 0.5s
+
+### 91.2 C360 — Histórico de status + Funil de relacionamento
+
+**Tabela `cliente_status_historico`** com trigger AFTER UPDATE em `cliente_metadata.status_relacionamento`:
+- Captura toda mudança automaticamente (status_anterior, status_novo, observacao, mudado_em, mudado_por_nome, motivo_perda)
+- Backfill criou 31 registros iniciais (snapshot atual de cada cliente_metadata)
+
+**Timeline no detail page do C360** (`_carregarHistoricoStatus`):
+- Pill `status_anterior → status_novo` por mudança
+- Quem mudou + data + "hoje/ontem/Xd atrás"
+- Observação + motivo de perda
+
+**Widget de funil** em Meus Clientes (restrito a admin + gerente_comercial):
+- 4 cards horizontais snapshot atual: Não contatado → Contatados → Em negociação → Convertidos
+- 3 cards conversão período: Contatado→Negociando, Negociando→Convertido, Perdidos/sem interesse
+- Realtime channel `realtime-funil-relacionamento` (debounce 600ms)
+- Default aberto pra admin/gerente, fechado pra vendedora
+- **Drill-down**: cada card é clicável → modal com lista de clientes (RPC `cliente_funil_detalhes`)
+- Modos da RPC: snapshot, fluxo, conversao, perdidos, nao_contatado
+- Nome do cliente clicável → fecha modal e abre showClientDetail
+
+**Card "Não contatado" (renomeado de "Novo")** — Manu pediu:
+- Conta clientes ATIVOS (pedido 12m) que NÃO foram contatados há 90+ dias
+- Fórmula: ~4.508 na matriz (filtra dos 29k contatos totais)
+- Cor laranja pra dar urgência visual
+- Modal de drill-down ordenado por data do último pedido
+
+**Bug fix conversão Contatado→Negociando = 0 quando deveria ser 2:**
+- Causa: backfill criou registros com `status_anterior=NULL`, query antiga exigia `anterior='contatado'`
+- Fix: conta QUALQUER entrada em 'negociando' no período (ignora de onde veio)
+
+### 91.3 C360 — UX melhorada
+
+**Acompanhamento Comercial colapsável** (default minimizado):
+- Header com pill do status atual sempre visível
+- Wrap form + histórico de status num único `c360-acomp-body` que toggle junto
+- Sem localStorage — sempre minimizado ao entrar em cliente novo
+
+**Próxima Oferta Sugerida em painel próprio:**
+- Card separado do Acompanhamento, toggle independente
+- Default minimizado
+
+**Bug fix "ontem vs hoje" na badge:**
+- Causa: `Math.floor((Date.now() - past) / 86400000)` faz "menos de 24h", não "mesmo dia calendário"
+- Fix: helper `diasCorridos()` zera horas de ambos os lados antes de comparar
+- Aplicado em `mcStatusBadge` + `_carregarHistoricoStatus`
+- Bonus: troca `"1d"` por `"ontem"` na legibilidade
+
+**Fix inconsistência 'em_negociacao' → 'negociando':**
+- Banco salvava 'negociando' (dropdown do detail page), código checava 'em_negociacao' (filtro lista + cores badge)
+- Resultado: badge mostrava "Contatado" pra clientes em negociação (fallback)
+- Fix: padronizado 'negociando' (mantém 'em_negociacao' como alias legacy nas cores)
+
+### 91.4 C360 — URLs amigáveis
+
+**Path-based routing** dentro do C360 iframe:
+- `/cliente360/dashboard`, `/cliente360/clientes`, `/cliente360/segmentos`, etc
+- Reusa sistema existente (VALID_SUBTABS, SUBTAB_SWITCHERS, parsePath)
+- postMessage bidirecional: iframe avisa pai quando muda página → pai atualiza URL
+- Pai recebe URL direta (F5) → manda postMessage pro iframe → showPage(page)
+- **Back/forward do Chrome funciona** entre as abas internas do C360
+- Estratégia: `pushState` quando user clica (vai pro histórico), `replaceState` quando vem de popstate (evita loop)
+- Flag `__c360_silent_change` no iframe pra distinguir as 2 origens
+
+### 91.5 Estoque — Análise de margem (custos do Tecidos Projeto)
+
+**Sync diário do Tecidos Projeto pro DMS:**
+- Tabela `produtos_custos` (DMS) — espelho de `ficha_produtos` (Tecidos `jkvoqqqiwtpsruwoioxl`)
+- Edge Function `sync-custos-tecidos.ts` — GET REST do Tecidos + UPSERT no DMS
+- Cron `sync_custos_tecidos_diario` 04:35 UTC
+- Secret `TECIDOS_SERVICE_KEY` configurado
+- Resultado: 50 fichas técnicas sincronizadas
+
+**Matching v4 inteligente (token-based):**
+- Antes (v1 LIKE simples): 11.6% cobertura (554 SKUs)
+- Agora (v4 tokens + fallback): **81.5% cobertura (3.901 SKUs)**
+- Tokenizer remove acentos, prefixos numéricos (375-ADA), números puros
+- Discriminantes = tokens >= 3 chars que não são categoria/cor/gênero/conector
+- 2 passes:
+  - PASSE 1 (`origem_match='especifico_nome'`): TODOS os discriminantes da ficha presentes
+  - PASSE 2 fallback (`origem_match='generico_categoria'`): fichas sem discriminantes aplicam pra qualquer SKU da categoria
+- Coluna `origem_match` na view permite auditoria visual
+- Sobram só 2 fichas sem match (GORRO SHINE INCOLOR, guardanapo HOme)
+
+**RPCs novas:**
+- `produtos_custos_lookup(codigos[])` — frontend consulta margem dos SKUs da linha
+- `produtos_sem_custo(empresa, limit)` — lista 864 SKUs sem ficha agrupados por categoria provável
+- `produtos_custos_cobertura_modelos(empresa)` — ficha → qtd SKUs cobertos + tipo de match
+
+**Card "💰 Análise de Margem" no modal de criar campanha:**
+- Custo médio ponderado pelo estoque
+- Preço médio atual + margem atual
+- Card "Com -X% selecionado: preço final + margem nova" (cor verde/amarelo/vermelho)
+- Tabela de simulação -20/-30/-40/-50/-60% com ícones
+- Desconto máximo sem cair abaixo de 10% margem
+- Cobertura: avisa se nem todos SKUs tem ficha
+
+**Confirm dialog ao criar campanha com margem perigosa:**
+- < 0% (prejuízo): mostra valor total que vai perder
+- < 10%: avisa que vai ficar baixa
+- Não bloqueia — só avisa
+
+**Modal completo de diagnóstico de custos** (botão "💰 Atualizar custos"):
+- 3 KPIs no topo: Cobertura %, Total fichas (com/órfãs), Sem custo
+- Tab 1: Cobertura por modelo — tabela com 50 fichas ordenadas por qtd SKUs DESC, com badge "Específico/Genérico/Misto/Sem match"
+- Tab 2: Produtos sem custo — 864 SKUs colapsáveis por categoria provável (jaleco, scrub, tênis, máscara, outros) com valor empatado por categoria
+- Botão "🔄 Sincronizar do Tecidos Projeto" no header do modal (admin-only)
+
+### 91.6 UX — Criação de campanha melhorada
+
+**Toast custom (substitui confirm nativo do browser):**
+- Header com nome + tipo + status onde foi parar
+- 2 botões: "Depois" / "✏️ Abrir e editar"
+- Animação slideUpFade
+- Auto-dismiss 12s
+
+**Deep-link "Abrir e editar":**
+- Cria URL `?abrir=ID`
+- Navega pra Campanhas Internas
+- `_ciAbrirAposLoad` guarda ID
+- Tenta `abrirVerCampanhaInterna(ID)` 3 vezes em backoff (600/1500/3000ms)
+- Funciona com F5 / compartilhar URL
+
+**Format pre-wrap em produtos_foco e argumento_central:**
+- `produtos_foco` salvo com bullet "• SKU  nome  (X un)" + fonte monoespaçada
+- `argumento_central` da IA com separadores visuais (━━ RECOMENDAÇÃO IA ━━ / COPY INSTAGRAM / COPY WHATSAPP)
+- CSS `white-space:pre-wrap` no view do detalhe
+
+### 91.7 Doc nova ESTUDIO-IA.md
+
+Arquivo `ESTUDIO-IA.md` (~700 linhas) — documentação completa do Estúdio IA do DMS pra portar pra outro sistema (marketplaces ML/TikTok/Shopee). Inclui:
+- Arquitetura end-to-end (2 etapas: Gemini Vision pra prompt + Gemini Image pra imagem)
+- Schema SQL completo (4 tabelas + 2 RPCs)
+- Código das 2 edge functions
+- Frontend HTML+JS
+- Tipos de peça e aspect ratios
+- Controle de custo/quotas/kill-switch
+- Como adaptar pra marketplaces (style guide + tipos novos)
+- Checklist de migração executável
+
+### 91.8 Excel exports
+
+2 arquivos XLSX em `C:\Users\Juan - Dana Jalecos\Documents\Sistema Marketing\`:
+- `FICHA-TECNICA-COMPLETA-2026-05-14.xlsx` (3 abas: Produtos + BOM Detalhado + Estatísticas)
+- `PRODUTOS-BLING-COMPLETO-2026-05-14.xlsx` (2 abas: Produtos + Estatísticas) — com parsing automático de Tamanho/Cor/Manga do nome do Bling
+
+### 91.9 Estado atual em produção (commits)
+
+- Edge functions deployadas (ACTIVE):
+  - `sugerir-campanha-estoque` v1
+  - `sync-custos-tecidos` v1
+- Crons agendados:
+  - `refresh_pvmj_diario` 04:30 UTC
+  - `sync_custos_tecidos_diario` 04:35 UTC
+- Frontend: cache-bust `cliente-360-boot.js` v60 → v66
+- Última URL deployada: `da99003 → danajalecos/main`
+
+---
+
+## 92. PRÓXIMA SESSÃO — Feature Aniversariantes da Carteira (pedido Manu)
+
+**Plano completo em:** `C:\Users\Juan - Dana Jalecos\.claude\plans\bubbly-forging-pelican.md`
+
+### 92.1 Pedido literal
+
+> *"o sistema identificar os clientes que estão de aniversário conforme o cadastro na carteira de cada consultor, sugerir uma mensagem para envio com cupom de 10% para uso no mês do aniversário e o criativo de aniversário"*
+
+### 92.2 Descoberta crítica (testei na API ao vivo)
+
+**O Bling JÁ TEM data de nascimento**, mas com pegadinha:
+- `GET /contatos` (lista) — **NÃO retorna** dataNascimento ❌
+- `GET /contatos/{id}` (detalhe) — **retorna** dentro de `dadosAdicionais.dataNascimento` ✅
+- Exemplo confirmado: **Jaqueline Marques** (id 16386457953) → nasceu **04/12/1996**
+
+Plus: alguns contatos têm `"0000-00-00"` (não preenchido).
+
+### 92.3 Estado atual
+
+- Tabela `contatos` no DMS: NÃO tem coluna `data_nascimento` ainda
+- `sync-contatos.ts` (atual): puxa só a lista, sem dataNascimento
+- ~41.000 contatos totais (29k matriz + 12k bc, com duplicatas)
+- ~3.600 contatos com vendedor atribuído (carteira ativa)
+
+### 92.4 Decisões da sessão (14/05)
+
+| Item | Decisão |
+|---|---|
+| Foco Fase 1 | A: SÓ contatos com vendedor (~3.600) |
+| Fase 2 (depois validar) | B: contatos com pedido 12m sem vendedor (~2.400) |
+| Sincronização contínua | C: Ambos (cron diário 03:00 + sob demanda no C360) |
+| Implementar agora | A: TUDO (schema + sync + cron + feature completa) |
+| Criativo de aniversário | **Gerar via Estúdio IA** (~R$ 0,20 única vez) |
+| Notificação dia do aniversário | **Sino + Email** (email condicional ao DNS Resend) |
+
+### 92.5 Cronograma técnico
+
+```
+[t+0]    SQL: ALTER TABLE contatos (data_nascimento, sexo, sync_em) +
+              CREATE TABLE cupons_aniversario + 3 RPCs
+[t+15m]  Edge Function sync-contatos-detalhes.ts (350ms/call, 300 por exec, 12 execs)
+[t+30m]  Smoke test: 1 contato manual (Jaqueline Marques)
+[t+35m]  Schedule cron burst Fase 1 ('*/3 * * * *' por 12 execs)
+[t+45m]  Edge Function gerar-cupom-aniversario.ts (cupom + mensagem + criativo URL)
+[t+1h]   Estúdio IA gera criativo master (post_feed 1:1, tema "aniversário 10% off")
+[t+1h30] Frontend cliente-360-boot.js (v66 → v67):
+         - Widget "🎂 Aniversariantes" em Meus Clientes (após Funil)
+         - Modal de envio (cupom + WhatsApp link + criativo + marcar enviado)
+         - Hook sob demanda em showClientDetail
+         - Handler de alerta tipo 'aniversario_cliente'
+[t+2h]   Edge Function send-email-aniversariantes.ts (condicional ao DNS)
+[t+2h15] Cron 'alertar_aniversariantes_dia' 08:00 BRT (sino sempre)
+[t+2h20] Cron 'email_aniversariantes_dia' 08:01 BRT (condicional flag)
+[t+2h30] Deploy frontend + commit + push danajalecos
+[t+24h]  Validar Fase 1 (3.600 contatos sincronizados, ver sync_log)
+[t+24h]  Desligar burst, agendar cron diário modo='ativos' 500/dia
+[t+30d]  Avaliar: quantos cupons gerados/enviados/resgatados
+```
+
+### 92.6 Rate limit Bling — estratégia segura
+
+- Bling permite ~3 req/s antes de 429
+- Vou usar **350ms entre calls** (≈ 2.85 req/s — folga)
+- Em 429: backoff exponencial 8s/16s/24s
+- Edge function timeout 150s → ~300 contatos por execução
+- 3.600 contatos / 300 = **12 execuções** = 36min em modo burst
+
+### 92.7 Schema novo
+
+**Tabela `cupons_aniversario`:**
+- id, codigo (UNIQUE), contato_id, contato_nome, empresa
+- desconto_pct (10), data_emissao, validade_ate (último dia mês aniversário)
+- enviado_em, enviado_por, enviado_por_nome
+- resgatado_em, resgatado_por (manual quando cliente usar)
+- status (gerado/enviado/resgatado/expirado)
+
+**Colunas novas em `contatos`:**
+- data_nascimento DATE
+- sexo TEXT
+- nascimento_sincronizado_em TIMESTAMPTZ
+
+**RPCs:**
+- `aniversariantes_do_mes(vendedor_id, mes)` — retorna lista pra widget
+- `contatos_para_sync_nascimento(modo, limite)` — fila priorizada (carteira/ativos/todos)
+
+### 92.8 Riscos mitigados
+
+| Risco | Mitigação |
+|---|---|
+| Token Bling expira | `getBlingToken()` já refresh embutido |
+| Edge timeout 150s | Loop trava em 140s, progresso parcial |
+| 429 em massa | Backoff 8/16/24s + 350ms entre calls |
+| Cupom duplicado mesmo ano | UNIQUE(codigo) + check no insert |
+| Data 0000-00-00 | Validação regex + skip |
+| Cliente sem telefone | Modal mostra aviso, ainda dá copiar |
+| Cron burst esquecer | Doc explicita "desligar após 24h" |
+
+### 92.9 Custo estimado
+
+- Geração criativo master Estúdio IA: **R$ 0,20** única vez
+- ~3.600 calls Bling: **R$ 0** (free tier)
+- Resend emails diários: dentro do free tier
+- **TOTAL: R$ 0,20**
+
+---
+
+**Fim da documentação · Atualizado em 14/05/2026 noite — Sections 91-92 (sessão master com estoque/funil/URLs + plano Aniversariantes pra próxima sessão) · v12.8**
