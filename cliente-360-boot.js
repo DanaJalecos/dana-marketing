@@ -887,12 +887,35 @@
       // Injeta painel de metadata (status/tel_alt/observacao) logo abaixo do header
       if (c?.contato_id) {
         await injectMetadataPanel(c.contato_id, state.empresa, nome, inad);
+        // Hook sob demanda: se contato não tem data_nascimento, dispara sync em background
+        // (fire-and-forget; admin/gerente/vendedora podem chamar)
+        _c360TalvezSyncNascimento(c.contato_id);
       }
     } catch (e) {
       console.error('[c360] erro detalhe:', e);
       page.innerHTML = '<div style="padding:40px;text-align:center;color:#ef4444">Erro ao carregar: ' + escapeHtml(String(e.message||e)) + '</div>';
     }
   };
+
+  // Dispara sync da dataNascimento do Bling em background (1 contato).
+  // Idempotente: edge function só faz update se vier dataNascimento válida.
+  async function _c360TalvezSyncNascimento(contatoId) {
+    try {
+      const cargo = state.profile?.cargo || '';
+      if (!['admin','gerente_comercial','gerente_financeiro','vendedor','vendedora','vendedor_externo'].includes(cargo)) return;
+      // Check rápido: já tem nascimento sincronizado? skip
+      const { data: row } = await state.sb.from('contatos')
+        .select('data_nascimento, nascimento_sincronizado_em')
+        .eq('id', contatoId)
+        .maybeSingle();
+      if (!row) return;
+      if (row.data_nascimento || row.nascimento_sincronizado_em) return;  // já tem ou já tentou
+      // Dispara edge function sem esperar (fire-and-forget)
+      state.sb.functions.invoke('sync-contatos-detalhes', {
+        body: { contato_id_unico: contatoId }
+      }).catch(() => {});
+    } catch (e) { /* silent */ }
+  }
 
   // ══════════════════════════════════
   // METADATA do cliente Bling (status, tel alt, obs rapida)
@@ -3079,6 +3102,29 @@
         // Limpa flag depois do showPage (sincrono — postMessage volta no mesmo tick)
         setTimeout(() => { window.__c360_silent_change = false; }, 0);
       }
+    } else if (e.data.type === 'c360_expandir_aniversariantes') {
+      // 🎂 Alerta de aniversariante clicado no sino → vai pra Meus Clientes + expande widget
+      console.log('[c360] postMessage expandir aniversariantes');
+      window.__c360_silent_change = true;
+      try {
+        if (typeof window.showPage === 'function') window.showPage('clientes');
+      } finally {
+        setTimeout(() => { window.__c360_silent_change = false; }, 0);
+      }
+      // Espera o widget renderizar e expande
+      const tentar = (n) => {
+        if (n > 10) return;
+        const cont = document.getElementById('mc-aniv-conteudo');
+        if (cont) {
+          if (cont.style.display === 'none' && typeof window.c360McAnivToggle === 'function') {
+            window.c360McAnivToggle();
+          }
+          cont.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+          setTimeout(() => tentar(n + 1), 200);
+        }
+      };
+      setTimeout(() => tentar(0), 400);
     }
   });
 
@@ -5796,6 +5842,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
         ${mcRenderFunilWidget(false)}
 
+        ${mcRenderAniversariantesWidget(false)}
+
         ${mcRenderFiltrosBar(filtros, true)}
 
         <div id="mc-tabela-wrap" style="margin-top:14px">
@@ -5805,6 +5853,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     `;
     mcWireTable(content);
     setTimeout(() => mcLoadFunilWidget(), 50);
+    setTimeout(() => mcLoadAniversariantesWidget(), 80);
   }
 
   // ── Widget de Funil de Relacionamento (pedido Manu 14/05) ──
@@ -6131,6 +6180,260 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     }
   };
 
+  // ══════════════════════════════════════════════════════════
+  // 🎂 ANIVERSARIANTES DO MÊS — widget em Meus Clientes
+  // (pedido Manu 14/05 · v=69)
+  //
+  // - Vendedora vê só os próprios; admin/gerente vê todos.
+  // - Click "🎁 Gerar cupom" → invoca edge gerar-cupom-aniversario
+  //   → abre modal com mensagem WhatsApp + criativo + 3 botões.
+  // ══════════════════════════════════════════════════════════
+  const MESES_PT_ANIV = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+
+  function mcRenderAniversariantesWidget(defaultOpen) {
+    const aberto = defaultOpen ? '' : ' style="display:none"';
+    return `
+      <div id="mc-aniv-widget" style="margin-top:6px;margin-bottom:14px;background:rgba(251,146,60,0.04);border:1px solid rgba(251,146,60,0.22);border-radius:10px;padding:12px 14px">
+        <div onclick="window.c360McAnivToggle()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:13.5px;font-weight:700;color:#fdba74">🎂 Aniversariantes deste mês</span>
+            <span id="mc-aniv-resumo" style="font-size:11px;color:#64748b">…</span>
+          </div>
+          <span id="mc-aniv-toggle-icon" style="font-size:11px;color:#94a3b8">${defaultOpen ? '▼' : '▶'}</span>
+        </div>
+        <div id="mc-aniv-conteudo"${aberto}>
+          <div style="padding:14px 0;text-align:center;color:#64748b;font-size:12px">⏳ Carregando…</div>
+        </div>
+      </div>
+    `;
+  }
+
+  window.c360McAnivToggle = function() {
+    const c = document.getElementById('mc-aniv-conteudo');
+    const ic = document.getElementById('mc-aniv-toggle-icon');
+    if (!c) return;
+    const fechado = c.style.display === 'none';
+    c.style.display = fechado ? '' : 'none';
+    if (ic) ic.textContent = fechado ? '▼' : '▶';
+  };
+
+  async function mcLoadAniversariantesWidget() {
+    const cont = document.getElementById('mc-aniv-conteudo');
+    const resumoEl = document.getElementById('mc-aniv-resumo');
+    if (!cont) return;
+
+    try {
+      const cargo = state.profile?.cargo || '';
+      // Vendedora vê só os dela; admin/gerente_comercial vê tudo
+      const vendedorId = ['admin','gerente_comercial','gerente_financeiro'].includes(cargo)
+        ? null
+        : (state.profile?.id || null);
+
+      const { data, error } = await state.sb.rpc('aniversariantes_do_mes', {
+        p_vendedor_id: vendedorId,
+        p_mes: null,
+      });
+      if (error) throw error;
+      const lista = Array.isArray(data) ? data : [];
+
+      // Resumo curto (sempre visível)
+      if (resumoEl) {
+        const hoje = lista.filter(c => c.dias_ate_aniversario === 0).length;
+        const futuros = lista.filter(c => c.dias_ate_aniversario > 0).length;
+        const gerados = lista.filter(c => c.cupom_ja_gerado).length;
+        resumoEl.textContent = lista.length === 0
+          ? 'ninguém faz aniversário este mês'
+          : `${lista.length} este mês · ${hoje} hoje · ${futuros} próximos · ${gerados} cupom${gerados!==1?'s':''} gerado${gerados!==1?'s':''}`;
+      }
+
+      if (lista.length === 0) {
+        cont.innerHTML = `<div style="padding:18px;text-align:center;color:#64748b;font-size:12px">🎂 Nenhum aniversariante este mês na carteira</div>`;
+        return;
+      }
+
+      const mesAtual = new Date().getMonth() + 1;
+      const linhas = lista.map(c => {
+        const mesAniv = c.data_nascimento ? Number(c.data_nascimento.slice(5,7)) : mesAtual;
+        const dataFmt = `${c.dia_aniversario} de ${MESES_PT_ANIV[mesAniv - 1]}`;
+        const quando = c.dias_ate_aniversario === 0
+          ? '<strong style="color:#fbbf24">· hoje 🎉</strong>'
+          : c.dias_ate_aniversario > 0
+            ? `· em ${c.dias_ate_aniversario}d`
+            : '· passou';
+        const empBadge = c.empresa
+          ? `<span style="font-size:9.5px;padding:1px 6px;border-radius:3px;background:${c.empresa==='matriz'?'#3b82f6':'#10b981'};color:#fff;font-weight:700">${c.empresa==='matriz'?'Matriz':'BC'}</span>`
+          : '';
+        const vendedorTxt = c.vendedor_nome
+          ? `<span style="font-size:10px;color:#94a3b8;margin-left:6px">· ${escapeHtml(c.vendedor_nome)}</span>`
+          : '';
+        const acao = c.cupom_ja_gerado
+          ? (c.cupom_enviado_em
+              ? `<div style="font-size:10px;padding:3px 8px;background:rgba(34,197,94,0.18);color:#86efac;border-radius:4px;font-weight:600;white-space:nowrap">✅ ENVIADO</div>
+                 <button onclick="window.c360McAnivAbrir('${c.contato_id}')" style="padding:5px 10px;border-radius:5px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:11px;white-space:nowrap">Reabrir</button>`
+              : `<div style="font-size:10px;padding:3px 8px;background:rgba(124,58,237,0.18);color:#c4b5fd;border-radius:4px;font-weight:600;white-space:nowrap">🎁 ${escapeHtml(c.cupom_codigo||'')}</div>
+                 <button onclick="window.c360McAnivAbrir('${c.contato_id}')" style="padding:5px 10px;border-radius:5px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">Enviar 📤</button>`)
+          : `<div></div>
+             <button onclick="window.c360McAnivGerar('${c.contato_id}', this)" style="padding:5px 12px;border-radius:5px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">🎁 Gerar cupom</button>`;
+
+        const nomeEsc = (c.contato_nome || '').replace(/'/g,'&#39;');
+        return `
+          <div style="display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.04);align-items:center">
+            <div style="font-size:22px">🎂</div>
+            <div style="min-width:0">
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                ${empBadge}
+                <a href="#" onclick="event.preventDefault();window.showClientDetail&&window.showClientDetail(encodeURIComponent('${nomeEsc}'))" style="font-size:13px;font-weight:600;color:#e2e8f0;text-decoration:none">${escapeHtml(c.contato_nome)}</a>
+                ${vendedorTxt}
+              </div>
+              <div style="font-size:11px;color:#94a3b8;margin-top:2px">${dataFmt} ${quando}</div>
+            </div>
+            ${acao}
+          </div>
+        `;
+      }).join('');
+
+      cont.innerHTML = `
+        <div style="padding-top:8px;font-size:10.5px;color:#64748b;font-style:italic;margin-bottom:8px">
+          💡 Clique em "Gerar cupom" pra criar o código + mensagem pronta. Cupom = 10% off no mês de aniversário.
+        </div>
+        <div>${linhas}</div>
+      `;
+
+      _mcEnsureAnivRealtime();
+    } catch (e) {
+      console.warn('[mc] aniv widget:', e);
+      cont.innerHTML = `<div style="padding:14px;color:#fca5a5;font-size:11.5px">Erro: ${escapeHtml(e.message || String(e))}</div>`;
+    }
+  }
+
+  function _mcEnsureAnivRealtime() {
+    if (window._mcAnivRealtimeOn) return;
+    window._mcAnivRealtimeOn = true;
+    let timer = null;
+    const recarregar = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (document.getElementById('mc-aniv-conteudo')) mcLoadAniversariantesWidget();
+      }, 600);
+    };
+    try {
+      state.sb.channel('realtime-cupons-aniv')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'cupons_aniversario' }, recarregar)
+        .subscribe();
+    } catch (e) { console.warn('[mc] realtime aniv:', e); }
+  }
+
+  // Gera cupom (clique no botão da linha)
+  window.c360McAnivGerar = async function(contatoId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando…'; btn.style.opacity = '0.6'; }
+    try {
+      const { data, error } = await state.sb.functions.invoke('gerar-cupom-aniversario', {
+        body: { contato_id: Number(contatoId) }
+      });
+      if (error) throw error;
+      _mcAbrirModalAniv(data);
+      mcLoadAniversariantesWidget();  // refresh
+    } catch (e) {
+      alert('Erro ao gerar cupom: ' + (e.message || e));
+      if (btn) { btn.disabled = false; btn.textContent = '🎁 Gerar cupom'; btn.style.opacity = ''; }
+    }
+  };
+
+  // Reabre modal pra cupom existente
+  window.c360McAnivAbrir = async function(contatoId) {
+    try {
+      const { data, error } = await state.sb.functions.invoke('gerar-cupom-aniversario', {
+        body: { contato_id: Number(contatoId) }
+      });
+      if (error) throw error;
+      _mcAbrirModalAniv(data);
+    } catch (e) {
+      alert('Erro: ' + (e.message || e));
+    }
+  };
+
+  function _mcAbrirModalAniv(payload) {
+    const old = document.getElementById('mc-aniv-modal');
+    if (old) old.remove();
+    const cupom = payload?.cupom || {};
+    const ja = payload?.ja_existia;
+    const mensagem = payload?.mensagem || '';
+    const criativo = payload?.criativo_url || '';
+    const wa = payload?.whatsapp_link || '';
+    const contato = payload?.contato || {};
+    const valFmt = cupom.validade_ate
+      ? new Date(cupom.validade_ate + 'T00:00:00').toLocaleDateString('pt-BR', { day:'2-digit', month:'long' })
+      : '—';
+    const enviadoBadge = cupom.enviado_em
+      ? `<span style="display:inline-block;padding:3px 9px;background:rgba(34,197,94,0.2);color:#86efac;border-radius:5px;font-size:11px;font-weight:700">✅ JÁ ENVIADO</span>`
+      : `<span style="display:inline-block;padding:3px 9px;background:rgba(124,58,237,0.18);color:#c4b5fd;border-radius:5px;font-size:11px;font-weight:700">🎁 ${ja?'EXISTENTE':'NOVO'}</span>`;
+    const mensagemEsc = mensagem.replace(/`/g,'\\`').replace(/\$/g,'\\$');
+    const html = `
+      <div id="mc-aniv-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto" onclick="if(event.target===this)this.remove()">
+        <div style="background:#0b0f17;border:1px solid rgba(255,255,255,0.12);border-radius:14px;max-width:620px;width:100%;color:#e2e8f0;box-shadow:0 30px 80px rgba(0,0,0,0.5)">
+          <div style="padding:18px 22px;background:linear-gradient(135deg,#fb923c,#f97316);border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+            <div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:0.5px;font-weight:700">🎂 Cupom de aniversário</div>
+              <div style="font-size:19px;color:#fff;font-weight:800;margin-top:4px">${escapeHtml(contato.nome || cupom.contato_nome || '—')}</div>
+              <div style="font-size:11.5px;color:rgba(255,255,255,0.85);margin-top:3px">Válido até ${valFmt} · 10% OFF</div>
+            </div>
+            <button onclick="document.getElementById('mc-aniv-modal').remove()" style="background:rgba(0,0,0,0.2);border:none;color:#fff;font-size:18px;cursor:pointer;width:28px;height:28px;border-radius:50%">×</button>
+          </div>
+          <div style="padding:18px 22px">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+              <div style="padding:8px 14px;background:rgba(124,58,237,0.15);border:1px dashed rgba(124,58,237,0.5);border-radius:8px;font-family:monospace;font-size:15px;color:#c4b5fd;font-weight:700">${escapeHtml(cupom.codigo || '—')}</div>
+              ${enviadoBadge}
+              <button onclick="navigator.clipboard.writeText('${escapeHtml(cupom.codigo||'')}');this.textContent='✓ Copiado'" style="padding:5px 10px;border-radius:5px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:11px">📋 Copiar código</button>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+              <div>
+                <div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px;font-weight:600">📨 Mensagem WhatsApp</div>
+                <textarea id="mc-aniv-msg" style="width:100%;min-height:200px;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:#0a0e15;color:#e2e8f0;font-size:12px;font-family:inherit;line-height:1.5;resize:vertical">${escapeHtml(mensagem)}</textarea>
+              </div>
+              <div>
+                <div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px;font-weight:600">🎨 Criativo</div>
+                <div style="background:#0a0e15;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:8px;min-height:200px;display:flex;align-items:center;justify-content:center">
+                  ${criativo
+                    ? `<img src="${escapeHtml(criativo)}" style="max-width:100%;max-height:240px;border-radius:6px" onerror="this.parentNode.innerHTML='<div style=&quot;color:#64748b;font-size:11px;text-align:center;padding:30px;line-height:1.6&quot;>🎨 Criativo ainda não foi gerado.<br><br>Gere via <strong>Estúdio IA</strong> e suba em <code>storage/criativos-aniversario/padrao.png</code></div>'">`
+                    : `<div style="color:#64748b;font-size:11px;text-align:center;padding:30px">Sem criativo padrão</div>`
+                  }
+                </div>
+                ${criativo ? `<a href="${escapeHtml(criativo)}" target="_blank" download style="display:block;margin-top:6px;text-align:center;font-size:11px;color:#a78bfa;text-decoration:none">⬇ Baixar imagem</a>` : ''}
+              </div>
+            </div>
+
+            <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end">
+              <button onclick="navigator.clipboard.writeText(document.getElementById('mc-aniv-msg').value);this.textContent='✓ Copiada'" style="padding:9px 16px;border-radius:7px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:12.5px;font-weight:600">📋 Copiar mensagem</button>
+              ${wa
+                ? `<a href="${escapeHtml(wa)}" target="_blank" rel="noopener" onclick="window._anivWaClicado=true" style="padding:9px 16px;border-radius:7px;background:#25d366;color:#0a0e15;text-decoration:none;font-size:12.5px;font-weight:700">💬 Abrir WhatsApp</a>`
+                : `<button disabled style="padding:9px 16px;border-radius:7px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.02);color:#64748b;font-size:12.5px;cursor:not-allowed" title="Cliente sem telefone">💬 Sem WhatsApp</button>`
+              }
+              ${!cupom.enviado_em
+                ? `<button onclick="window.c360McAnivMarcarEnviado('${cupom.id}', this)" style="padding:9px 16px;border-radius:7px;border:none;background:#22c55e;color:#0a0e15;cursor:pointer;font-size:12.5px;font-weight:700">✅ Marcar como enviado</button>`
+                : `<div style="padding:9px 16px;color:#86efac;font-size:11.5px">Enviado em ${new Date(cupom.enviado_em).toLocaleString('pt-BR')}</div>`
+              }
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', html);
+  }
+
+  window.c360McAnivMarcarEnviado = async function(cupomId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '⏳…'; }
+    try {
+      const { error } = await state.sb.rpc('marcar_cupom_enviado', { p_cupom_id: cupomId });
+      if (error) throw error;
+      document.getElementById('mc-aniv-modal')?.remove();
+      mcLoadAniversariantesWidget();
+    } catch (e) {
+      alert('Erro: ' + (e.message || e));
+      if (btn) { btn.disabled = false; btn.textContent = '✅ Marcar como enviado'; }
+    }
+  };
+
   // ─── Bloco de Ranking pra vendedora (sua posição + top 5) ───
   function mcRenderRankingVendedora(rankingGeral, rankingMensal, perms) {
     const meuId = perms.profileId;
@@ -6236,6 +6539,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
         ${mcRenderFunilWidget(true)}
 
+        ${mcRenderAniversariantesWidget(false)}
+
         <div style="margin-bottom:24px">
           ${mcRenderRankingsBloco(ranking, totalFat)}
         </div>
@@ -6249,6 +6554,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     `;
     mcWireTable(content);
     setTimeout(() => mcLoadFunilWidget(), 50);
+    setTimeout(() => mcLoadAniversariantesWidget(), 80);
   }
 
   // ─── Helpers de UI ───

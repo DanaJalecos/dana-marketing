@@ -14270,6 +14270,19 @@ function abrirLinkAlerta(ref, alertaId, dados) {
     }, 600);
   }
 
+  // 🎂 Deep-link pra aniversariantes — abre Meus Clientes do C360 + expande widget
+  if (ref === 'aniversariantes') {
+    if (typeof go === 'function') go(null, 'cliente360', { subtab: 'clientes' });
+    // postMessage pro iframe expandir o widget
+    setTimeout(() => {
+      const iframe = document.getElementById('cliente360-iframe');
+      if (iframe && iframe.contentWindow) {
+        try { iframe.contentWindow.postMessage({ type: 'c360_expandir_aniversariantes' }, '*'); } catch(e) {}
+      }
+    }, 600);
+    return;
+  }
+
   // Deep-link pra Cliente 360 — abre cliente especifico + aba Notas
   if (dados && dados.contato_nome && viewId === 'cliente360') {
     const spec = {
