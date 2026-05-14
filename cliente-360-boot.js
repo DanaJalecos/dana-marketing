@@ -81,6 +81,19 @@
   const fmtDate = (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : '-';
   const escapeHtml = (s) => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+  // Conta dias entre 2 datas pelo CALENDÁRIO (não por 24h).
+  // Ex: ontem 23:50 → hoje 09:00 = 1d (não 0d como o cálculo ingênuo retornaria).
+  // Usado nas badges de status/timeline pra evitar dizer "hoje" pra ontem.
+  function diasCorridos(dateOrStr) {
+    if (!dateOrStr) return null;
+    const past = new Date(dateOrStr);
+    if (isNaN(past.getTime())) return null;
+    const now = new Date();
+    const pastDay = new Date(past.getFullYear(), past.getMonth(), past.getDate());
+    const nowDay  = new Date(now.getFullYear(),  now.getMonth(),  now.getDate());
+    return Math.round((nowDay.getTime() - pastDay.getTime()) / 86400000);
+  }
+
   // Modelo bonito pra exibição (não cru "llama-3.3-70b-versatile")
   function prettyModel(modelo, provider) {
     const m = String(modelo || '').toLowerCase();
@@ -1024,8 +1037,11 @@
       };
       const itensHtml = lista.map(it => {
         const data = new Date(it.mudado_em).toLocaleString('pt-BR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
-        const dias = Math.floor((Date.now() - new Date(it.mudado_em).getTime())/86400000);
-        const diasTxt = dias === 0 ? 'hoje' : dias === 1 ? '1 dia atrás' : dias + ' dias atrás';
+        const dias = diasCorridos(it.mudado_em);
+        const diasTxt = dias == null ? '—'
+                      : dias === 0 ? 'hoje'
+                      : dias === 1 ? 'ontem'
+                      : dias + ' dias atrás';
         const setaHtml = it.status_anterior
           ? `${pill(it.status_anterior)} <span style="color:#64748b">→</span> ${pill(it.status_novo)}`
           : `<span style="font-size:10.5px;color:#64748b">primeira marcação</span> ${pill(it.status_novo)}`;
@@ -6485,8 +6501,12 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     const cfg = cores[st] || cores.contatado;
     let dias = '';
     if (c.status_atualizado_em) {
-      const d = Math.floor((Date.now() - new Date(c.status_atualizado_em).getTime()) / 86400000);
-      dias = d === 0 ? ' · hoje' : d === 1 ? ' · 1d' : ' · ' + d + 'd';
+      const d = diasCorridos(c.status_atualizado_em);
+      if (d != null) {
+        dias = d === 0 ? ' · hoje'
+             : d === 1 ? ' · ontem'
+             :           ' · ' + d + 'd';
+      }
     }
     return ' <span style="font-size:9.5px;padding:1px 6px;border-radius:4px;background:' + cfg.bg + ';color:' + cfg.fg + ';border:1px solid ' + cfg.border + ';margin-left:6px;vertical-align:middle;font-weight:600" title="' + escapeHtml(c.status_atualizado_por || '') + (c.status_atualizado_em ? ' · ' + new Date(c.status_atualizado_em).toLocaleString('pt-BR') : '') + '">' + cfg.label + dias + '</span>';
   }
