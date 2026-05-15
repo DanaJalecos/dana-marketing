@@ -3330,7 +3330,7 @@
   <div style="margin-bottom:24px">
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:rgba(255,255,255,0.5);margin-bottom:12px">◉ Alertas Inteligentes</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
-      ${alertCard('↗', 'prontos para recompra', 'Score acima de 80 e sem comprar há 30+ dias', r.prontos_recompra, 'rgba(251,191,36,0.4)', "window.c360FilterAndGo('prontos_recompra')")}
+      ${alertCard('↗', 'prontos para recompra', 'Compram com recorrência (3+) e já passaram do ciclo de recompra deles', r.prontos_recompra, 'rgba(251,191,36,0.4)', "window.c360FilterAndGo('prontos_recompra')")}
       ${alertCard('◆', 'VIPs sem comprar', 'Clientes VIP há mais de 120 dias', r.vips_sem_comprar, 'rgba(167,139,250,0.4)', "window.c360FilterAndGo('vips_sem_comprar')")}
       ${alertCard('👥', 'novos sem 2ª compra', 'Primeira compra há mais de 30 dias', r.novos_sem_2a, 'rgba(96,165,250,0.4)', "window.c360FilterAndGo('novos_sem_2a')")}
       ${alertCard('🎯', 'com alto potencial', '2+ compras e score acima de 70', r.alto_potencial, 'rgba(34,197,94,0.4)', "window.c360FilterAndGo('alto_potencial')")}
@@ -3363,7 +3363,7 @@
   }
 
   // Clicar num alerta → filtra lista e muda de aba
-  window.c360FilterAndGo = function(tipo) {
+  window.c360FilterAndGo = async function(tipo) {
     // Reset filtros
     state.segmentFilter = 'todos';
     state.ufFilter = 'todos';
@@ -3375,9 +3375,26 @@
     const searchInp = document.querySelector('#page-clientes input[placeholder*="Buscar"]');
     if (searchInp) searchInp.value = '';
 
-    // Filtra client-side baseado no tipo do alerta
+    // prontos_recompra agora usa o CICLO de compra individual (RPC) — mesma
+    // regra exata do card. Filtra state.clientes pelos nomes que a RPC retorna.
+    if (tipo === 'prontos_recompra') {
+      try {
+        const { data, error } = await state.sb.rpc('clientes_prontos_recompra', { p_empresa: state.empresa });
+        if (error) throw error;
+        const nomes = new Set((data || []).map(r => r.contato_nome));
+        state.filtered = state.clientes.filter(c => nomes.has(c.contato_nome));
+      } catch (e) {
+        console.warn('[c360] prontos_recompra rpc:', e);
+        state.filtered = [];
+      }
+      state.page = 0;
+      if (typeof showPage === 'function') showPage('clientes');
+      renderList();
+      return;
+    }
+
+    // Demais alertas: filtro client-side direto
     const filters = {
-      prontos_recompra: c => (c.score||0) >= 80 && (c.dias_sem_compra||0) >= 30,
       vips_sem_comprar: c => c.segmento === 'VIP' && (c.dias_sem_compra||0) > 120,
       novos_sem_2a: c => (c.total_pedidos||0) === 1 && (c.dias_sem_compra||0) > 30,
       alto_potencial: c => (c.total_pedidos||0) >= 2 && (c.score||0) >= 70 && (c.dias_sem_compra||0) < 90,
