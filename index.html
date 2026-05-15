@@ -4030,6 +4030,17 @@ select.input { cursor: pointer; }
         <input class="input" id="ref-tipo" placeholder="Ex: Reels, Stories, TikTok">
       </div>
     </div>
+
+    <!-- IA Briefing (Fase 2 · Onda 2) -->
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:6px;font-weight:700;font-size:12px;margin-bottom:8px">🤖 Gerar briefing com IA <span style="font-size:9px;opacity:0.7">Fase 2</span></div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Selecione um influenciador acima. A IA monta um briefing sob medida (conceito, roteiro, falas, hashtags) usando o perfil dele e preenche a Descrição.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input class="input" id="ref-ia-objetivo" placeholder="Objetivo (opcional): ex. lançamento scrub feminino, foco BC" style="flex:1;min-width:200px">
+        <button type="button" class="btn btn-primary btn-sm" id="ref-ia-btn" onclick="gerarBriefingIA()" style="white-space:nowrap">🤖 Gerar</button>
+      </div>
+    </div>
+
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
       <div>
         <label class="label">Status</label>
@@ -20385,10 +20396,11 @@ async function abrirModalNovaReferencia() {
   document.getElementById('ref-modal-title').textContent = '+ Nova Referência de Conteúdo';
   document.getElementById('ref-modal-sub').textContent = 'Adicione uma nova ideia ou referência para criação de conteúdo';
   document.getElementById('ref-btn-salvar').textContent = 'Criar Referência';
-  ['ref-titulo','ref-descricao','ref-link','ref-tipo','ref-prazo','ref-obs'].forEach(id => {
+  ['ref-titulo','ref-descricao','ref-link','ref-tipo','ref-prazo','ref-obs','ref-ia-objetivo'].forEach(id => {
     const e = document.getElementById(id);
     if (e) e.value = '';
   });
+  const _rd = document.getElementById('ref-descricao'); if (_rd) _rd.rows = 2;
   document.getElementById('ref-status').value = 'pendente';
   document.getElementById('ref-prioridade').value = 'media';
 
@@ -20438,6 +20450,40 @@ async function abrirModalEditarReferencia(id) {
   }
 
   openModal('ref-novo');
+}
+
+async function gerarBriefingIA() {
+  const influId = (document.getElementById('ref-influenciador') || {}).value || '';
+  if (!influId) { showToast('Selecione um influenciador primeiro'); return; }
+  const btn = document.getElementById('ref-ia-btn');
+  const desc = document.getElementById('ref-descricao');
+  const objetivo = (document.getElementById('ref-ia-objetivo') || {}).value.trim();
+  const formato = (document.getElementById('ref-tipo') || {}).value.trim();
+  const prevTxt = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
+  try {
+    const { data, error } = await sb.functions.invoke('gerar-briefing-influenciador', {
+      body: { influenciador_id: influId, objetivo, formato }
+    });
+    if (error) throw error;
+    if (data && data.error) throw new Error(data.error);
+    if (!data || !data.briefing) throw new Error('IA não retornou briefing');
+    if (desc) {
+      desc.value = data.briefing;
+      desc.rows = 14;
+      desc.scrollTop = 0;
+    }
+    const tit = document.getElementById('ref-titulo');
+    if (tit && !tit.value.trim()) {
+      tit.value = `Briefing IA — ${data.creator || 'creator'}${formato ? ' (' + formato + ')' : ''}`;
+    }
+    showToast('✨ Briefing gerado! Revise e ajuste antes de salvar.');
+  } catch (e) {
+    console.error('gerarBriefingIA:', e);
+    showToast('Erro ao gerar briefing: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = prevTxt || '🤖 Gerar'; }
+  }
 }
 
 async function salvarReferencia() {
