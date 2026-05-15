@@ -24465,6 +24465,71 @@ let estState = {
   buscaTimer: null,      // debounce timer
 };
 
+// ════════════════════════════════════════════════
+// Tecido → descrição VISUAL (educa a IA do Estúdio p/ não chutar o tecido)
+// Fonte: catálogo "Composição e Tecido". São só ~6 famílias reais.
+// ════════════════════════════════════════════════
+const EST_TECIDO_VISUAL = {
+  gabardine:        'structured gabardine fabric (100% polyester): MATTE finish, firm and opaque, holds its shape, NO sheen, smooth dry surface',
+  elastano_premium: 'premium stretch fabric (polyester with elastane): smooth surface, soft fluid drape, very subtle satin-like sheen, gently follows the body contour',
+  poliamida:        'lightweight technical polyamide "Tec Easy" fabric (polyamide with elastane): soft, slight silky/satin sheen, athletic 4-way stretch, fluid lightweight drape',
+  crepe:            'fine crepe knit (polyester with elastane): subtle pebbled/crinkled surface texture, matte, light and fluid drape',
+  linho:            'linen blend fabric: visible natural woven texture with slubs, fully matte, relaxed earthy/rustic look',
+  microfibra:       'soft microfiber (polyamide with elastane): very smooth, light stretch, soft matte finish',
+  couro_pu:         'PU synthetic leather: smooth surface with a slight controlled sheen',
+};
+// _site_tecido (string do catálogo) → família
+const EST_TECIDO_ALIAS = {
+  'gabardine': 'gabardine',
+  'elastano premium': 'elastano_premium', 'premium com elastano': 'elastano_premium',
+  'crepe com elastano': 'crepe', 'elastano': 'elastano_premium',
+  'poliamida': 'poliamida', 'tec easy': 'poliamida',
+  'crepe': 'crepe', 'malha crepe': 'crepe',
+  'linho': 'linho', 'microfibra': 'microfibra',
+  'couro pu': 'couro_pu', 'couro': 'couro_pu',
+};
+// Prefixo do SKU (antes do 1º "-") → família  (do catálogo .md)
+const EST_TECIDO_SKU = {
+  '378':'gabardine','383':'gabardine','377':'gabardine','388':'gabardine','373':'gabardine',
+  '376':'gabardine','368':'gabardine','060':'gabardine','070':'gabardine','497':'gabardine',
+  '343':'elastano_premium','300':'elastano_premium','440':'elastano_premium','391':'elastano_premium',
+  '349':'elastano_premium','605':'elastano_premium',
+  '080':'poliamida','090':'poliamida',
+  '610':'crepe',
+  '489':'linho','490':'linho','492':'linho',
+  '101':'couro_pu','401':'couro_pu',
+  // 002 (gorro) e 004 (turbante) variam por cor — não mapeia por prefixo, cai no nome/site
+};
+// Palavra-chave no NOME da linha → família (último recurso, aproximado)
+const EST_TECIDO_LINHA = [
+  ['tec easy','poliamida'], ['loren','poliamida'], ['lorenzo','poliamida'], ['clara','poliamida'], ['benicio','poliamida'],
+  ['glamour','crepe'], ['orli','crepe'], ['isabel','crepe'],
+  ['linho','linho'], ['turbante','microfibra'], ['lurex','microfibra'],
+  ['heloisa','elastano_premium'], ['dani','elastano_premium'], ['rute','elastano_premium'], ['isac','elastano_premium'],
+  ['princess','elastano_premium'], ['ayla','elastano_premium'], ['ester','elastano_premium'], ['kate','elastano_premium'],
+  ['laila','elastano_premium'], ['lia','elastano_premium'], ['noah','elastano_premium'], ['diana','elastano_premium'],
+  ['chloe','gabardine'], ['clinic','gabardine'], ['manuela','gabardine'], ['maitê','gabardine'], ['maite','gabardine'],
+  ['mariah','gabardine'], ['marta','gabardine'], ['gorro','gabardine'], ['gestante','gabardine'], ['bernardo','gabardine'],
+  ['heitor','gabardine'], ['joão','gabardine'], ['joao','gabardine'], ['manoel','gabardine'], ['paulo','gabardine'],
+];
+// Resolve a família de tecido do produto escolhido (mais confiável → menos)
+function estResolverTecido(p) {
+  if (!p) return null;
+  const norm = s => (s || '').toString().toLowerCase().trim();
+  // 1) tecido vindo do catálogo do site (por SKU — mais confiável)
+  const st = norm(p._site_tecido);
+  if (st && EST_TECIDO_ALIAS[st]) return EST_TECIDO_ALIAS[st];
+  for (const k in EST_TECIDO_ALIAS) { if (st && st.includes(k)) return EST_TECIDO_ALIAS[k]; }
+  // 2) prefixo do SKU
+  const sku = norm(p.codigo);
+  const pref = sku.split('-')[0];
+  if (pref && EST_TECIDO_SKU[pref]) return EST_TECIDO_SKU[pref];
+  // 3) palavra-chave no nome da linha
+  const nome = norm(p.nome);
+  for (const [kw, fam] of EST_TECIDO_LINHA) { if (nome.includes(kw)) return fam; }
+  return null; // desconhecido → não injeta nada (não inventa)
+}
+
 // Stub mantido pra compat com o hook de entrar na view (não pré-carrega mais)
 async function estCarregarProdutos() { return; }
 
@@ -24655,7 +24720,19 @@ window.estGerar = async function() {
     });
     const dataPrompt = await resPrompt.json();
     if (dataPrompt.error) throw new Error(dataPrompt.error);
-    const promptVisual = dataPrompt.prompt;
+    let promptVisual = dataPrompt.prompt;
+
+    // ── Educação de tecido: injeta a "cara" real do tecido Dana ──
+    // (impede a IA de chutar denim/algodão/cetim pela foto)
+    const _fam = estResolverTecido(estState.produto);
+    let _tecidoInfo = '';
+    if (_fam && EST_TECIDO_VISUAL[_fam]) {
+      const _v = EST_TECIDO_VISUAL[_fam];
+      promptVisual += `\n\nFABRIC ACCURACY (critical — do NOT guess the fabric from the photo): the garment is made of ${_v}. Render the cloth EXACTLY with this look — correct sheen, surface texture, weight and drape. Do NOT depict it as denim, cotton, jersey, silk, satin or any fabric other than the one described.`;
+      _tecidoInfo = ` · 🧵 tecido: ${_fam.replace('_',' ')}`;
+    } else {
+      _tecidoInfo = ' · 🧵 tecido: não identificado (sem injeção)';
+    }
     // Debug visivel: mostra o prompt gerado num <details>
     let debugBox = document.getElementById('est-debug-prompt');
     if (!debugBox) {
@@ -24666,7 +24743,7 @@ window.estGerar = async function() {
     }
     debugBox.innerHTML = `
       <details ${dataPrompt.viu_imagem ? '' : 'open'}>
-        <summary style="cursor:pointer;font-weight:600;color:#7c3aed">🔍 Prompt gerado (provider: ${esc(dataPrompt.provider || '?')}${dataPrompt.viu_imagem === false ? ' · ⚠ não viu a imagem do produto' : ' · ✓ viu imagem'})</summary>
+        <summary style="cursor:pointer;font-weight:600;color:#7c3aed">🔍 Prompt gerado (provider: ${esc(dataPrompt.provider || '?')}${dataPrompt.viu_imagem === false ? ' · ⚠ não viu a imagem do produto' : ' · ✓ viu imagem'}${esc(_tecidoInfo)})</summary>
         <div style="margin-top:8px;padding:10px;background:var(--white);border-radius:6px;color:var(--text);line-height:1.5;max-height:240px;overflow-y:auto">${esc(promptVisual)}</div>
       </details>
     `;
