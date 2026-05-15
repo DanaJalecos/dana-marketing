@@ -9660,13 +9660,13 @@ updateDynamicField('foto');
         <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px">A IA gera N versões do mesmo prompt — cada uma sai um pouco diferente. Você escolhe a melhor.</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <label class="est-var-label selected" data-v="1">
-            <input type="radio" name="est-variacoes" value="1" checked style="margin:0" onchange="estUpdateVariacoes()">1 imagem (~R$ 0,20)
+            <input type="radio" name="est-variacoes" value="1" checked style="margin:0" onchange="estUpdateVariacoes()">1 imagem (<span class="est-var-preco" data-n="1">~R$ 0,20</span>)
           </label>
           <label class="est-var-label" data-v="2">
-            <input type="radio" name="est-variacoes" value="2" style="margin:0" onchange="estUpdateVariacoes()">2 variações (~R$ 0,40)
+            <input type="radio" name="est-variacoes" value="2" style="margin:0" onchange="estUpdateVariacoes()">2 variações (<span class="est-var-preco" data-n="2">~R$ 0,40</span>)
           </label>
           <label class="est-var-label" data-v="3">
-            <input type="radio" name="est-variacoes" value="3" style="margin:0" onchange="estUpdateVariacoes()">3 variações (~R$ 0,60)
+            <input type="radio" name="est-variacoes" value="3" style="margin:0" onchange="estUpdateVariacoes()">3 variações (<span class="est-var-preco" data-n="3">~R$ 0,60</span>)
           </label>
         </div>
       </div>
@@ -9692,8 +9692,8 @@ updateDynamicField('foto');
       </div>
 
       <div style="background:var(--amber-bg);border:1px solid var(--amber);border-radius:8px;padding:12px 14px;margin-bottom:14px">
-        <div style="font-weight:700;font-size:13px;color:var(--amber);margin-bottom:4px">💰 Custo estimado: ~R$ 0,20 por imagem</div>
-        <div style="font-size:11.5px;color:var(--amber)">Usa Gemini 2.5 Flash Image (paga). O custo é multiplicado pelo número de variações. Acompanhe em <a href="#" onclick="go(document.querySelector('[onclick*=admin]'),'admin');setTimeout(()=>switchAdminTab(document.querySelector('[onclick*=custos-ia]'),'custos-ia'),300);return false;" style="color:var(--amber);text-decoration:underline">Admin · Custos IA</a>.</div>
+        <div style="font-weight:700;font-size:13px;color:var(--amber);margin-bottom:4px">💰 Custo estimado: <span id="est-custo-total">~R$ 0,20</span> <span id="est-custo-detalhe" style="font-weight:500"></span></div>
+        <div style="font-size:11.5px;color:var(--amber)"><span id="est-custo-modelo">Usa Gemini 2.5 Flash Image (paga).</span> O custo é multiplicado pelo número de variações. Acompanhe em <a href="#" onclick="go(document.querySelector('[onclick*=admin]'),'admin');setTimeout(()=>switchAdminTab(document.querySelector('[onclick*=custos-ia]'),'custos-ia'),300);return false;" style="color:var(--amber);text-decoration:underline">Admin · Custos IA</a>.</div>
       </div>
     </div>
     <div style="display:flex;justify-content:space-between">
@@ -24213,12 +24213,38 @@ window.estSyncImagens = async function() {
   }
 };
 
+// Preço unitário por modelo (espelha CUSTO_FLASH/CUSTO_PRO da edge gerar-avatar-ia)
+const EST_PRECO = { flash: 0.20, pro: 0.65 };
+const _estBRL = n => '~R$ ' + n.toFixed(2).replace('.', ',');
+
+// Recalcula TODOS os preços (labels de variação + aviso de custo) conforme o modelo
+window.estRecalcPrecos = function() {
+  const q = document.querySelector('input[name="est-qualidade"]:checked')?.value || 'flash';
+  const unit = EST_PRECO[q] || EST_PRECO.flash;
+  // Preço por opção de variação (1, 2, 3)
+  document.querySelectorAll('.est-var-preco').forEach(sp => {
+    const n = parseInt(sp.dataset.n || '1');
+    sp.textContent = _estBRL(unit * n);
+  });
+  // Aviso de custo embaixo (usa a qtd selecionada)
+  const numVar = parseInt(document.querySelector('input[name="est-variacoes"]:checked')?.value || '1');
+  const totalEl = document.getElementById('est-custo-total');
+  const detEl = document.getElementById('est-custo-detalhe');
+  const modeloEl = document.getElementById('est-custo-modelo');
+  if (totalEl) totalEl.textContent = _estBRL(unit * numVar);
+  if (detEl) detEl.textContent = numVar > 1 ? `(${_estBRL(unit)} × ${numVar} variações)` : `por imagem`;
+  if (modeloEl) modeloEl.textContent = q === 'pro'
+    ? 'Usa Nano Banana Pro (Gemini 3 Pro Image — muito mais fiel).'
+    : 'Usa Gemini 2.5 Flash Image (paga).';
+};
+
 // Atualiza visual dos radios quando user troca quantidade de variacoes
 window.estUpdateVariacoes = function() {
   const v = document.querySelector('input[name="est-variacoes"]:checked')?.value;
   document.querySelectorAll('.est-var-label').forEach(el => {
     el.classList.toggle('selected', el.dataset.v === v);
   });
+  estRecalcPrecos();
 };
 
 // Seleção de qualidade do modelo (flash padrão / pro fiel)
@@ -24226,6 +24252,7 @@ window.estSelQualidade = function(el, q) {
   document.querySelectorAll('.est-qual-label').forEach(x => x.classList.toggle('selected', x.dataset.q === q));
   const radio = el.querySelector('input[type="radio"]');
   if (radio) radio.checked = true;
+  estRecalcPrecos();
 };
 
 window.estCarregarGaleria = async function() {
