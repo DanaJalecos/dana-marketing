@@ -9319,4 +9319,41 @@ Plus: alguns contatos têm `"0000-00-00"` (não preenchido).
 
 ---
 
-**Fim da documentação · Atualizado em 14/05/2026 noite — Sections 91-92 (sessão master com estoque/funil/URLs + plano Aniversariantes pra próxima sessão) · v12.8**
+## 93. CICLO 15/05/2026 — Sessão master 2 (Aniversariantes deploy + Influencer OS Fase 1 + Gamificação vendedoras + fixes)
+
+> Sessão longa. Tudo abaixo está **deployado** em `danajalecos/main` (Vercel) e/ou aplicado no Supabase `wltmiqbhziefusnzmmkt` via Management API (token em `TOKENS ANALYTICS/Token novo supabase.txt`). Edges via `npx supabase functions deploy --project-ref wltmiqbhziefusnzmmkt`. Deploy frontend = commit em `claude/vibrant-davinci` → worktree em `danajalecos/main` → cherry-pick → `git push danajalecos HEAD:main`. `index.html` é inline (sem cache-bust); `cliente-360-boot.js?v=N` (hoje **v=75**). Vercel deploya de **DanaJalecos/main** (origin=DanaComercial deprecated). Se push rápido não dispara Vercel → commit vazio extra re-dispara.
+
+### 93.1 ANIVERSARIANTES — executado (era o plano Section 92)
+- SQL `sql-aniversariantes.sql`: `contatos` +data_nascimento/sexo/nascimento_sincronizado_em; tabela `cupons_aniversario`; RPCs `aniversariantes_do_mes(p_vendedor_id,p_mes)`, `contatos_para_sync_nascimento(modo,limite)` — **refatorada** pra NÃO usar a view cara: usa `cliente_vendedor_manual` + `pedidos JOIN vendedor_mapping`; `marcar_cupom_enviado`.
+- Edges: `sync-contatos-detalhes`, `gerar-cupom-aniversario`, `send-email-aniversariantes` (condicional `email_config.resend_dns_configurado`).
+- Crons: `alertar_aniversariantes_dia` (sino), `email_aniversariantes_dia` (condicional DNS), `sync_aniv_diario` (modo ativos), `sync_aniv_burst_fase1` (*/3 — **AGORA modo `todos`**, varrendo ~36k contatos restantes).
+- Frontend `cliente-360-boot.js`: widget "🎂 Aniversariantes" + modal cupom + hook showClientDetail + handler alerta `aniversario_cliente` em index.html.
+- **BUG CRÍTICO corrigido**: sync usava só token Bling matriz (id=1). BC tem conta Bling separada (`bling_tokens` id=2, client/secret próprios) → 0/2722 BC. Edge agora escolhe token por `empresa`. Reset: 12.436 BC re-enfileirados. Widget respeita filtro empresa do C360.
+- Estado: matriz ~1.951 c/ nascimento (159 este mês), BC re-sincronizando. ~42% matriz / ~60% BC. ⚠️ Bling tem **anos furados** (ex 2099) — só usa dia+mês, não quebra.
+
+### 93.2 INFLUENCER OS — Fase 1 (plano aprovado, executado)
+- SQL `sql-influenciadores-v2.sql`: expande `influenciadores` (profile_id, bling_vendedor_id, empresa, nivel, comissao_pct_override + CRM); tabelas `influenciador_niveis` (nano5/creator8/embaixador10/elite15), `influenciador_recebidos`, `influenciador_creditos`; view `influenciador_vendas` (pedidos por vendedor Bling, exclui situacao_id=12); RPCs `influenciador_painel(p_id UUID)` [admin] e `influenciador_meu_painel()` [portal, RLS profile_id=auth.uid()]; cargo `influenciador`. **influenciadores.id é UUID.**
+- Edge `gerar-credito-influenciador`: comissão → `CRED-{slug}-{seq}`, status gerado→cadastrado_bling→resgatado/cancelado.
+- Frontend index.html: CRM admin expandido + botão 💰 Painel (comissão auto + créditos + gerar + ciclo status manual) + 👁 Preview portal + `view-portal_influenciador` (firstAllowedView + applyNavPermissions + antibug localStorage). CARGO_LABELS + dropdown ganham "Influenciador".
+- Validado: vendedor 948 ped/R$417k → creator 8%=R$33.403; override 12%=R$50.105. Teste "🧪 TESTE Influencer (Carol Demo)" (bling 15596596119 matriz) — **APAGAR depois**.
+- Decisões: portal interno; comissão nível+override; resgate=código manual no Bling (Magazord READ-ONLY); modelo crédito-no-site (não dinheiro).
+
+### 93.3 GAMIFICAÇÃO VENDEDORAS (Manu, 5 perguntas respondidas)
+- RPC `gamificacao_vendedoras(p_mes)`: vendedor (cargo vendedor/vendedor_b2b, exclui `vendedor_mapping.excluir_ranking=true`): atividade (activity_log), contatos (cliente_status_historico), **conversões = pedidos reais não-cancelados via vendedor_mapping** (não status manual), vendas_reais. Pontos = ações×1 + contatos×3 + venda×25. Reinicia/mês.
+- Widget "🏆 Ranking de engajamento" no Meus Clientes (admin aberto; vendedora destaca "VOCÊ"). Só ranking, sem bônus R$.
+
+### 93.4 Outros fixes
+- **C360 "prontos recompra"**: usava score≥80+30d (BC=0). Agora usa `cliente_ciclo_compra` (recorrente 3+, passou do ciclo, janela 1.8×). RPC `clientes_alerta(empresa,tipo)` unificada pros 4 cards (lista=card; antes cortava no top-5000).
+- **Estúdio IA**: PIN Dana ref (kanban/brandkit-pins/*, coroa vazada); logo bordado removido; **Nano Banana Pro** (`gemini-3-pro-image-preview`) opção paga R$0,65 c/ preços dinâmicos+modal confirm; botão Excluir peças (RLS fix: era admin-only → policies SELECT/INSERT authenticated); limite por cargo `avatares_ia_limite_cargo` (designer=10/dia).
+- **Catálogo**: imagem repetida entre variações → re-scrape og:image (~76 corrigidos). 4 produtos descontinuados no site sem fonte (deixados).
+- **Permissões**: Keila→Bling BC 15596452366; Telma desativada (mapping ativo=false + login banido, NÃO hard-delete; 776 clientes ficaram sem vendedor); Beatriz BC clientes read-only (👁 Apoio) pras outras BC; senha Diego (b2b@) resetada Dana2026!.
+- Nav: Tráfego topo Marketing; "Campanhas"→"Campanhas Pagas". Briefing dark-mode fix. Admin Atividades limite 100→5000 + período "Tudo".
+
+### 93.5 O QUE FALTA (próxima sessão)
+**Aniversariantes:** Juan gera criativo no Estúdio IA → sobe `criativos-aniversario/padrao.png`; configurar DNS Resend → `UPDATE email_config SET resend_dns_configurado=true WHERE id=1`; **desligar burst** `sync_aniv_burst_fase1` quando `falta_tentar` zerar (~1 dia) `SELECT cron.unschedule((SELECT jobid FROM cron.job WHERE jobname='sync_aniv_burst_fase1'))`; opcional filtro sanidade idade.
+**Influencers:** Juan cria login (cargo Influenciador) p/ creators reais + vincula no CRM; confirmar Bling cupom→vendedor; apagar teste Carol Demo. **Fase 2** (custo R$0): Content Hub, IA briefings, alertas, ranking creators, mapa, heatmap, dashboard exec, embaixadores. **Fase 3** (externo): Instagram (Meta/Modash) + cupom no checkout (Magazord manual).
+**Gamificação:** alinhar treinamento segunda; pesos ajustáveis na RPC.
+
+---
+
+**Fim da documentação · Atualizado em 15/05/2026 — Section 93 (Aniversariantes deploy + Influencer OS Fase 1 + Gamificação vendedoras + fixes) · v12.9**
