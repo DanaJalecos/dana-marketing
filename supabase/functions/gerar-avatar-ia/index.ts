@@ -21,12 +21,13 @@ const CUSTO_PRO = 0.65
 // Logo Dana "Principal Horizontal" (midia kit) pra usar como referencia em image-to-image
 const LOGO_DANA_URL = 'https://comlppiwzniskjbeneos.supabase.co/storage/v1/object/public/kanban/brandkit-logo-1776433663865-vn4wml.png'
 
-// PIN Dana — plaquinha em losango com coroa estilizada cortada no centro.
-// 2 referencias: PIN isolado (forma+material limpos) + PIN em jaleco bordô ouro (proporção/posição reais).
-// Aplicado sempre que tiver jaleco/scrub no prompt (mesma regra que o logo).
+// PIN Dana — plaquinha em losango com coroa VAZADA (recorte) no centro.
+// ORDEM IMPORTA: 1ª = foto REAL do pin no jaleco bordô (IMG_5242 — referência
+// definitiva, coroa claramente recortada mostrando o tecido). 2ª = render
+// isolado (PIN em.png — forma/material, secundária).
 const PIN_DANA_URLS = [
-  'https://wltmiqbhziefusnzmmkt.supabase.co/storage/v1/object/public/kanban/brandkit-pins/pin-isolado.png',
   'https://wltmiqbhziefusnzmmkt.supabase.co/storage/v1/object/public/kanban/brandkit-pins/pin-jaleco-bordo-ouro.jpg',
+  'https://wltmiqbhziefusnzmmkt.supabase.co/storage/v1/object/public/kanban/brandkit-pins/pin-isolado.png',
 ]
 
 // Palavras-chave que indicam que o prompt eh sobre roupa Dana (jaleco/scrub/uniforme)
@@ -261,13 +262,17 @@ WHAT IT IS:
 - NOT text. NOT embroidery. NOT a printed graphic. NOT a sticker. NOT a button.
 - It is a SOLID METAL PLAQUE with weight, depth, and a metallic reflective surface.
 
-EXACT DESIGN (copy from ${pinRefDesc}):
-- Outer shape: DIAMOND / RHOMBUS — a 4-sided square rotated 45° so points face up/down/left/right.
-- Center cutout: a stylized CROWN silhouette (3-point classic crown with rounded peaks) is REMOVED from the center of the plaque, creating a window. The fabric color of the garment shows THROUGH this crown-shaped hole.
-- Material: polished gold-tone metal (warm yellow/gold finish) for most garments. On white/light fabrics it can also be silver-tone or white enamel with navy crown.
-- The metal edge of the diamond has a thin raised border/frame — visible as a darker outline around the diamond shape.
-- Size: ~1.5-2cm wide (clearly visible at medium distance, NOT tiny).
-- Two visible attachment threads: tiny loops where the pin pierces through the fabric (left and right corners of the diamond).
+EXACT DESIGN — STUDY THE FIRST REFERENCE IMAGE (${pinRefDesc}) PIXEL BY PIXEL:
+- Outer shape: a small DIAMOND / RHOMBUS metal plaque — a square rotated 45° so the four points face up / down / left / right. Solid polished gold metal, flat, with a thin raised border framing the edge.
+- THE CROWN IS A NEGATIVE-SPACE CUTOUT, NOT AN ENGRAVING, NOT A RELIEF, NOT A RAISED SHAPE:
+  • A stylized 3-point crown is physically PUNCHED OUT / LASER-CUT clean through the metal — an empty hole shaped like a crown.
+  • Through that crown-shaped hole you see the GARMENT FABRIC behind it (same color/pattern as the cloth the pin is on). The crown is literally a window to the fabric.
+  • The crown is solid empty space — do NOT render a golden crown sitting on top, do NOT emboss it, do NOT make it a 3D bump. It is a clean hollow silhouette.
+- Crown shape: simple, geometric, 3 triangular/rounded peaks (like the reference) — minimalist, not ornate, no jewels, no cross on top.
+- Material/color: polished GOLD-tone metal (warm yellow gold, reflective) — match the first reference exactly. (On very light/white fabrics it may instead be silver-tone or white enamel — but default is gold.)
+- Two tiny round holes near the left and right side points of the diamond, with thin thread loops passing through them (this is how it pins to the cloth — visible in the reference).
+- Size: ~1.5-2cm wide, clearly visible and sharp at medium distance (NOT a blurry dot, NOT oversized).
+- The metal must read as a real solid 3D object catching light, with the crown as a crisp clean hole — exactly like the first reference photo.
 
 POSITION — CRITICAL, READ TWICE:
 ✅ PLACE IT HERE: On the upper RIGHT CHEST area, directly on the FRONT CHEST FABRIC PANEL of the garment. Specifically:
@@ -293,7 +298,9 @@ SIZE / VISIBILITY:
    ❌ If the pin is on the shoulder, sleeve, collar, or anywhere above the chest line → WRONG, relocate it.
 3. ✅ Is the pin clearly a DIAMOND shape (rhombus, points up/down/left/right) with a CROWN cut out in the center?
    ❌ If the pin is round, square (corners up), oval, or has no visible crown cutout → WRONG, redraw it.
-4. ✅ Is the pin LARGE ENOUGH to be recognizable (~1.5-2cm wide, not a tiny dot)?
+4. ✅ Is the crown a CLEAN HOLLOW CUTOUT showing the fabric through it (negative space)?
+   ❌ If the crown is a raised/embossed/3D golden shape on top of the metal, or an engraving, or a blurry blob → WRONG. It must be an empty crown-shaped HOLE revealing the cloth behind, exactly like the first reference photo.
+5. ✅ Is the pin LARGE ENOUGH and SHARP to be recognizable (~1.5-2cm wide, crisp, not a tiny blurry dot)?
 
 The pin is the ONLY brand element. The fabric must otherwise be completely clean.
 ═══════════════════════════════════════════════════════════════
