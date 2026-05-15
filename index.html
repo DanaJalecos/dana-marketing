@@ -3758,6 +3758,27 @@ select.input { cursor: pointer; }
         <div style="text-align:center;color:var(--text3);font-size:12px;padding:30px">Carregando...</div>
       </div>
     </div>
+
+    <!-- Mapa + Heatmap (Onda 3) -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px">
+      <div class="card">
+        <div class="card-title">🗺️ Mapa de Influência</div>
+        <div class="card-sub" style="margin-bottom:12px">Creators e receita por região do Brasil</div>
+        <div id="ifd-mapa"><div style="text-align:center;color:var(--text3);font-size:12px;padding:24px">Carregando...</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">🔥 Heatmap Região × Nicho</div>
+        <div class="card-sub" style="margin-bottom:12px">Concentração de creators por nicho e região</div>
+        <div id="ifd-heatmap" style="overflow-x:auto"><div style="text-align:center;color:var(--text3);font-size:12px;padding:24px">Carregando...</div></div>
+      </div>
+    </div>
+
+    <!-- Embaixadores: candidatos a promoção (Onda 3) -->
+    <div class="card" style="margin-top:14px">
+      <div class="card-title">⭐ Candidatos a Promoção (Embaixadores)</div>
+      <div class="card-sub" style="margin-bottom:12px">Creators que pela receita gerada merecem subir de nível. Promover muda a % de comissão — confirme antes.</div>
+      <div id="ifd-promo"><div style="text-align:center;color:var(--text3);font-size:12px;padding:24px">Carregando...</div></div>
+    </div>
   </div>
 
   <!-- Tab: Lista -->
@@ -19555,6 +19576,7 @@ async function loadInfluDashboard() {
     document.getElementById('ifd-kpi-ativos').textContent = ativos.length;
     document.getElementById('ifd-kpi-map').textContent = comMap + ' com vínculo Bling';
     renderInfluDashboard();
+    loadInfluMapaHeatPromo();
   } catch (e) {
     console.error('loadInfluDashboard:', e);
     if (tb) tb.innerHTML = `<div style="color:var(--red);font-size:12px;padding:12px">Erro: ${esc(e.message || e)}</div>`;
@@ -19596,6 +19618,120 @@ function renderInfluDashboard() {
   h += '</tbody></table>';
   tb.innerHTML = h;
 }
+
+// ── Onda 3: Mapa + Heatmap + Embaixadores ──
+let _influPromoCache = [];
+async function loadInfluMapaHeatPromo() {
+  const fmtR = _ifdFmtR;
+  const elM = document.getElementById('ifd-mapa');
+  const elH = document.getElementById('ifd-heatmap');
+  const elP = document.getElementById('ifd-promo');
+  try {
+    const [mapa, heat, promo] = await Promise.all([
+      sb.rpc('influenciador_mapa'),
+      sb.rpc('influenciador_heatmap'),
+      sb.rpc('influenciador_promocao_sugestoes'),
+    ]);
+
+    // --- Mapa por região ---
+    if (elM) {
+      const rows = mapa.data || [];
+      const porReg = {};
+      rows.forEach(r => {
+        const k = r.regiao || '(sem região)';
+        if (!porReg[k]) porReg[k] = { creators: 0, receita: 0 };
+        porReg[k].creators += +r.creators || 0;
+        porReg[k].receita += +r.receita_bruta || 0;
+      });
+      const regs = Object.entries(porReg).sort((a, b) => b[1].creators - a[1].creators);
+      const maxC = Math.max(1, ...regs.map(r => r[1].creators));
+      elM.innerHTML = regs.length ? regs.map(([reg, v]) => `
+        <div style="margin-bottom:9px">
+          <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:3px">
+            <span style="font-weight:600">${esc(reg)}</span>
+            <span style="color:var(--text3)">${v.creators} creator(s)${v.receita > 0 ? ' · ' + fmtR(v.receita) : ''}</span>
+          </div>
+          <div style="height:7px;background:var(--bg2);border-radius:4px;overflow:hidden">
+            <div style="height:100%;width:${Math.round(v.creators / maxC * 100)}%;background:var(--blue)"></div>
+          </div>
+        </div>`).join('') : '<div style="color:var(--text3);font-size:12px;padding:16px;text-align:center">Sem dados.</div>';
+    }
+
+    // --- Heatmap região × nicho ---
+    if (elH) {
+      const rows = heat.data || [];
+      if (!rows.length) {
+        elH.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:16px;text-align:center">Sem dados.</div>';
+      } else {
+        const regioes = [...new Set(rows.map(r => r.regiao))];
+        const nichos = [...new Set(rows.map(r => r.nicho))];
+        const map = {};
+        let maxV = 0;
+        rows.forEach(r => { const k = r.regiao + '|' + r.nicho; map[k] = +r.creators || 0; maxV = Math.max(maxV, map[k]); });
+        let t = '<table style="border-collapse:collapse;font-size:10.5px;width:100%"><thead><tr><th style="padding:4px 6px;text-align:left;color:var(--text3)"></th>'
+          + nichos.map(n => `<th style="padding:4px 6px;color:var(--text3);font-weight:600;writing-mode:vertical-rl;transform:rotate(180deg);max-height:80px">${esc(n)}</th>`).join('') + '</tr></thead><tbody>';
+        regioes.forEach(reg => {
+          t += `<tr><td style="padding:4px 6px;font-weight:600;white-space:nowrap">${esc(reg)}</td>`;
+          nichos.forEach(n => {
+            const v = map[reg + '|' + n] || 0;
+            const op = maxV ? (0.12 + 0.78 * v / maxV) : 0;
+            t += `<td style="padding:0;text-align:center"><div title="${esc(reg)} · ${esc(n)}: ${v}" style="margin:1px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:4px;background:${v ? `rgba(168,85,247,${op.toFixed(2)})` : 'var(--bg2)'};color:${v && op > 0.5 ? '#fff' : 'var(--text2)'};font-weight:600">${v || ''}</div></td>`;
+          });
+          t += '</tr>';
+        });
+        t += '</tbody></table>';
+        elH.innerHTML = t;
+      }
+    }
+
+    // --- Embaixadores: candidatos ---
+    _influPromoCache = promo.data || [];
+    if (elP) {
+      if (!_influPromoCache.length) {
+        elP.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:16px;text-align:center">Nenhum creator pronto pra subir de nível agora. 👍</div>';
+      } else {
+        elP.innerHTML = '<div style="display:flex;flex-direction:column;gap:8px">' + _influPromoCache.map(p => `
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;background:var(--bg2);border-radius:8px">
+            <div style="flex:1;min-width:200px">
+              <div style="font-weight:700;font-size:12.5px">${esc(p.nome)}</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px">
+                ${fmtR(+p.receita_bruta || 0)} gerados · ${p.total_pedidos || 0} pedidos
+              </div>
+            </div>
+            <div style="font-size:11.5px;color:var(--text2)">
+              <span style="color:var(--text3)">${esc(p.nivel_atual_label)} (${p.pct_atual}%)</span>
+              <span style="margin:0 6px">→</span>
+              <span style="color:var(--amber);font-weight:700">${esc(p.nivel_sugerido_label)} (${p.pct_sugerido}%)</span>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="influPromover('${p.influenciador_id}','${p.nivel_sugerido}','${esc(p.nivel_sugerido_label)}',${p.pct_sugerido})">⭐ Promover</button>
+          </div>`).join('') + '</div>';
+      }
+    }
+  } catch (e) {
+    console.error('loadInfluMapaHeatPromo:', e);
+    [elM, elH, elP].forEach(el => { if (el) el.innerHTML = `<div style="color:var(--red);font-size:12px;padding:12px">Erro: ${esc(e.message || e)}</div>`; });
+  }
+}
+
+window.influPromover = async function(id, nivel, label, pct) {
+  if (!confirm(`Promover este creator para ${label} (${pct}% de comissão)?\n\nIsso muda a % de comissão dele a partir de agora.`)) return;
+  try {
+    const { error } = await sb.from('influenciadores').update({ nivel }).eq('id', id);
+    if (error) throw error;
+    showToast(`✨ Promovido para ${label}!`);
+    // resolve alerta de promoção pendente desse creator
+    try {
+      await sb.from('alertas').update({ resolvido_em: new Date().toISOString() })
+        .eq('tipo', 'influ_promocao').is('resolvido_em', null)
+        .filter('dados->>influenciador_id', 'eq', id);
+    } catch {}
+    loadInfluDashboard();
+    if (typeof loadInfluenciadores === 'function') loadInfluenciadores();
+  } catch (e) {
+    console.error('influPromover:', e);
+    showToast('Erro ao promover: ' + (e.message || e));
+  }
+};
 
 async function loadInfluenciadores() {
   try {
