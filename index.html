@@ -19827,6 +19827,7 @@ window.influAbrirPainel = async function(id) {
       </div>
       <table style="width:100%;font-size:12px;margin-bottom:12px"><thead><tr><th>Código</th><th style="text-align:right">Valor</th><th>Status</th><th>Data</th></tr></thead><tbody>${credRows}</tbody></table>
       <button class="btn btn-primary" style="width:100%" ${saldo < 1 ? 'disabled' : ''} onclick="influGerarCredito('${id}', ${Math.floor(saldo)})">${saldo < 1 ? 'Sem saldo pra resgatar' : '🎟️ Gerar crédito de ' + fmtR(Math.floor(saldo))}</button>
+      <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="influPreviewPortal('${id}')">👁 Ver como a influencer vê (preview do portal)</button>
       <div style="font-size:10.5px;color:var(--text3);margin-top:8px">O código gerado deve ser cadastrado no Bling/Magazord como cupom de valor fixo.</div>`;
   } catch (e) {
     document.getElementById('influ-painel-body').innerHTML = `<div style="color:var(--red)">Erro: ${esc(e.message||String(e))}</div>`;
@@ -19843,6 +19844,55 @@ window.influGerarCredito = async function(id, valor) {
     logActivity('gerou_credito_influenciador', data?.credito?.codigo || id, 'influenciadores');
     influAbrirPainel(id); // refresh
   } catch (e) { showToast('Erro: ' + (e.message || e)); }
+};
+
+// Preview (admin) — mostra exatamente a tela que a influencer vê, read-only
+window.influPreviewPortal = async function(id) {
+  document.getElementById('influ-preview-modal')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="influ-preview-modal" class="modal-overlay" style="display:flex;z-index:10010" onclick="if(event.target===this)this.remove()">
+      <div class="modal" style="max-width:680px;max-height:88vh;overflow-y:auto">
+        <div class="modal-header"><div class="modal-title">👁 Preview do portal (visão da influencer)</div>
+          <button class="modal-close" onclick="document.getElementById('influ-preview-modal').remove()">×</button></div>
+        <div style="font-size:11.5px;color:var(--text3);margin-bottom:14px">É exatamente o que ela vê ao logar. Somente leitura — botões desativados aqui.</div>
+        <div id="influ-preview-body">⏳ Carregando...</div>
+      </div>
+    </div>`);
+  const fmtR = v => 'R$ ' + (Math.round((+v||0)*100)/100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  try {
+    const { data, error } = await sb.rpc('influenciador_painel', { p_id: id });
+    if (error) throw error;
+    const p = Array.isArray(data) ? data[0] : data;
+    if (!p) { document.getElementById('influ-preview-body').innerHTML = 'Sem dados.'; return; }
+    const { data: nivelRow } = await sb.from('influenciador_niveis').select('label').eq('nivel', p.nivel).maybeSingle();
+    const { data: cred } = await sb.from('influenciador_creditos')
+      .select('codigo, valor, status, gerado_em').eq('influenciador_id', id).order('gerado_em', { ascending: false });
+    const receita = p.tem_mapeamento ? +p.receita_bruta : +p.receita_manual;
+    const comissao = p.tem_mapeamento ? +p.comissao_devida : (receita * (+p.comissao_pct)/100);
+    const saldo = p.tem_mapeamento ? +p.saldo_disponivel : Math.max(comissao - (+p.creditos_gerados), 0);
+    const credRows = (cred||[]).length
+      ? (cred||[]).map(c => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+          <div><div style="font-family:monospace;font-weight:700;font-size:13px">${esc(c.codigo)}</div><div style="font-size:11px;color:var(--text3)">${new Date(c.gerado_em).toLocaleDateString('pt-BR')}</div></div>
+          <div style="text-align:right"><div style="font-weight:700">${fmtR(c.valor)}</div><div style="font-size:11px;color:${c.status==='resgatado'?'var(--green)':'var(--amber)'}">${esc(c.status)}</div></div></div>`).join('')
+      : `<div style="text-align:center;color:var(--text3);font-size:12.5px;padding:16px">Nenhum crédito ainda</div>`;
+    document.getElementById('influ-preview-body').innerHTML = `
+      <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:22px;margin-bottom:4px">${esc(p.nome)} 👋</div>
+      <div style="display:inline-block;background:var(--amber-bg);color:var(--amber);font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;margin-bottom:18px">${esc(nivelRow?.label || p.nivel)} · ${(+p.comissao_pct)}% de comissão</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:14px">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px"><div style="font-size:10.5px;color:var(--text3);text-transform:uppercase">Vendas geradas</div><div style="font-size:20px;font-weight:800;margin-top:6px">${fmtR(receita)}</div><div style="font-size:11px;color:var(--text3)">${p.total_pedidos||0} pedidos</div></div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px"><div style="font-size:10.5px;color:var(--text3);text-transform:uppercase">Comissão total</div><div style="font-size:20px;font-weight:800;margin-top:6px;color:var(--amber)">${fmtR(comissao)}</div></div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px"><div style="font-size:10.5px;color:var(--text3);text-transform:uppercase">Saldo pra resgatar</div><div style="font-size:20px;font-weight:800;margin-top:6px;color:var(--green)">${fmtR(saldo)}</div></div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px">
+        <div style="font-weight:700;font-size:14px;margin-bottom:6px">🎟️ Resgatar comissão em crédito</div>
+        <button class="btn btn-primary" style="width:100%" disabled>${saldo < 1 ? 'Sem saldo disponível ainda' : '🎁 Resgatar ' + fmtR(Math.floor(saldo)) + ' (desativado no preview)'}</button>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px">
+        <div style="font-weight:700;font-size:14px;margin-bottom:10px">Meus créditos</div>${credRows}
+      </div>`;
+  } catch (e) {
+    document.getElementById('influ-preview-body').innerHTML = `<div style="color:var(--red)">Erro: ${esc(e.message||String(e))}</div>`;
+  }
 };
 
 // ══════════════════════════════════════════════════════════
