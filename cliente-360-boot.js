@@ -3375,23 +3375,23 @@
     const searchInp = document.querySelector('#page-clientes input[placeholder*="Buscar"]');
     if (searchInp) searchInp.value = '';
 
-    // prontos_recompra agora usa o CICLO de compra individual (RPC) — mesma
-    // regra exata do card. Filtra state.clientes pelos nomes que a RPC retorna.
-    if (tipo === 'prontos_recompra') {
+    // TODOS os 4 alertas usam a RPC clientes_alerta (mesma regra EXATA do
+    // card). Não filtra state.clientes (que é top-5000 por score e cortaria
+    // os clientes de score baixo — justamente o público destes alertas).
+    const tiposRpc = ['prontos_recompra', 'vips_sem_comprar', 'novos_sem_2a', 'alto_potencial'];
+    if (tiposRpc.includes(tipo)) {
       try {
-        const { data, error } = await state.sb.rpc('clientes_prontos_recompra', { p_empresa: state.empresa });
+        const { data, error } = await state.sb.rpc('clientes_alerta', { p_empresa: state.empresa, p_tipo: tipo });
         if (error) throw error;
-        // A RPC retorna os dados COMPLETOS (não só nome) — usa direto, sem
-        // depender de state.clientes (que é top-5000 por score e cortaria
-        // os clientes esfriados, que é justamente o público de recompra).
+        // RPC traz row completo. Reusa o já carregado (tem uf/metadata),
+        // senão monta do RPC enriquecendo uf.
         const map = new Map(state.clientes.map(c => [c.contato_nome, c]));
         state.filtered = (data || []).map(r => {
           const existente = map.get(r.contato_nome);
-          // reusa o row já carregado (tem uf/metadata); senão monta do RPC
           return existente || { ...r, uf: phoneToUF(r.celular || r.telefone) };
         });
       } catch (e) {
-        console.warn('[c360] prontos_recompra rpc:', e);
+        console.warn('[c360] clientes_alerta rpc (' + tipo + '):', e);
         state.filtered = [];
       }
       state.page = 0;
@@ -3399,19 +3399,6 @@
       renderList();
       return;
     }
-
-    // Demais alertas: filtro client-side direto
-    const filters = {
-      vips_sem_comprar: c => c.segmento === 'VIP' && (c.dias_sem_compra||0) > 120,
-      novos_sem_2a: c => (c.total_pedidos||0) === 1 && (c.dias_sem_compra||0) > 30,
-      alto_potencial: c => (c.total_pedidos||0) >= 2 && (c.score||0) >= 70 && (c.dias_sem_compra||0) < 90,
-    };
-    const filtro = filters[tipo];
-    if (!filtro) return;
-    state.filtered = state.clientes.filter(filtro);
-    state.page = 0;
-    if (typeof showPage === 'function') showPage('clientes');
-    renderList();
   };
 
   window.c360ReloadDashboard = async function() {
