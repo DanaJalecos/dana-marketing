@@ -5782,14 +5782,25 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
   }
 
   // ─── View VENDEDOR (só clientes dele + ranking entre vendedoras) ───
+  // Beatriz BC: a carteira dela é visível (somente leitura) pras outras
+  // vendedoras de BC, pra elas poderem ajudar nas vendas. NÃO revincula —
+  // os clientes continuam sendo da Beatriz (vendedor_profile_id intacto).
+  const BEATRIZ_BC_ID = 'eb02ee1b-b02a-4d55-9aae-5a6b7082f89d';
+
   async function renderMcVendedorView(content, perms) {
     const filtros = state.mcVendedorFiltros || {};
-    const [meusBling, manuaisRaw, rankingGeral, totaisGlobais] = await Promise.all([
+    const verApoioBeatriz = state.empresa === 'bc' && perms.profileId !== BEATRIZ_BC_ID;
+    const [meusBling, manuaisRaw, rankingGeral, totaisGlobais, apoioBeatrizRaw] = await Promise.all([
       mcLoadClientes(state.empresa, perms.profileId, filtros.busca || null, 1000, filtros),
       mcLoadClientesManuais(state.empresa, perms.profileId),
       mcLoadRanking(state.empresa).catch(() => []),
       mcLoadTotais(state.empresa).catch(() => null),
+      verApoioBeatriz
+        ? mcLoadClientes('bc', BEATRIZ_BC_ID, filtros.busca || null, 1000, filtros).catch(() => [])
+        : Promise.resolve([]),
     ]);
+    // Marca os clientes da Beatriz como apoio (read-only) — não entram nos KPIs
+    const apoioBeatriz = (apoioBeatrizRaw || []).map(c => ({ ...c, _apoioBeatriz: true }));
     // Popula caches usados pelo mcRenderRankingsBloco (mesma infra do admin)
     state.mcRankingGeralCache = rankingGeral || [];
     state.mcRankingTotalFatCache = Number(totaisGlobais?.faturamento_total || 0);
@@ -5803,6 +5814,11 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     if (filtros.gastoMin != null) manuais = manuais.filter(c => Number(c.total_gasto||0) >= filtros.gastoMin);
     if (filtros.gastoMax != null) manuais = manuais.filter(c => Number(c.total_gasto||0) <= filtros.gastoMax);
     const meus = [...manuais, ...meusBling];
+    // Tabela inclui apoio Beatriz (read-only) DEPOIS da carteira própria.
+    // KPIs/ranking continuam só na carteira própria (meus/todos).
+    const idsMeus = new Set(meus.map(c => c.contato_id));
+    const apoioFiltrado = apoioBeatriz.filter(c => !idsMeus.has(c.contato_id));
+    const meusComApoio = [...meus, ...apoioFiltrado];
     // FASE 5 expansão: contagem efetiva pra chip do filtro produto (interseção carteira × compraram)
     state._mcProdutoContagemEfetiva = state.mcProdutoFiltro ? meus.length : null;
     // KPIs gerais (da carteira inteira, nao filtrada) — chamada separada sem filtros
@@ -5846,8 +5862,9 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
         ${mcRenderFiltrosBar(filtros, true)}
 
+        ${apoioFiltrado.length > 0 ? `<div style="margin:14px 0 -4px;font-size:11.5px;color:#64748b">👁 Você também vê <strong style="color:#a78bfa">${apoioFiltrado.length}</strong> clientes da Beatriz (apoio · somente leitura — continuam na carteira dela).</div>` : ''}
         <div id="mc-tabela-wrap" style="margin-top:14px">
-          ${meus.length === 0 && !temFiltroAtivo ? mcEmptyCarteira(perms) : (meus.length === 0 ? mcSemResultados() : mcTabelaClientes(meus, perms))}
+          ${meusComApoio.length === 0 && !temFiltroAtivo ? mcEmptyCarteira(perms) : (meusComApoio.length === 0 ? mcSemResultados() : mcTabelaClientes(meusComApoio, perms))}
         </div>
       </div>
     `;
@@ -7089,15 +7106,18 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
         ? escapeHtml(c.vendedor_nome) + (c.vendedor_fonte === 'manual' ? ' <span style="font-size:10px;color:#4ade80">●</span>' : '')
         : '<span style="color:#fb923c">—</span>';
       const ehManual = !!c.manual_id;
-      const reatribuirBtn = (perms.podeReatribuir && !ehManual)
+      const ehApoio = !!c._apoioBeatriz;
+      // Apoio Beatriz é SOMENTE LEITURA — nunca mostra reatribuir
+      const reatribuirBtn = (perms.podeReatribuir && !ehManual && !ehApoio)
         ? `<button onclick="event.stopPropagation();window.c360McReatribuir(${c.contato_id || 0}, '${escapeHtml(c.empresa)}', '${escapeHtml(c.contato_nome).replace(/'/g,'&#39;')}', '${c.vendedor_profile_id || ''}')" style="padding:4px 8px;border-radius:6px;border:1px solid rgba(167,139,250,0.35);background:rgba(167,139,250,0.08);color:#c4b5fd;cursor:pointer;font-size:11px">🔀</button>`
         : '';
       const badgeDMS = ehManual ? ' <span style="font-size:9.5px;padding:1px 6px;border-radius:4px;background:rgba(168,85,247,0.2);color:#c4b5fd;border:1px solid rgba(168,85,247,0.35);margin-left:4px;vertical-align:middle">DMS</span>' : '';
+      const badgeApoio = ehApoio ? ' <span style="font-size:9.5px;padding:1px 6px;border-radius:4px;background:rgba(96,165,250,0.18);color:#93c5fd;border:1px solid rgba(96,165,250,0.35);margin-left:4px;vertical-align:middle" title="Cliente da Beatriz — você vê pra ajudar nas vendas, mas continua na carteira dela">👁 Apoio</span>' : '';
       const badgeStatus = mcStatusBadge(c);
       const dataAttr = ehManual ? `data-manual="${c.manual_id}"` : `data-cliente="${escapeHtml(c.contato_nome)}"`;
       return `
         <tr ${dataAttr} style="border-top:1px solid rgba(255,255,255,0.06);cursor:pointer">
-          <td style="padding:10px 14px;color:#e2e8f0;font-weight:500">${escapeHtml(c.contato_nome)}${badgeDMS}${badgeStatus}</td>
+          <td style="padding:10px 14px;color:#e2e8f0;font-weight:500">${escapeHtml(c.contato_nome)}${badgeDMS}${badgeApoio}${badgeStatus}</td>
           <td style="padding:10px 14px"><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${s.bg.replace('bg-','').replace('/15','')};color:#e2e8f0;border:1px solid rgba(255,255,255,0.1)" class="${s.bg} ${s.fg} ${s.border}">${escapeHtml(c.segmento || '-')}</span></td>
           <td style="padding:10px 14px;color:#e2e8f0;text-align:right;font-variant-numeric:tabular-nums">${c.score || 0}</td>
           <td style="padding:10px 14px;color:#e2e8f0;text-align:right;font-variant-numeric:tabular-nums">${fmtNum(c.total_pedidos || 0)}</td>
