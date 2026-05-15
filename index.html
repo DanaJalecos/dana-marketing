@@ -9176,6 +9176,9 @@ updateDynamicField('foto');
           <option value="7">Ultimos 7 dias</option>
           <option value="30">Ultimos 30 dias</option>
           <option value="90">Ultimos 90 dias</option>
+          <option value="180">Ultimos 180 dias</option>
+          <option value="365">Ultimo ano</option>
+          <option value="0">Tudo (histórico completo)</option>
         </select>
       </div>
       <div id="admin-log-table" style="max-height:500px;overflow-y:auto"><div style="text-align:center;color:var(--text3);padding:20px;font-size:12px">Carregando...</div></div>
@@ -25248,7 +25251,7 @@ async function loadActivityLog() {
   if (!container) return;
   const filtro = document.getElementById('admin-log-filter')?.value || '';
   const dias = parseInt(document.getElementById('admin-log-periodo')?.value || '7');
-  const desde = new Date(); desde.setDate(desde.getDate() - dias);
+  const desde = new Date(); desde.setDate(desde.getDate() - (dias || 0));
 
   // Popular filtro de usuarios com TODOS os perfis cadastrados (não só os que geraram log)
   const filterEl = document.getElementById('admin-log-filter');
@@ -25262,13 +25265,16 @@ async function loadActivityLog() {
     });
   }
 
-  let query = sb.from('activity_log').select('*').gte('created_at', desde.toISOString()).order('created_at', { ascending: false }).limit(100);
+  // dias=0 → histórico completo (sem filtro de data). Limite alto pra não cortar.
+  let query = sb.from('activity_log').select('*').order('created_at', { ascending: false }).limit(5000);
+  if (dias > 0) query = query.gte('created_at', desde.toISOString());
   if (filtro) query = query.eq('user_id', filtro);
   const { data } = await query;
 
   if (!data || data.length === 0) { container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3)">Nenhuma atividade no periodo</div>'; return; }
 
-  container.innerHTML = `<table style="width:100%;font-size:12px"><thead><tr><th>Data</th><th>Usuario</th><th>Cargo</th><th>Acao</th><th>Detalhes</th></tr></thead><tbody>
+  const resumo = `<div style="padding:6px 10px;font-size:11px;color:var(--text3)">${data.length} ${data.length===1?'registro':'registros'}${data.length>=5000?' (limite — refine por usuário ou período)':''}</div>`;
+  container.innerHTML = resumo + `<table style="width:100%;font-size:12px"><thead><tr><th>Data</th><th>Usuario</th><th>Cargo</th><th>Acao</th><th>Detalhes</th></tr></thead><tbody>
     ${data.map(d => `<tr>
       <td style="font-size:11px;color:var(--text3);white-space:nowrap">${new Date(d.created_at).toLocaleString('pt-BR')}</td>
       <td class="em">${esc(d.user_nome)}</td>
