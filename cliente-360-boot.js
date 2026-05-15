@@ -5871,6 +5871,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
         ${mcRenderAniversariantesWidget(false)}
 
+        ${mcRenderGamificacaoWidget(false)}
+
         ${mcRenderFiltrosBar(filtros, true)}
 
         ${apoioFiltrado.length > 0 ? `<div style="margin:14px 0 -4px;font-size:11.5px;color:#64748b">👁 Você também vê <strong style="color:#a78bfa">${apoioFiltrado.length}</strong> clientes da Beatriz (apoio · somente leitura — continuam na carteira dela).</div>` : ''}
@@ -5882,6 +5884,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     mcWireTable(content);
     setTimeout(() => mcLoadFunilWidget(), 50);
     setTimeout(() => mcLoadAniversariantesWidget(), 80);
+    setTimeout(() => mcLoadGamificacaoWidget(), 110);
   }
 
   // ── Widget de Funil de Relacionamento (pedido Manu 14/05) ──
@@ -6351,6 +6354,83 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     } catch (e) { console.warn('[mc] realtime aniv:', e); }
   }
 
+  // ══════════════════════════════════════════════════════════
+  // 🏆 GAMIFICAÇÃO — placar das vendedoras (pedido Manu)
+  // Pontos = atividade no sistema + contatos + conversões (venda fechada).
+  // "Todos os vendedores" · dentro do C360 · só ranking (sem bônus R$).
+  // ══════════════════════════════════════════════════════════
+  function mcRenderGamificacaoWidget(defaultOpen) {
+    const aberto = defaultOpen ? '' : ' style="display:none"';
+    return `
+      <div id="mc-gam-widget" style="margin-top:6px;margin-bottom:14px;background:rgba(250,204,21,0.05);border:1px solid rgba(250,204,21,0.25);border-radius:10px;padding:12px 14px">
+        <div onclick="window.c360McGamToggle()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:13.5px;font-weight:700;color:#facc15">🏆 Ranking de engajamento — ${MESES_PT_ANIV[new Date().getMonth()]}</span>
+            <span id="mc-gam-resumo" style="font-size:11px;color:#64748b">…</span>
+          </div>
+          <span id="mc-gam-toggle-icon" style="font-size:11px;color:#94a3b8">${defaultOpen ? '▼' : '▶'}</span>
+        </div>
+        <div id="mc-gam-conteudo"${aberto}>
+          <div style="padding:14px 0;text-align:center;color:#64748b;font-size:12px">⏳ Carregando…</div>
+        </div>
+      </div>
+    `;
+  }
+
+  window.c360McGamToggle = function() {
+    const c = document.getElementById('mc-gam-conteudo');
+    const ic = document.getElementById('mc-gam-toggle-icon');
+    if (!c) return;
+    const fechado = c.style.display === 'none';
+    c.style.display = fechado ? '' : 'none';
+    if (ic) ic.textContent = fechado ? '▼' : '▶';
+  };
+
+  async function mcLoadGamificacaoWidget() {
+    const cont = document.getElementById('mc-gam-conteudo');
+    const resumoEl = document.getElementById('mc-gam-resumo');
+    if (!cont) return;
+    try {
+      const { data, error } = await state.sb.rpc('gamificacao_vendedoras', { p_mes: null });
+      if (error) throw error;
+      const lista = (Array.isArray(data) ? data : []).filter(v => v.pontos > 0 || v.atividade > 0);
+      const meuId = state.profile?.id || null;
+      if (resumoEl) {
+        const minha = lista.find(v => v.profile_id === meuId);
+        const pos = lista.findIndex(v => v.profile_id === meuId) + 1;
+        resumoEl.textContent = minha
+          ? `você: ${pos}º · ${minha.pontos} pts`
+          : `${lista.length} no ranking`;
+      }
+      if (!lista.length) {
+        cont.innerHTML = `<div style="padding:18px;text-align:center;color:#64748b;font-size:12px">Sem movimento este mês ainda</div>`;
+        return;
+      }
+      const fmtR = v => 'R$ ' + (Math.round((+v||0)*100)/100).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
+      const medal = i => ['🥇','🥈','🥉'][i] || `<span style="color:#64748b">${i+1}º</span>`;
+      const rows = lista.map((v, i) => {
+        const eu = v.profile_id === meuId;
+        return `
+          <div style="display:grid;grid-template-columns:34px 1fr auto;gap:10px;align-items:center;padding:9px 10px;border-bottom:1px solid rgba(255,255,255,0.04);${eu?'background:rgba(250,204,21,0.10);border-radius:8px':''}">
+            <div style="font-size:15px;text-align:center">${medal(i)}</div>
+            <div style="min-width:0">
+              <div style="font-size:13px;font-weight:600;color:#e2e8f0">${escapeHtml(v.nome||'—')} ${eu?'<span style="font-size:10px;color:#facc15">· VOCÊ</span>':''}</div>
+              <div style="font-size:10.5px;color:#94a3b8">${v.atividade} ações · ${v.contatos} contatos · ${v.conversoes} venda${v.conversoes!=1?'s':''} fechada${v.conversoes!=1?'s':''} · ${fmtR(v.vendas_reais)}</div>
+            </div>
+            <div style="text-align:right"><div style="font-size:18px;font-weight:800;color:#facc15">${v.pontos}</div><div style="font-size:9.5px;color:#64748b">pontos</div></div>
+          </div>`;
+      }).join('');
+      cont.innerHTML = `
+        <div style="padding-top:8px;font-size:10.5px;color:#64748b;font-style:italic;margin-bottom:8px">
+          Pontos = uso do sistema (1pt/ação) + contatos (3pts) + venda fechada (25pts). Reinicia todo mês.
+        </div>
+        <div>${rows}</div>`;
+    } catch (e) {
+      console.warn('[mc] gam widget:', e);
+      cont.innerHTML = `<div style="padding:14px;color:#fca5a5;font-size:11.5px">Erro: ${escapeHtml(e.message || String(e))}</div>`;
+    }
+  }
+
   // Gera cupom (clique no botão da linha)
   window.c360McAnivGerar = async function(contatoId, btn) {
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando…'; btn.style.opacity = '0.6'; }
@@ -6569,6 +6649,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
         ${mcRenderAniversariantesWidget(false)}
 
+        ${mcRenderGamificacaoWidget(true)}
+
         <div style="margin-bottom:24px">
           ${mcRenderRankingsBloco(ranking, totalFat)}
         </div>
@@ -6583,6 +6665,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     mcWireTable(content);
     setTimeout(() => mcLoadFunilWidget(), 50);
     setTimeout(() => mcLoadAniversariantesWidget(), 80);
+    setTimeout(() => mcLoadGamificacaoWidget(), 110);
   }
 
   // ─── Helpers de UI ───
