@@ -3900,7 +3900,40 @@ select.input { cursor: pointer; }
       <div><label class="label">Usos do Cupom</label><input class="input" type="number" min="0" id="inf-usos" placeholder="0"></div>
       <div><label class="label">Vendas Geradas</label><input class="input" type="number" min="0" id="inf-vendas" placeholder="0"></div>
     </div>
-    <div class="form-row"><label class="label">Receita (R$)</label><input class="input" type="number" min="0" step="0.01" id="inf-receita" placeholder="0.00"></div>
+    <div class="form-row"><label class="label">Receita manual (R$) <span style="color:var(--text3);font-weight:400">— fallback se sem Bling</span></label><input class="input" type="number" min="0" step="0.01" id="inf-receita" placeholder="0.00"></div>
+
+    <div style="margin:14px 0 8px;padding-top:12px;border-top:1px solid var(--border);font-weight:700;font-size:12.5px;color:var(--amber)">💰 Comissão & Portal</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <div><label class="label">Nível</label>
+        <select class="input" id="inf-nivel">
+          <option value="nano">Nano Creator (5%)</option>
+          <option value="creator">Creator (8%)</option>
+          <option value="embaixador">Embaixador (10%)</option>
+          <option value="elite">Elite Dana (15%)</option>
+        </select>
+      </div>
+      <div><label class="label">% override <span style="color:var(--text3);font-weight:400">(vazio = usa nível)</span></label><input class="input" type="number" min="0" step="0.5" id="inf-pct-override" placeholder="ex: 12"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <div><label class="label">Bling vendedor ID <span style="color:var(--text3);font-weight:400">(comissão auto)</span></label><input class="input" type="number" id="inf-bling-id" placeholder="ID do vendedor no Bling"></div>
+      <div><label class="label">Empresa</label>
+        <select class="input" id="inf-empresa">
+          <option value="">—</option><option value="matriz">Matriz</option><option value="bc">Balneário (BC)</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <label class="label">Conta de login (portal) <span style="color:var(--text3);font-weight:400">— perfil com cargo Influenciador</span></label>
+      <select class="input" id="inf-profile"><option value="">— sem portal —</option></select>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <div><label class="label">TikTok</label><input class="input" id="inf-tiktok" placeholder="@usuario"></div>
+      <div><label class="label">Segmento</label><input class="input" id="inf-segmento" placeholder="Ex: Odonto, Estética"></div>
+    </div>
+    <div style="display:flex;gap:14px;margin-bottom:10px;font-size:12.5px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="inf-ja-comprou"> Já comprou Dana</label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="inf-ja-postou"> Já postou Dana</label>
+    </div>
     <div class="form-row"><label class="label">Observações</label><textarea class="input" id="inf-obs" rows="2" placeholder="Notas, condições da parceria..."></textarea></div>
     <div style="display:flex;gap:8px;margin-top:4px">
       <button class="btn btn-ghost" onclick="closeModal('inf-novo')" style="flex:1">Cancelar</button>
@@ -9053,6 +9086,13 @@ updateDynamicField('foto');
 </div>
 
 <!-- ════════ MEU PERFIL ════════ -->
+<!-- Portal do Influenciador (cargo=influenciador) -->
+<div class="view" id="view-portal_influenciador">
+  <div style="max-width:760px;margin:0 auto;padding:28px 24px">
+    <div id="influp-conteudo" style="font-size:14px;color:var(--text2)">⏳ Carregando seu painel...</div>
+  </div>
+</div>
+
 <div class="view" id="view-perfil"><div style="padding:24px 28px">
   <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:17px;margin-bottom:20px">Meu Perfil</div>
 
@@ -9223,6 +9263,7 @@ updateDynamicField('foto');
       <select class="input" id="new-user-cargo">
         <option value="vendedor">Vendedor</option>
         <option value="vendedor_b2b">Vendedor B2B</option>
+        <option value="influenciador">Influenciador (portal)</option>
         <option value="expedicao">Expedição</option>
         <option value="designer">Designer</option>
         <option value="trafego_pago">Tráfego Pago</option>
@@ -10335,6 +10376,7 @@ const VIEW_META = {
   ecommerce:    { title: 'E-commerce', sub: 'Vendas do site danajalecos.com.br', action: 'Exportar PDF' },
   lojafisica:   { title: 'Loja Física', sub: 'Vendas presenciais (Piçarras + BC) + WhatsApp', action: 'Exportar PDF' },
   campanhas:    { title: 'Campanhas Pagas', sub: 'Execução e performance de anúncios pagos', action: '' },
+  portal_influenciador: { title: 'Meu Painel', sub: 'Suas vendas, comissão e créditos · Dana Jalecos', action: '' },
   'campanhas-internas': { title: 'Campanhas Internas', sub: 'Organização da equipe por campanha · quem faz o quê', action: 'Nova Campanha' },
   criativos:    { title: 'Criativos', sub: 'Artes, vídeos e calendário de publicação', action: 'Novo Criativo' },
   influenciadores: { title: 'Influenciadores', sub: 'Controle de parcerias e performance', action: '' },
@@ -10520,6 +10562,8 @@ const HIDDEN_NAV_VIEWS = ['apis'];
 // frustrante porque nao era a tela principal do trabalho deles.
 function firstAllowedView() {
   if (currentProfile?.cargo === 'admin') return 'home';
+  // Influenciador: só vê o portal próprio
+  if (currentProfile?.cargo === 'influenciador') return 'portal_influenciador';
   // Vendedor: principal e o C360 (que internamente abre a aba "Meus Clientes"
   // pra cargo vendedor automaticamente). NAO existe mais view-meus_clientes
   // standalone — virou aba dentro do C360.
@@ -10670,6 +10714,7 @@ function go(el, viewId, opts) {
   if (viewId === 'home') { if (typeof loadMinhasTarefasSemana === 'function') loadMinhasTarefasSemana(); }
   if (viewId === 'campanhas-internas') { if (typeof loadCampanhasInternas === 'function') loadCampanhasInternas(); }
   if (viewId === 'campanhas') { if (typeof loadCampanhasFromBriefings === 'function') loadCampanhasFromBriefings(); }
+  if (viewId === 'portal_influenciador') { if (typeof loadPortalInfluenciador === 'function') loadPortalInfluenciador(); }
   if (viewId === 'prospeccao') { if (typeof prospLoad === 'function') prospLoad(); }
   if (viewId === 'estoque') { if (typeof loadEstoque === 'function') loadEstoque(); }
   if (viewId === 'trafego') { if (typeof loadTrafego === 'function') loadTrafego(); }
@@ -19732,6 +19777,7 @@ function renderInfluenciadores() {
           <td style="text-align:right" class="${+i.receita > 0 ? 'good' : ''}">${fmtR(+i.receita || 0)}</td>
           <td style="text-align:right">${conv.toFixed(2)}%</td>
           <td>
+            <button class="btn btn-ghost btn-sm" style="padding:3px 6px;font-size:11px;color:var(--amber)" onclick="influAbrirPainel('${i.id}')" title="Painel / Comissão / Crédito">💰</button>
             ${canEdit ? `<button class="btn btn-ghost btn-sm" style="padding:3px 6px;font-size:11px" onclick="abrirModalEditarInfluenciador('${i.id}')" title="Editar">✏️</button>
             <button class="btn btn-ghost btn-sm" style="padding:3px 6px;font-size:11px;color:var(--red)" onclick="abrirModalExcluirInfluenciador('${i.id}')" title="Excluir">🗑</button>` : ''}
           </td>
@@ -19741,18 +19787,167 @@ function renderInfluenciadores() {
   </table>`;
 }
 
+// ── Painel de comissão + créditos de um influenciador ──
+window.influAbrirPainel = async function(id) {
+  document.getElementById('influ-painel-modal')?.remove();
+  const inf = _influenciadoresCache.find(x => x.id === id);
+  const nome = inf?.nome || 'Influenciador';
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="influ-painel-modal" class="modal-overlay" style="display:flex" onclick="if(event.target===this)this.remove()">
+      <div class="modal" style="max-width:560px">
+        <div class="modal-header"><div class="modal-title">💰 ${esc(nome)}</div>
+          <button class="modal-close" onclick="document.getElementById('influ-painel-modal').remove()">×</button></div>
+        <div id="influ-painel-body" style="font-size:13px;color:var(--text2)">⏳ Carregando...</div>
+      </div>
+    </div>`);
+  try {
+    const { data, error } = await sb.rpc('influenciador_painel', { p_id: id });
+    if (error) throw error;
+    const p = Array.isArray(data) ? data[0] : data;
+    if (!p) { document.getElementById('influ-painel-body').innerHTML = 'Sem dados.'; return; }
+    const { data: cred } = await sb.from('influenciador_creditos')
+      .select('codigo, valor, status, gerado_em').eq('influenciador_id', id).order('gerado_em', { ascending: false });
+    const fmtR = v => 'R$ ' + (Math.round((+v||0)*100)/100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const fonte = p.tem_mapeamento
+      ? `<span style="color:var(--green)">Bling auto (vendedor ${esc(String(inf?.bling_vendedor_id||''))} · ${esc(inf?.empresa||'')})</span>`
+      : `<span style="color:var(--amber)">Manual (sem mapeamento Bling — usa receita digitada)</span>`;
+    const receita = p.tem_mapeamento ? +p.receita_bruta : +p.receita_manual;
+    const comissao = p.tem_mapeamento ? +p.comissao_devida : (receita * (+p.comissao_pct) / 100);
+    const saldo = p.tem_mapeamento ? +p.saldo_disponivel : Math.max(comissao - (+p.creditos_gerados), 0);
+    const credRows = (cred||[]).length
+      ? (cred||[]).map(c => `<tr><td style="font-family:monospace">${esc(c.codigo)}</td><td style="text-align:right">${fmtR(c.valor)}</td><td><span class="chip ${c.status==='resgatado'?'good':''}">${esc(c.status)}</span></td><td style="font-size:11px;color:var(--text3)">${new Date(c.gerado_em).toLocaleDateString('pt-BR')}</td></tr>`).join('')
+      : `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:10px">Nenhum crédito gerado</td></tr>`;
+    document.getElementById('influ-painel-body').innerHTML = `
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px">Fonte das vendas: ${fonte}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+        <div style="background:var(--surface2);border-radius:8px;padding:10px"><div style="font-size:10.5px;color:var(--text3)">Receita gerada</div><div style="font-size:17px;font-weight:700">${fmtR(receita)}</div></div>
+        <div style="background:var(--surface2);border-radius:8px;padding:10px"><div style="font-size:10.5px;color:var(--text3)">Nível · %</div><div style="font-size:17px;font-weight:700">${esc(p.nivel)} · ${(+p.comissao_pct)}%</div></div>
+        <div style="background:var(--surface2);border-radius:8px;padding:10px"><div style="font-size:10.5px;color:var(--text3)">Comissão devida</div><div style="font-size:17px;font-weight:700;color:var(--amber)">${fmtR(comissao)}</div></div>
+        <div style="background:var(--surface2);border-radius:8px;padding:10px"><div style="font-size:10.5px;color:var(--text3)">Saldo disponível</div><div style="font-size:17px;font-weight:700;color:var(--green)">${fmtR(saldo)}</div></div>
+      </div>
+      <table style="width:100%;font-size:12px;margin-bottom:12px"><thead><tr><th>Código</th><th style="text-align:right">Valor</th><th>Status</th><th>Data</th></tr></thead><tbody>${credRows}</tbody></table>
+      <button class="btn btn-primary" style="width:100%" ${saldo < 1 ? 'disabled' : ''} onclick="influGerarCredito('${id}', ${Math.floor(saldo)})">${saldo < 1 ? 'Sem saldo pra resgatar' : '🎟️ Gerar crédito de ' + fmtR(Math.floor(saldo))}</button>
+      <div style="font-size:10.5px;color:var(--text3);margin-top:8px">O código gerado deve ser cadastrado no Bling/Magazord como cupom de valor fixo.</div>`;
+  } catch (e) {
+    document.getElementById('influ-painel-body').innerHTML = `<div style="color:var(--red)">Erro: ${esc(e.message||String(e))}</div>`;
+  }
+};
+
+window.influGerarCredito = async function(id, valor) {
+  if (!confirm(`Gerar crédito de R$ ${valor},00 para esse influenciador?\n\nVocê precisará cadastrar o código no Bling/Magazord.`)) return;
+  try {
+    const { data, error } = await sb.functions.invoke('gerar-credito-influenciador', { body: { influenciador_id: id, valor } });
+    if (error) throw error;
+    if (data?.error) throw new Error(data.error);
+    showToast('✓ Crédito gerado: ' + (data?.credito?.codigo || ''));
+    logActivity('gerou_credito_influenciador', data?.credito?.codigo || id, 'influenciadores');
+    influAbrirPainel(id); // refresh
+  } catch (e) { showToast('Erro: ' + (e.message || e)); }
+};
+
+// ══════════════════════════════════════════════════════════
+// PORTAL DO INFLUENCIADOR (cargo=influenciador) — tela simples
+// ══════════════════════════════════════════════════════════
+async function loadPortalInfluenciador() {
+  const box = document.getElementById('influp-conteudo');
+  if (!box) return;
+  const fmtR = v => 'R$ ' + (Math.round((+v||0)*100)/100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  try {
+    const { data, error } = await sb.rpc('influenciador_meu_painel');
+    if (error) throw error;
+    const p = Array.isArray(data) ? data[0] : data;
+    if (!p) {
+      box.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text3)">Seu painel ainda não foi configurado. Fale com a equipe Dana. 💛</div>`;
+      return;
+    }
+    const { data: cred } = await sb.from('influenciador_creditos')
+      .select('codigo, valor, status, gerado_em').eq('influenciador_id', p.influenciador_id).order('gerado_em', { ascending: false });
+    const saldo = +p.saldo_disponivel || 0;
+    const credRows = (cred||[]).length
+      ? (cred||[]).map(c => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+          <div><div style="font-family:monospace;font-weight:700;font-size:13px">${esc(c.codigo)}</div><div style="font-size:11px;color:var(--text3)">${new Date(c.gerado_em).toLocaleDateString('pt-BR')}</div></div>
+          <div style="text-align:right"><div style="font-weight:700">${fmtR(c.valor)}</div><div style="font-size:11px;color:${c.status==='resgatado'?'var(--green)':'var(--amber)'}">${esc(c.status)}</div></div>
+        </div>`).join('')
+      : `<div style="text-align:center;color:var(--text3);font-size:12.5px;padding:16px">Você ainda não resgatou nenhum crédito</div>`;
+    box.innerHTML = `
+      <div style="margin-bottom:6px;font-size:13px;color:var(--text3)">Olá,</div>
+      <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:24px;margin-bottom:4px">${esc(p.nome)} 👋</div>
+      <div style="display:inline-block;background:var(--amber-bg);color:var(--amber);font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;margin-bottom:22px">${esc(p.nivel_label || p.nivel)} · ${(+p.comissao_pct)}% de comissão</div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:14px">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Vendas que você gerou</div>
+          <div style="font-size:22px;font-weight:800;margin-top:6px">${fmtR(p.receita_bruta)}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${p.total_pedidos||0} pedidos</div>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Sua comissão total</div>
+          <div style="font-size:22px;font-weight:800;margin-top:6px;color:var(--amber)">${fmtR(p.comissao_devida)}</div>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Saldo pra resgatar</div>
+          <div style="font-size:22px;font-weight:800;margin-top:6px;color:var(--green)">${fmtR(saldo)}</div>
+        </div>
+      </div>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:14px">
+        <div style="font-weight:700;font-size:14px;margin-bottom:6px">🎟️ Resgatar comissão em crédito</div>
+        <div style="font-size:12.5px;color:var(--text3);margin-bottom:14px">Você troca sua comissão por um cupom de crédito pra usar no site da Dana. O código vem aqui e a equipe ativa pra você.</div>
+        <button class="btn btn-primary" style="width:100%" ${saldo < 1 ? 'disabled' : ''} onclick="influpResgatar('${p.influenciador_id}', ${Math.floor(saldo)})">
+          ${saldo < 1 ? 'Sem saldo disponível ainda' : '🎁 Resgatar ' + fmtR(Math.floor(saldo)) + ' em crédito'}
+        </button>
+      </div>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px">
+        <div style="font-weight:700;font-size:14px;margin-bottom:10px">Meus créditos</div>
+        ${credRows}
+      </div>
+
+      <div style="text-align:center;margin-top:24px"><button class="btn btn-ghost btn-sm" onclick="doLogout()">Sair</button></div>`;
+  } catch (e) {
+    box.innerHTML = `<div style="color:var(--red);padding:20px">Erro ao carregar: ${esc(e.message||String(e))}</div>`;
+  }
+}
+
+window.influpResgatar = async function(influId, valor) {
+  if (!confirm(`Resgatar R$ ${valor},00 da sua comissão em crédito?\n\nVocê vai receber um código de cupom pra usar no site da Dana.`)) return;
+  try {
+    const { data, error } = await sb.functions.invoke('gerar-credito-influenciador', { body: { influenciador_id: influId, valor } });
+    if (error) throw error;
+    if (data?.error) throw new Error(data.error);
+    showToast('🎉 Crédito gerado: ' + (data?.credito?.codigo || ''));
+    loadPortalInfluenciador();
+  } catch (e) { showToast('Erro: ' + (e.message || e)); }
+};
+
 function abrirModalNovoInfluenciador() {
   _influEditandoId = null;
   document.getElementById('inf-modal-title').textContent = '+ Novo Influenciador';
   document.getElementById('inf-modal-sub').textContent = 'Adicione um novo influenciador ao sistema de controle';
   document.getElementById('inf-btn-salvar').textContent = 'Criar Influenciador';
-  ['inf-nome','inf-insta','inf-cidade','inf-regiao','inf-profissao','inf-nicho','inf-seguidores','inf-inicio','inf-contato','inf-cupom','inf-usos','inf-vendas','inf-receita','inf-obs'].forEach(id => {
+  ['inf-nome','inf-insta','inf-cidade','inf-regiao','inf-profissao','inf-nicho','inf-seguidores','inf-inicio','inf-contato','inf-cupom','inf-usos','inf-vendas','inf-receita','inf-obs','inf-pct-override','inf-bling-id','inf-empresa','inf-tiktok','inf-segmento'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
   document.getElementById('inf-status').value = 'ativo';
+  document.getElementById('inf-nivel').value = 'nano';
+  document.getElementById('inf-ja-comprou').checked = false;
+  document.getElementById('inf-ja-postou').checked = false;
+  influCarregarProfilesPortal();
   openModal('inf-novo');
   setTimeout(() => document.getElementById('inf-nome')?.focus(), 100);
+}
+
+// Popula o select de "conta de login" com perfis cargo=influenciador
+async function influCarregarProfilesPortal(selectedId) {
+  const sel = document.getElementById('inf-profile');
+  if (!sel) return;
+  try {
+    const { data } = await sb.from('profiles').select('id, nome, cargo').eq('cargo', 'influenciador').order('nome');
+    sel.innerHTML = '<option value="">— sem portal —</option>' +
+      (data || []).map(p => `<option value="${p.id}">${esc(p.nome || p.id)}</option>`).join('');
+    if (selectedId) sel.value = selectedId;
+  } catch (e) { console.warn('[influ] profiles portal:', e); }
 }
 
 function abrirModalEditarInfluenciador(id) {
@@ -19777,6 +19972,15 @@ function abrirModalEditarInfluenciador(id) {
   document.getElementById('inf-vendas').value = i.vendas_geradas || '';
   document.getElementById('inf-receita').value = i.receita || '';
   document.getElementById('inf-obs').value = i.observacoes || '';
+  document.getElementById('inf-nivel').value = i.nivel || 'nano';
+  document.getElementById('inf-pct-override').value = i.comissao_pct_override ?? '';
+  document.getElementById('inf-bling-id').value = i.bling_vendedor_id || '';
+  document.getElementById('inf-empresa').value = i.empresa || '';
+  document.getElementById('inf-tiktok').value = i.tiktok || '';
+  document.getElementById('inf-segmento').value = i.segmento || '';
+  document.getElementById('inf-ja-comprou').checked = !!i.ja_comprou_dana;
+  document.getElementById('inf-ja-postou').checked = !!i.ja_postou_dana;
+  influCarregarProfilesPortal(i.profile_id);
   openModal('inf-novo');
 }
 
@@ -19802,6 +20006,15 @@ async function salvarInfluenciador() {
     vendas_geradas: +document.getElementById('inf-vendas').value || 0,
     receita: +document.getElementById('inf-receita').value || 0,
     observacoes: document.getElementById('inf-obs').value.trim() || null,
+    nivel: document.getElementById('inf-nivel').value || 'nano',
+    comissao_pct_override: document.getElementById('inf-pct-override').value !== '' ? +document.getElementById('inf-pct-override').value : null,
+    bling_vendedor_id: document.getElementById('inf-bling-id').value !== '' ? +document.getElementById('inf-bling-id').value : null,
+    empresa: document.getElementById('inf-empresa').value || null,
+    profile_id: document.getElementById('inf-profile').value || null,
+    tiktok: document.getElementById('inf-tiktok').value.trim() || null,
+    segmento: document.getElementById('inf-segmento').value.trim() || null,
+    ja_comprou_dana: document.getElementById('inf-ja-comprou').checked,
+    ja_postou_dana: document.getElementById('inf-ja-postou').checked,
   };
 
   try {
@@ -21962,6 +22175,7 @@ const CARGO_LABELS = {
   analista_marketplace: 'Analista de Marketplace',
   vendedor: 'Vendedor',
   vendedor_b2b: 'Vendedor B2B',
+  influenciador: 'Influenciador',
   expedicao: 'Expedição',
 };
 
@@ -23566,6 +23780,11 @@ async function doLogin() {
         // NAO e vendedor, ignora (vai pra firstAllowedView). Isso evita ficar
         // preso no C360 quando o user caiu la por engano em sessao anterior.
         if (salva === 'cliente360' && currentProfile?.cargo !== 'vendedor' && currentProfile?.cargo !== 'vendedor_b2b') {
+          salva = null;
+          localStorage.removeItem('dms-active-view');
+        }
+        // Influenciador: sempre cai no portal próprio, ignora qualquer view salva
+        if (currentProfile?.cargo === 'influenciador' && salva !== 'portal_influenciador') {
           salva = null;
           localStorage.removeItem('dms-active-view');
         }
