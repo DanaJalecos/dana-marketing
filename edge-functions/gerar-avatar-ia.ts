@@ -165,7 +165,13 @@ Deno.serve(async (req) => {
     if (!ehAdmin) {
       const { data: countData } = await admin.rpc('avatares_ia_count_hoje', { p_user_id: userId })
       const usadas = Number(countData || 0)
-      const limite = Number(cfg.limite_diario_usuario || 5)
+      // Limite por cargo (avatares_ia_limite_cargo) com fallback pro global
+      const { data: limCargo } = await admin
+        .from('avatares_ia_limite_cargo')
+        .select('limite_diario')
+        .eq('cargo', userCargo)
+        .maybeSingle()
+      const limite = Number(limCargo?.limite_diario ?? cfg.limite_diario_usuario ?? 5)
       if (usadas >= limite) {
         await admin.from('avatares_ia_log').insert({
           user_id: userId, user_nome: userNome, user_cargo: userCargo,
