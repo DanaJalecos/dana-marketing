@@ -3381,8 +3381,15 @@
       try {
         const { data, error } = await state.sb.rpc('clientes_prontos_recompra', { p_empresa: state.empresa });
         if (error) throw error;
-        const nomes = new Set((data || []).map(r => r.contato_nome));
-        state.filtered = state.clientes.filter(c => nomes.has(c.contato_nome));
+        // A RPC retorna os dados COMPLETOS (não só nome) — usa direto, sem
+        // depender de state.clientes (que é top-5000 por score e cortaria
+        // os clientes esfriados, que é justamente o público de recompra).
+        const map = new Map(state.clientes.map(c => [c.contato_nome, c]));
+        state.filtered = (data || []).map(r => {
+          const existente = map.get(r.contato_nome);
+          // reusa o row já carregado (tem uf/metadata); senão monta do RPC
+          return existente || { ...r, uf: phoneToUF(r.celular || r.telefone) };
+        });
       } catch (e) {
         console.warn('[c360] prontos_recompra rpc:', e);
         state.filtered = [];
