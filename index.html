@@ -19814,9 +19814,16 @@ window.influAbrirPainel = async function(id) {
     const receita = p.tem_mapeamento ? +p.receita_bruta : +p.receita_manual;
     const comissao = p.tem_mapeamento ? +p.comissao_devida : (receita * (+p.comissao_pct) / 100);
     const saldo = p.tem_mapeamento ? +p.saldo_disponivel : Math.max(comissao - (+p.creditos_gerados), 0);
+    const stLabel = { gerado:'gerado', cadastrado_bling:'no Bling', resgatado:'resgatado', cancelado:'cancelado' };
+    const acoesCred = (c) => {
+      const b = (txt, st, cor) => `<button class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:10.5px;color:${cor}" onclick="influCreditoStatus('${c.id}','${st}','${id}')">${txt}</button>`;
+      if (c.status === 'gerado') return b('📌 Cadastrei no Bling','cadastrado_bling','var(--blue)') + b('✕','cancelado','var(--red)');
+      if (c.status === 'cadastrado_bling') return b('✅ Resgatado','resgatado','var(--green)') + b('✕','cancelado','var(--red)');
+      return '<span style="color:var(--text3);font-size:10.5px">—</span>';
+    };
     const credRows = (cred||[]).length
-      ? (cred||[]).map(c => `<tr><td style="font-family:monospace">${esc(c.codigo)}</td><td style="text-align:right">${fmtR(c.valor)}</td><td><span class="chip ${c.status==='resgatado'?'good':''}">${esc(c.status)}</span></td><td style="font-size:11px;color:var(--text3)">${new Date(c.gerado_em).toLocaleDateString('pt-BR')}</td></tr>`).join('')
-      : `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:10px">Nenhum crédito gerado</td></tr>`;
+      ? (cred||[]).map(c => `<tr><td style="font-family:monospace">${esc(c.codigo)}</td><td style="text-align:right">${fmtR(c.valor)}</td><td><span class="chip ${c.status==='resgatado'?'good':(c.status==='cancelado'?'rev':'')}">${stLabel[c.status]||esc(c.status)}</span></td><td style="font-size:11px;color:var(--text3)">${new Date(c.gerado_em).toLocaleDateString('pt-BR')}</td><td style="text-align:right">${acoesCred(c)}</td></tr>`).join('')
+      : `<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:10px">Nenhum crédito gerado</td></tr>`;
     document.getElementById('influ-painel-body').innerHTML = `
       <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px">Fonte das vendas: ${fonte}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
@@ -19825,7 +19832,7 @@ window.influAbrirPainel = async function(id) {
         <div style="background:var(--surface2);border-radius:8px;padding:10px"><div style="font-size:10.5px;color:var(--text3)">Comissão devida</div><div style="font-size:17px;font-weight:700;color:var(--amber)">${fmtR(comissao)}</div></div>
         <div style="background:var(--surface2);border-radius:8px;padding:10px"><div style="font-size:10.5px;color:var(--text3)">Saldo disponível</div><div style="font-size:17px;font-weight:700;color:var(--green)">${fmtR(saldo)}</div></div>
       </div>
-      <table style="width:100%;font-size:12px;margin-bottom:12px"><thead><tr><th>Código</th><th style="text-align:right">Valor</th><th>Status</th><th>Data</th></tr></thead><tbody>${credRows}</tbody></table>
+      <table style="width:100%;font-size:12px;margin-bottom:12px"><thead><tr><th>Código</th><th style="text-align:right">Valor</th><th>Status</th><th>Data</th><th style="text-align:right">Ação</th></tr></thead><tbody>${credRows}</tbody></table>
       <button class="btn btn-primary" style="width:100%" ${saldo < 1 ? 'disabled' : ''} onclick="influGerarCredito('${id}', ${Math.floor(saldo)})">${saldo < 1 ? 'Sem saldo pra resgatar' : '🎟️ Gerar crédito de ' + fmtR(Math.floor(saldo))}</button>
       <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="influPreviewPortal('${id}')">👁 Ver como a influencer vê (preview do portal)</button>
       <div style="font-size:10.5px;color:var(--text3);margin-top:8px">O código gerado deve ser cadastrado no Bling/Magazord como cupom de valor fixo.</div>`;
@@ -19843,6 +19850,22 @@ window.influGerarCredito = async function(id, valor) {
     showToast('✓ Crédito gerado: ' + (data?.credito?.codigo || ''));
     logActivity('gerou_credito_influenciador', data?.credito?.codigo || id, 'influenciadores');
     influAbrirPainel(id); // refresh
+  } catch (e) { showToast('Erro: ' + (e.message || e)); }
+};
+
+// Avança o status de um crédito (admin marca manual o ciclo)
+window.influCreditoStatus = async function(creditoId, novoStatus, influId) {
+  const txt = { cadastrado_bling:'marcar como CADASTRADO no Bling', resgatado:'marcar como RESGATADO (a influencer usou)', cancelado:'CANCELAR este crédito (o valor volta pro saldo dela)' }[novoStatus] || novoStatus;
+  if (!confirm('Confirmar: ' + txt + '?')) return;
+  try {
+    const patch = { status: novoStatus };
+    if (novoStatus === 'cadastrado_bling') { patch.cadastrado_em = new Date().toISOString(); patch.cadastrado_por = currentUser?.id || null; }
+    if (novoStatus === 'resgatado') { patch.resgatado_em = new Date().toISOString(); }
+    const { error } = await sb.from('influenciador_creditos').update(patch).eq('id', creditoId);
+    if (error) throw error;
+    showToast('✓ Crédito atualizado: ' + novoStatus);
+    logActivity('credito_influ_' + novoStatus, creditoId, 'influenciadores');
+    influAbrirPainel(influId); // refresh
   } catch (e) { showToast('Erro: ' + (e.message || e)); }
 };
 
