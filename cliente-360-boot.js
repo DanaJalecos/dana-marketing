@@ -6265,7 +6265,10 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
         p_mes: null,
       });
       if (error) throw error;
-      const lista = Array.isArray(data) ? data : [];
+      let lista = Array.isArray(data) ? data : [];
+      // Respeita o filtro de empresa do topo do C360 (matriz/bc/todas)
+      const emp = state.empresa;
+      if (emp && emp !== 'todas') lista = lista.filter(c => c.empresa === emp);
 
       // Resumo curto (sempre visível)
       if (resumoEl) {

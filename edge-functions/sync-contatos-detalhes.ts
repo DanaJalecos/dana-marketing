@@ -22,39 +22,48 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-const BLING_CLIENT_ID = 'bd02a35efc5c5b4eb2846d77fdc4d6f063b11d19'
-const BLING_CLIENT_SECRET = 'b2844954fea8b4d935c7aadc1f7f7d99c064792b2c9c2eecc2ab2eb0bb6e'
+
+// Bling tem 2 contas: matriz (token id=1) e BC/Balneário (token id=2),
+// cada uma com client_id/secret próprios. Contato BC só é legível com o
+// token BC — por isso o sync precisa ser por-empresa.
+const BLING_CONTAS: Record<string, { tokenId: number, clientId: string, secret: string }> = {
+  matriz: { tokenId: 1, clientId: 'bd02a35efc5c5b4eb2846d77fdc4d6f063b11d19', secret: 'b2844954fea8b4d935c7aadc1f7f7d99c064792b2c9c2eecc2ab2eb0bb6e' },
+  bc:     { tokenId: 2, clientId: '0401d014dd4186dee8968f6a96e16b06501c7184', secret: 'b4d47645a9cce7e476eef7cdd70473db4e58f929df586bc5049c5cc3b27d' },
+}
 
 const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-async function getToken(): Promise<string> {
-  const { data: row } = await admin.from('bling_tokens').select('*').eq('id', 1).single()
-  if (!row) throw new Error('No bling token row')
-  // Testa token atual
+const _tokenCache: Record<string, string> = {}
+
+async function getToken(empresa: string): Promise<string> {
+  const conta = BLING_CONTAS[empresa] || BLING_CONTAS.matriz
+  if (_tokenCache[empresa]) return _tokenCache[empresa]
+  const { data: row } = await admin.from('bling_tokens').select('*').eq('id', conta.tokenId).single()
+  if (!row) throw new Error(`No bling token row id=${conta.tokenId} (empresa=${empresa})`)
   try {
     const test = await fetch('https://api.bling.com.br/Api/v3/contatos?pagina=1&limite=1', {
       headers: { Authorization: `Bearer ${row.access_token}` }
     })
-    if (test.ok) return row.access_token
+    if (test.ok) { _tokenCache[empresa] = row.access_token; return row.access_token }
   } catch {}
-  // Refresh
   const res = await fetch('https://api.bling.com.br/Api/v3/oauth/token', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: 'Basic ' + btoa(`${BLING_CLIENT_ID}:${BLING_CLIENT_SECRET}`),
+      Authorization: 'Basic ' + btoa(`${conta.clientId}:${conta.secret}`),
     },
     body: `grant_type=refresh_token&refresh_token=${row.refresh_token}`,
   })
   const data = await res.json()
-  if (!data.access_token) throw new Error('Token refresh failed: ' + JSON.stringify(data))
+  if (!data.access_token) throw new Error(`Token refresh failed (empresa=${empresa}): ` + JSON.stringify(data))
   await admin.from('bling_tokens').update({
     access_token: data.access_token,
     refresh_token: data.refresh_token,
     updated_at: new Date().toISOString(),
-  }).eq('id', 1)
+  }).eq('id', conta.tokenId)
+  _tokenCache[empresa] = data.access_token
   return data.access_token
 }
 
@@ -100,7 +109,9 @@ Deno.serve(async (req) => {
 
     // Modo "1 contato só" (hook do C360 sob demanda)
     if (body.contato_id_unico) {
-      const token = await getToken()
+      // descobre a empresa do contato pra escolher o token Bling certo
+      const { data: ct } = await admin.from('contatos').select('empresa').eq('id', Number(body.contato_id_unico)).maybeSingle()
+      const token = await getToken(ct?.empresa || 'matriz')
       const detalhe = await fetchContatoDetalhe(Number(body.contato_id_unico), token)
       if (!detalhe) {
         return Response.json({ ok: false, erro: 'contato_nao_existe_no_bling' })
@@ -131,7 +142,6 @@ Deno.serve(async (req) => {
       return Response.json({ ok: true, processados: 0, fila_vazia: true })
     }
 
-    const token = await getToken()
     let processados = 0, comNascimento = 0, semNascimento = 0, erros = 0
 
     for (const c of fila) {
@@ -141,6 +151,7 @@ Deno.serve(async (req) => {
         break
       }
       try {
+        const token = await getToken(c.empresa || 'matriz')  // token por empresa (matriz/bc)
         const detalhe = await fetchContatoDetalhe(Number(c.contato_id), token)
         const { data: nasc, sexo } = detalhe ? extrairNascimento(detalhe) : { data: null, sexo: null }
         await admin.from('contatos').update({
