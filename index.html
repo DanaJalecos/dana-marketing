@@ -24035,10 +24035,8 @@ window.estGerar = async function() {
   // Qualidade do modelo (flash padrão / pro Nano Banana Pro)
   const usarPro = document.querySelector('input[name="est-qualidade"]:checked')?.value === 'pro';
   if (usarPro) {
-    const custoTotal = (numVariacoes * 0.65).toFixed(2).replace('.', ',');
-    if (!confirm(`Modo Pro (Nano Banana Pro) é muito mais fiel mas custa ~R$ 0,65/imagem.\n\n${numVariacoes} ${numVariacoes>1?'variações':'imagem'} = ~R$ ${custoTotal}.\n\nConfirmar?`)) {
-      return;
-    }
+    const ok = await estConfirmarPro(numVariacoes);
+    if (!ok) return;
   }
   if (btn) { btn.disabled = true; btn.textContent = '✨ Gerando prompt...'; }
 
@@ -24216,6 +24214,45 @@ window.estSyncImagens = async function() {
 // Preço unitário por modelo (espelha CUSTO_FLASH/CUSTO_PRO da edge gerar-avatar-ia)
 const EST_PRECO = { flash: 0.20, pro: 0.65 };
 const _estBRL = n => '~R$ ' + n.toFixed(2).replace('.', ',');
+
+// Modal bonito de confirmação do modo Pro (substitui confirm() nativo)
+window.estConfirmarPro = function(numVariacoes) {
+  return new Promise(resolve => {
+    document.getElementById('est-pro-modal')?.remove();
+    const unit = EST_PRECO.pro;
+    const total = _estBRL(unit * numVariacoes);
+    const qtdTxt = numVariacoes > 1 ? `${numVariacoes} variações` : '1 imagem';
+    const html = `
+      <div id="est-pro-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.72);backdrop-filter:blur(4px);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this){this.remove();window._estProResolve&&window._estProResolve(false)}">
+        <div style="background:#12121a;border:1px solid rgba(124,58,237,0.35);border-radius:16px;max-width:440px;width:100%;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,0.6)">
+          <div style="background:linear-gradient(135deg,#7c3aed,#a855f7);padding:20px 24px">
+            <div style="font-size:22px;font-weight:800;color:#fff;display:flex;align-items:center;gap:8px">💎 Modo Pro</div>
+            <div style="font-size:12.5px;color:rgba(255,255,255,0.85);margin-top:4px">Nano Banana Pro · muito mais fiel</div>
+          </div>
+          <div style="padding:22px 24px;color:#e2e8f0">
+            <p style="margin:0 0 16px 0;font-size:13.5px;line-height:1.6;color:#cbd5e1">
+              O modelo Pro preserva <strong style="color:#fff">pin, rosto, peça e detalhes</strong> com fidelidade muito maior. Ideal pra campanha, lançamento ou peça-chave.
+            </p>
+            <div style="background:rgba(124,58,237,0.1);border:1px solid rgba(124,58,237,0.3);border-radius:10px;padding:14px 16px;margin-bottom:20px">
+              <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#cbd5e1;margin-bottom:6px">
+                <span>${qtdTxt}</span><span>${_estBRL(unit)} / imagem</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid rgba(255,255,255,0.1);padding-top:8px;margin-top:4px">
+                <span style="font-size:13px;color:#94a3b8">Custo total</span>
+                <span style="font-size:20px;font-weight:800;color:#c4b5fd">${total}</span>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+              <button onclick="document.getElementById('est-pro-modal').remove();window._estProResolve&&window._estProResolve(false)" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:13px;font-weight:600">Cancelar</button>
+              <button onclick="document.getElementById('est-pro-modal').remove();window._estProResolve&&window._estProResolve(true)" style="padding:10px 20px;border-radius:8px;border:none;background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;cursor:pointer;font-size:13px;font-weight:700">💎 Gerar em Pro</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    window._estProResolve = (v) => { window._estProResolve = null; resolve(v); };
+  });
+};
 
 // Recalcula TODOS os preços (labels de variação + aviso de custo) conforme o modelo
 window.estRecalcPrecos = function() {
