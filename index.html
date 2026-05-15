@@ -3718,7 +3718,46 @@ select.input { cursor: pointer; }
   <!-- Tabs (Fase 2 = Referências) -->
   <div class="tabs mb20">
     <div class="tab active" onclick="switchInfluTab(this,'lista')">👥 Influenciadores</div>
+    <div class="tab" onclick="switchInfluTab(this,'dashboard');loadInfluDashboard()">📊 Dashboard <span style="font-size:9px;opacity:0.7;margin-left:4px">Fase 2</span></div>
     <div class="tab" onclick="switchInfluTab(this,'referencias')">🎬 Referências de Conteúdo <span style="font-size:9px;opacity:0.7;margin-left:4px">Fase 2</span></div>
+  </div>
+
+  <!-- Tab: Dashboard executivo (Fase 2 · Onda 1) -->
+  <div id="infl-tab-dashboard" class="infl-tab-panel" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;gap:12px;flex-wrap:wrap">
+      <div>
+        <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:17px">📊 Dashboard Executivo</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:3px">Receita gerada, comissão, investimento e ROI por creator. Quem não tem vínculo Bling usa os números manuais.</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="loadInfluDashboard()">↻ Atualizar</button>
+    </div>
+
+    <div class="kpi-grid mb20">
+      <div class="kpi-card dark"><div class="kpi-label">Receita Gerada</div><div class="kpi-value" id="ifd-kpi-receita">R$ 0</div><div class="kpi-change up" id="ifd-kpi-ped">0 pedidos</div></div>
+      <div class="kpi-card"><div class="kpi-label">Comissão Devida</div><div class="kpi-value" id="ifd-kpi-comissao">R$ 0</div><div class="kpi-change up">a resgatar/pagar</div></div>
+      <div class="kpi-card"><div class="kpi-label">Investido (brindes+envio)</div><div class="kpi-value" id="ifd-kpi-invest">R$ 0</div><div class="kpi-change up">recebidos cadastrados</div></div>
+      <div class="kpi-card"><div class="kpi-label">ROI Médio</div><div class="kpi-value" id="ifd-kpi-roi">—</div><div class="kpi-change up">receita ÷ investimento</div></div>
+      <div class="kpi-card"><div class="kpi-label">Creators Ativos</div><div class="kpi-value" id="ifd-kpi-ativos">0</div><div class="kpi-change up" id="ifd-kpi-map">0 com vínculo Bling</div></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+        <div>
+          <div class="card-title">🏆 Ranking de Creators</div>
+          <div class="card-sub" id="ifd-rank-sub">Ordene por receita, comissão ou ROI</div>
+        </div>
+        <select class="input" id="ifd-ordenar" onchange="renderInfluDashboard()" style="width:auto;min-width:170px;height:32px;font-size:11.5px">
+          <option value="receita_bruta">Maior receita</option>
+          <option value="comissao_devida">Maior comissão</option>
+          <option value="roi">Melhor ROI</option>
+          <option value="saldo_disponivel">Maior saldo a resgatar</option>
+          <option value="total_pedidos">Mais pedidos</option>
+        </select>
+      </div>
+      <div id="ifd-tabela" style="overflow-x:auto">
+        <div style="text-align:center;color:var(--text3);font-size:12px;padding:30px">Carregando...</div>
+      </div>
+    </div>
   </div>
 
   <!-- Tab: Lista -->
@@ -19474,6 +19513,77 @@ function switchInfluTab(btn, tab) {
   document.querySelectorAll('.infl-tab-panel').forEach(p => p.style.display = 'none');
   const panel = document.getElementById('infl-tab-' + tab);
   if (panel) panel.style.display = '';
+}
+
+// ── Fase 2 · Onda 1: Dashboard executivo + ranking ──
+let _influDashCache = [];
+const _ifdFmtR = (v) => 'R$ ' + (Math.round((+v || 0) * 100) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+async function loadInfluDashboard() {
+  const fmtR = _ifdFmtR;
+  const tb = document.getElementById('ifd-tabela');
+  if (tb) tb.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:12px;padding:30px">Carregando...</div>';
+  try {
+    const { data, error } = await sb.rpc('influenciador_dashboard');
+    if (error) throw error;
+    _influDashCache = data || [];
+    const tot = _influDashCache.reduce((a, r) => ({
+      receita: a.receita + (+r.receita_bruta || 0),
+      ped: a.ped + (+r.total_pedidos || 0),
+      com: a.com + (+r.comissao_devida || 0),
+      inv: a.inv + (+r.recebidos_total || 0),
+    }), { receita: 0, ped: 0, com: 0, inv: 0 });
+    const ativos = _influDashCache.filter(r => r.status === 'ativo');
+    const comMap = _influDashCache.filter(r => r.tem_mapeamento).length;
+    const investTotal = tot.inv + tot.com; // brindes + comissão = custo real da parceria
+    const roiMedio = investTotal > 0 ? (tot.receita / investTotal) : null;
+    document.getElementById('ifd-kpi-receita').textContent = fmtR(tot.receita);
+    document.getElementById('ifd-kpi-ped').textContent = tot.ped + ' pedidos';
+    document.getElementById('ifd-kpi-comissao').textContent = fmtR(tot.com);
+    document.getElementById('ifd-kpi-invest').textContent = fmtR(tot.inv);
+    document.getElementById('ifd-kpi-roi').textContent = roiMedio ? (roiMedio.toFixed(1) + '×') : '—';
+    document.getElementById('ifd-kpi-ativos').textContent = ativos.length;
+    document.getElementById('ifd-kpi-map').textContent = comMap + ' com vínculo Bling';
+    renderInfluDashboard();
+  } catch (e) {
+    console.error('loadInfluDashboard:', e);
+    if (tb) tb.innerHTML = `<div style="color:var(--red);font-size:12px;padding:12px">Erro: ${esc(e.message || e)}</div>`;
+  }
+}
+function renderInfluDashboard() {
+  const fmtR = _ifdFmtR;
+  const tb = document.getElementById('ifd-tabela');
+  if (!tb) return;
+  const ord = (document.getElementById('ifd-ordenar') || {}).value || 'receita_bruta';
+  const rows = [..._influDashCache].sort((a, b) => (+b[ord] || 0) - (+a[ord] || 0));
+  if (!rows.length) {
+    tb.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:12px;padding:30px">Nenhum influenciador cadastrado.</div>';
+    return;
+  }
+  const niveis = { nano: '#94a3b8', creator: '#3b82f6', embaixador: '#a855f7', elite: '#f59e0b' };
+  let h = '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="text-align:left;color:var(--text3);border-bottom:1px solid var(--border)">'
+    + '<th style="padding:8px 6px">#</th><th style="padding:8px 6px">Creator</th><th style="padding:8px 6px">Nível</th>'
+    + '<th style="padding:8px 6px;text-align:right">Pedidos</th><th style="padding:8px 6px;text-align:right">Receita</th>'
+    + '<th style="padding:8px 6px;text-align:right">Comissão</th><th style="padding:8px 6px;text-align:right">Saldo</th>'
+    + '<th style="padding:8px 6px;text-align:right">ROI</th><th style="padding:8px 6px">Última venda</th></tr></thead><tbody>';
+  rows.forEach((r, i) => {
+    const cor = niveis[r.nivel] || 'var(--text3)';
+    const roi = r.roi != null ? (Number(r.roi).toFixed(1) + '×') : '—';
+    const roiCor = r.roi == null ? 'var(--text3)' : (r.roi >= 5 ? 'var(--green)' : (r.roi >= 2 ? 'var(--amber)' : 'var(--red)'));
+    const uv = r.ultima_venda ? new Date(r.ultima_venda + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
+    const mapBadge = r.tem_mapeamento ? '' : ' <span style="font-size:9px;background:var(--bg2);color:var(--text3);padding:1px 5px;border-radius:6px">manual</span>';
+    h += `<tr style="border-bottom:1px solid var(--border)">`
+      + `<td style="padding:8px 6px;color:var(--text3)">${i + 1}</td>`
+      + `<td style="padding:8px 6px;font-weight:600">${esc(r.nome)}${mapBadge}</td>`
+      + `<td style="padding:8px 6px"><span style="font-size:10.5px;color:${cor};font-weight:700">${esc(r.nivel_label || r.nivel || '—')}</span> <span style="color:var(--text3);font-size:10px">${r.comissao_pct || 0}%</span></td>`
+      + `<td style="padding:8px 6px;text-align:right">${r.total_pedidos || 0}</td>`
+      + `<td style="padding:8px 6px;text-align:right;font-weight:600">${fmtR(+r.receita_bruta || 0)}</td>`
+      + `<td style="padding:8px 6px;text-align:right">${fmtR(+r.comissao_devida || 0)}</td>`
+      + `<td style="padding:8px 6px;text-align:right;${(+r.saldo_disponivel || 0) >= 100 ? 'color:var(--green);font-weight:700' : ''}">${fmtR(+r.saldo_disponivel || 0)}</td>`
+      + `<td style="padding:8px 6px;text-align:right;color:${roiCor};font-weight:700">${roi}</td>`
+      + `<td style="padding:8px 6px;color:var(--text3)">${uv}</td></tr>`;
+  });
+  h += '</tbody></table>';
+  tb.innerHTML = h;
 }
 
 async function loadInfluenciadores() {
