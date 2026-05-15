@@ -6061,6 +6061,9 @@ if(whn) whn.addEventListener('input', () => {
 .est-var-label{display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--white);border:2px solid var(--border);border-radius:7px;cursor:pointer;font-size:12.5px;font-weight:600;transition:all 0.15s}
 .est-var-label.selected{border-color:#7c3aed;background:linear-gradient(135deg,rgba(124,58,237,0.05),rgba(168,85,247,0.05))}
 .est-var-label:hover{border-color:#a855f7}
+.est-qual-label{display:block;padding:10px 12px;background:var(--white);border:2px solid var(--border);border-radius:8px;cursor:pointer;transition:all 0.15s}
+.est-qual-label.selected{border-color:#7c3aed;background:linear-gradient(135deg,rgba(124,58,237,0.06),rgba(168,85,247,0.06))}
+.est-qual-label:hover{border-color:#a855f7}
 
 /* Refresh btn */
 .mkt-refresh{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:6px;border:1px solid var(--border2);background:var(--white);cursor:pointer;font-size:12px;font-weight:600;color:var(--text2);transition:all .12s;}
@@ -9664,6 +9667,26 @@ updateDynamicField('foto');
           </label>
           <label class="est-var-label" data-v="3">
             <input type="radio" name="est-variacoes" value="3" style="margin:0" onchange="estUpdateVariacoes()">3 variações (~R$ 0,60)
+          </label>
+        </div>
+      </div>
+
+      <!-- Qualidade do modelo -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">⚙️ Qualidade do modelo</div>
+        <div style="font-size:11.5px;color:var(--text3);margin-bottom:10px">O modelo Pro é muito mais fiel (preserva pin, rosto, peça e detalhes) mas custa mais. Use só quando for algo importante — campanha, lançamento, peça-chave.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <label class="est-qual-label selected" data-q="flash" onclick="estSelQualidade(this,'flash')">
+            <input type="radio" name="est-qualidade" value="flash" checked style="display:none">
+            <div style="font-weight:700;font-size:12.5px">⚡ Padrão</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:3px">Gemini 2.5 Flash · <strong>~R$ 0,20</strong>/img</div>
+            <div style="font-size:10.5px;color:var(--text3);margin-top:2px">Bom pro dia a dia, testes, posts comuns.</div>
+          </label>
+          <label class="est-qual-label" data-q="pro" onclick="estSelQualidade(this,'pro')">
+            <input type="radio" name="est-qualidade" value="pro" style="display:none">
+            <div style="font-weight:700;font-size:12.5px">💎 Pro · Muito mais fiel</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:3px">Nano Banana Pro · <strong>~R$ 0,65</strong>/img</div>
+            <div style="font-size:10.5px;color:#b45309;margin-top:2px">Use só pra campanha / lançamento / peça-chave.</div>
           </label>
         </div>
       </div>
@@ -24009,6 +24032,14 @@ window.estGerar = async function() {
   const btn = document.getElementById('est-btn-gerar');
   // Pega quantidade de variacoes selecionada
   const numVariacoes = parseInt(document.querySelector('input[name="est-variacoes"]:checked')?.value || '1');
+  // Qualidade do modelo (flash padrão / pro Nano Banana Pro)
+  const usarPro = document.querySelector('input[name="est-qualidade"]:checked')?.value === 'pro';
+  if (usarPro) {
+    const custoTotal = (numVariacoes * 0.65).toFixed(2).replace('.', ',');
+    if (!confirm(`Modo Pro (Nano Banana Pro) é muito mais fiel mas custa ~R$ 0,65/imagem.\n\n${numVariacoes} ${numVariacoes>1?'variações':'imagem'} = ~R$ ${custoTotal}.\n\nConfirmar?`)) {
+      return;
+    }
+  }
   if (btn) { btn.disabled = true; btn.textContent = '✨ Gerando prompt...'; }
 
   try {
@@ -24095,6 +24126,7 @@ window.estGerar = async function() {
                 aspect_ratio: aspectRatio,
                 incluir_logo: estState.produto._persistente, // só ativa logo se temos imagem real do produto (vem do site)
                 image_produto_url: estState.produto._persistente ? estState.produto.imagem_url : undefined, // URL do CDN site (ciclo 54)
+                modelo_pro: usarPro, // receita #1: Nano Banana Pro (muito mais fiel, ~R$0,65)
               }),
             });
             const j = await r.json();
@@ -24187,6 +24219,13 @@ window.estUpdateVariacoes = function() {
   document.querySelectorAll('.est-var-label').forEach(el => {
     el.classList.toggle('selected', el.dataset.v === v);
   });
+};
+
+// Seleção de qualidade do modelo (flash padrão / pro fiel)
+window.estSelQualidade = function(el, q) {
+  document.querySelectorAll('.est-qual-label').forEach(x => x.classList.toggle('selected', x.dataset.q === q));
+  const radio = el.querySelector('input[type="radio"]');
+  if (radio) radio.checked = true;
 };
 
 window.estCarregarGaleria = async function() {

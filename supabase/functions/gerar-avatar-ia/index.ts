@@ -11,7 +11,12 @@ const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
 const GEMINI_IMAGE_KEY = Deno.env.get('GEMINI_IMAGE_API_KEY')!
 const IMGBB_API_KEY = Deno.env.get('IMGBB_API_KEY')!
 
-const MODEL = 'gemini-2.5-flash-image'
+// Modelos disponíveis. 'flash' = padrão barato; 'pro' = Nano Banana Pro
+// (muito mais fiel — preserva pin/rosto/peça — só usar em campanha importante).
+const MODEL_FLASH = 'gemini-2.5-flash-image'
+const MODEL_PRO = 'gemini-3-pro-image-preview'
+const CUSTO_FLASH = 0.20
+const CUSTO_PRO = 0.65
 
 // Logo Dana "Principal Horizontal" (midia kit) pra usar como referencia em image-to-image
 const LOGO_DANA_URL = 'https://comlppiwzniskjbeneos.supabase.co/storage/v1/object/public/kanban/brandkit-logo-1776433663865-vn4wml.png'
@@ -29,10 +34,36 @@ const ROUPA_KEYWORDS = /\b(lab\s*coat|jaleco|scrub|uniform|medical\s*coat|labcoa
 // Frases que indicam EXPLICITAMENTE que NAO e roupa medica (sobrescreve a detecao acima)
 const NAO_ROUPA = /\bNO\s+(medical\s+)?(lab\s*coat|scrubs|stethoscope|healthcare\s+uniform)\b|\bNOT\s+a\s+(doctor|nurse|healthcare)\b/i
 
-async function fetchImagemBase64(url: string): Promise<{ mime: string, b64: string } | null> {
+// Receita #4: força a versão GRANDE da foto do produto. CDNs de e-commerce
+// servem WebP minúsculo por content-negotiation — referência ruim = saída ruim.
+// Magazord (CDN da Dana) usa Azion IMS: ?ims=fit-in/WxH/filters:fill(cor)
+function urlImagemAltaRes(url: string): string {
+  if (!url || typeof url !== 'string') return url
   try {
-    const r = await fetch(url)
-    if (!r.ok) { console.warn('[logo] fetch falhou', r.status); return null }
+    // Já tem transform? não duplica
+    if (/[?&]ims=/.test(url)) return url
+    // Magazord / Azion IMS
+    if (/magazord\.com\.br|azioncdn|azionedge/i.test(url)) {
+      const sep = url.includes('?') ? '&' : '?'
+      return `${url}${sep}ims=fit-in/2400x2400/filters:fill(ffffff)`
+    }
+    return url
+  } catch { return url }
+}
+
+async function fetchImagemBase64(url: string, altaRes = false): Promise<{ mime: string, b64: string } | null> {
+  try {
+    const alvo = altaRes ? urlImagemAltaRes(url) : url
+    const r = await fetch(alvo, { headers: { 'Accept': 'image/jpeg,image/png,image/*' } })
+    if (!r.ok) {
+      // Se o transform falhou, tenta a URL original como fallback
+      if (altaRes && alvo !== url) {
+        console.warn('[img] alta-res falhou, fallback original', r.status)
+        return await fetchImagemBase64(url, false)
+      }
+      console.warn('[img] fetch falhou', r.status)
+      return null
+    }
     const mime = r.headers.get('content-type') || 'image/png'
     const buf = new Uint8Array(await r.arrayBuffer())
     // Encode base64
@@ -40,7 +71,7 @@ async function fetchImagemBase64(url: string): Promise<{ mime: string, b64: stri
     for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i])
     return { mime, b64: btoa(bin) }
   } catch (e) {
-    console.warn('[logo] fetch erro', e)
+    console.warn('[img] fetch erro', e)
     return null
   }
 }
@@ -118,6 +149,10 @@ Deno.serve(async (req) => {
     const prompt: string = (body.prompt || '').trim()
     const contexto: string = body.contexto || 'outro'
     const contextoRefId: string | null = body.contexto_ref_id || null
+    // Receita #1: modo Pro (Nano Banana Pro) — muito mais fiel, 3x mais caro
+    const usarPro: boolean = body.modelo_pro === true || body.qualidade === 'pro'
+    const MODEL = usarPro ? MODEL_PRO : MODEL_FLASH
+    const CUSTO_IMG = usarPro ? CUSTO_PRO : CUSTO_FLASH
     if (!prompt || prompt.length < 20) {
       return json({ error: 'Prompt obrigatório (mínimo 20 caracteres)' }, 400)
     }
@@ -154,7 +189,7 @@ Deno.serve(async (req) => {
     // primaria — Gemini deve usar a roupa exata da imagem (cor, corte, tecido, detalhes)
     let temProdutoRef = false
     if (body.image_produto_url && typeof body.image_produto_url === 'string') {
-      const produto = await fetchImagemBase64(body.image_produto_url)
+      const produto = await fetchImagemBase64(body.image_produto_url, true)  // alta-res (receita #4)
       if (produto) {
         parts.push({ inlineData: { mimeType: produto.mime, data: produto.b64 } })
         temProdutoRef = true
@@ -267,6 +302,20 @@ The pin is the ONLY brand element. The fabric must otherwise be completely clean
       promptFinal = brandBlock + '\n\n' + promptFinal
     }
 
+    // Receita #6: bloco QUALITY/PRESERVE-CHANGE no final — direção clara +
+    // referência a marcas reais (o modelo tem essas estéticas memorizadas).
+    promptFinal = promptFinal + `
+
+══ QUALITY & FIDELITY ══
+PRESERVE EXACTLY (non-negotiable):
+- The garment from the product reference image: same color, cut, fabric, collar, sleeve length, length. Do NOT redesign it.
+${temPinRef ? '- The Dana pin exactly as specified in the branding block above.\n' : ''}CHANGE freely (per the scene prompt above):
+- Environment, model, pose, lighting, camera angle.
+
+RENDER QUALITY: ultra-high-resolution photorealistic, sharp focus, premium fashion catalog aesthetic in the style of Zara / COS / Massimo Dutti editorial campaigns. Professional studio-grade lighting, natural skin texture, crisp fabric detail.
+
+DO NOT: add any text, watermark, fictional logo, or brand name; change the garment design; lower the resolution; produce a flat/amateur look.`
+
     parts.push({ text: promptFinal })
 
     // Aspect ratio: default 1:1, ou '9:16' pra personas (corpo todo vertical), '16:9' pra mockups de campanha
@@ -280,6 +329,8 @@ The pin is the ONLY brand element. The fabric must otherwise be completely clean
         body: JSON.stringify({
           contents: [{ role: 'user', parts }],
           generationConfig: {
+            // Receita #6: temp 0.55 = fidelidade > criatividade
+            temperature: 0.55,
             responseModalities: ['IMAGE'],
             imageConfig: { aspectRatio }
           }
@@ -354,7 +405,7 @@ The pin is the ONLY brand element. The fabric must otherwise be completely clean
       contexto, contexto_ref_id: contextoRefId, prompt, url,
       tamanho_bytes: tamanhoBytes,
       modelo: MODEL,
-      custo_estimado_reais: Number(cfg.custo_por_imagem_reais || 0.20),
+      custo_estimado_reais: CUSTO_IMG,
       status: 'ok',
     })
 
@@ -364,8 +415,10 @@ The pin is the ONLY brand element. The fabric must otherwise be completely clean
       url,
       mime,
       tamanho_bytes: tamanhoBytes,
-      custo_estimado: Number(cfg.custo_por_imagem_reais || 0.20),
-      gasto_mes_atual: gastoMes + Number(cfg.custo_por_imagem_reais || 0.20),
+      modelo: MODEL,
+      modo_pro: usarPro,
+      custo_estimado: CUSTO_IMG,
+      gasto_mes_atual: gastoMes + CUSTO_IMG,
       quota_hoje: ehAdmin ? null : { usadas: Number(usadasHojeRes?.data || 0), limite: Number(cfg.limite_diario_usuario || 5) },
     })
 
