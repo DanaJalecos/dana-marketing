@@ -9786,10 +9786,48 @@ updateDynamicField('foto');
     </div>
   </div>
 
-  <!-- Painel 3: TEMA -->
+  <!-- Painel 3: CONFIGURAÇÃO (cena/ambiente/estilo) + TEMA -->
   <div id="est-panel-3" class="est-panel" style="display:none">
     <div class="card mb20">
-      <div class="card-title" style="margin-bottom:8px">3. Tema da campanha (opcional)</div>
+      <div class="card-title" style="margin-bottom:8px">3. Configuração da cena</div>
+      <div class="card-sub" style="margin-bottom:14px">Como você quer a foto? Escolha o estilo de cena. "Como a referência" mantém o comportamento padrão (recontextualiza o produto sozinho).</div>
+
+      <label class="label" style="margin-bottom:6px;display:block">Tipo de cena</label>
+      <div id="est-cena-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">
+        <div class="est-cena-card" data-cena="referencia" onclick="estSelCena(this,'referencia')" style="border:2px solid #7c3aed;border-radius:10px;padding:12px;cursor:pointer;transition:all .15s;background:linear-gradient(135deg,rgba(124,58,237,0.05),transparent)">
+          <div style="font-size:18px">🪄</div><div style="font-weight:700;font-size:12.5px;margin-top:4px">Como a referência</div><div style="font-size:10.5px;color:var(--text3);margin-top:2px">IA decide o cenário (padrão atual)</div>
+        </div>
+        <div class="est-cena-card" data-cena="produto" onclick="estSelCena(this,'produto')" style="border:2px solid var(--border);border-radius:10px;padding:12px;cursor:pointer;transition:all .15s">
+          <div style="font-size:18px">📦</div><div style="font-weight:700;font-size:12.5px;margin-top:4px">Produto em destaque</div><div style="font-size:10.5px;color:var(--text3);margin-top:2px">Foto de estúdio, só a peça</div>
+        </div>
+        <div class="est-cena-card" data-cena="lifestyle" onclick="estSelCena(this,'lifestyle')" style="border:2px solid var(--border);border-radius:10px;padding:12px;cursor:pointer;transition:all .15s">
+          <div style="font-size:18px">🌿</div><div style="font-weight:700;font-size:12.5px;margin-top:4px">Lifestyle (em uso)</div><div style="font-size:10.5px;color:var(--text3);margin-top:2px">Profissional usando, num ambiente</div>
+        </div>
+        <div class="est-cena-card" data-cena="retrato" onclick="estSelCena(this,'retrato')" style="border:2px solid var(--border);border-radius:10px;padding:12px;cursor:pointer;transition:all .15s">
+          <div style="font-size:18px">👤</div><div style="font-weight:700;font-size:12.5px;margin-top:4px">Retrato profissional</div><div style="font-size:10.5px;color:var(--text3);margin-top:2px">Foco na pessoa vestindo a peça</div>
+        </div>
+      </div>
+
+      <div id="est-cfg-extra" style="display:none">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:6px">
+          <div id="est-amb-wrap">
+            <label class="label">📍 Ambiente / lugar</label>
+            <select id="est-ambiente" class="input"></select>
+          </div>
+          <div id="est-acao-wrap">
+            <label class="label">🧍 Ação / pose da pessoa</label>
+            <select id="est-acao" class="input"></select>
+          </div>
+        </div>
+        <div class="form-row" style="margin-top:8px">
+          <label class="label">🎨 Estilo visual</label>
+          <select id="est-estilo" class="input"></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb20">
+      <div class="card-title" style="margin-bottom:8px">Tema da campanha (opcional)</div>
       <div class="card-sub" style="margin-bottom:14px">Quer um tema específico? Ex: "Frete Grátis", "Black Friday", "Lançamento", "Dia das Mães". Deixa em branco pra um visual genérico do produto.</div>
       <div class="form-row">
         <label class="label">Tema/contexto da peça</label>
@@ -24538,10 +24576,71 @@ async function runSyncRetryProcessor(silent) {
 let estState = {
   produto: null,         // { id, nome, codigo, preco, imagem_url }
   tipo_peca: null,       // banner_site | post_feed | story_reel | anuncio_meta
+  cena: 'referencia',    // referencia | produto | lifestyle | retrato
+  ambiente: '',          // chave da lista EST_AMBIENTES
+  acao: '',              // chave da lista EST_ACOES
+  estilo: '',            // chave da lista EST_ESTILOS
   tema: '',
   copy_extra: '',
   ultimosResultados: [], // últimos resultados retornados (pra estSelProduto buscar pelo id)
   buscaTimer: null,      // debounce timer
+};
+
+// Presets bilíngues (pt = label / en = trecho do prompt). Nicho saúde.
+const EST_AMBIENTES = [
+  ['', '(deixar a IA escolher)', ''],
+  ['estudio', 'Estúdio branco', 'a clean pure white photography studio, seamless backdrop, soft even lighting'],
+  ['clinica', 'Clínica moderna', 'a modern medical clinic, light blue and white walls, soft natural daylight'],
+  ['hospital', 'Hospital', 'a clean modern hospital corridor, bright and professional, soft daylight'],
+  ['consultorio', 'Consultório odontológico', 'a modern dental office, clean and bright, professional equipment softly blurred'],
+  ['laboratorio', 'Laboratório', 'a modern laboratory environment, clean surfaces, soft technical lighting'],
+  ['veterinaria', 'Clínica veterinária', 'a friendly modern veterinary clinic, warm and clean, soft daylight'],
+  ['estetica', 'Estética / spa', 'an elegant aesthetic clinic / spa, warm minimalist decor, soft flattering light'],
+  ['homeoffice', 'Home office', 'a cozy bright home office, plants and wood, soft window light'],
+  ['cafe', 'Café', 'a sunlit specialty coffee shop, wood and plants, softly blurred background'],
+  ['rua', 'Rua urbana', 'a sunlit modern urban street with soft bokeh background'],
+  ['natureza', 'Externa / natureza', 'an outdoor natural setting, soft golden daylight, gentle greenery bokeh'],
+];
+const EST_ACOES = [
+  ['', '(neutro / sem pose específica)', ''],
+  ['sorrindo', 'Sorrindo, confiante', 'smiling warmly at the camera, confident relaxed posture'],
+  ['bracos', 'Braços cruzados', 'smiling at camera, arms gently crossed, confident professional posture'],
+  ['prancheta', 'Com prancheta / tablet', 'holding a clipboard or tablet, warm professional look'],
+  ['atendendo', 'Atendendo (gesto de cuidado)', 'in a caring professional gesture as if attending someone, warm expression'],
+  ['caminhando', 'Caminhando', 'mid-stride walking, natural confident movement, slight motion'],
+  ['empe', 'Em pé, postura forte', 'standing tall, strong confident posture, looking at camera'],
+];
+const EST_ESTILOS = [
+  ['', '(estilo padrão premium)', ''],
+  ['editorial', 'Editorial de luxo', 'luxury editorial campaign aesthetic, Vogue-style lighting, refined and aspirational'],
+  ['clean', 'Clean minimalista', 'clean minimalist aesthetic, lots of negative space, calm and modern'],
+  ['acolhedor', 'Quente e acolhedor', 'warm welcoming mood, golden soft light, human and approachable'],
+  ['corporativo', 'Corporativo profissional', 'polished corporate professional look, crisp and trustworthy'],
+  ['vibrante', 'Vibrante moderno', 'vibrant modern energetic style, bright punchy colors, dynamic composition'],
+];
+function _estFill(id, list, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = list.map(([k, lbl]) => `<option value="${k}" ${k === val ? 'selected' : ''}>${esc(lbl)}</option>`).join('');
+}
+window.estSelCena = function(card, cena) {
+  document.querySelectorAll('.est-cena-card').forEach(c => {
+    c.style.borderColor = 'var(--border)'; c.style.background = '';
+  });
+  if (card) { card.style.borderColor = '#7c3aed'; card.style.background = 'linear-gradient(135deg,rgba(124,58,237,0.05),transparent)'; }
+  estState.cena = cena;
+  const extra = document.getElementById('est-cfg-extra');
+  const acaoWrap = document.getElementById('est-acao-wrap');
+  const ambWrap = document.getElementById('est-amb-wrap');
+  if (cena === 'referencia') { if (extra) extra.style.display = 'none'; return; }
+  if (extra) extra.style.display = '';
+  // Produto = sem pessoa (esconde ação); Lifestyle/Retrato = com pessoa
+  const temPessoa = (cena === 'lifestyle' || cena === 'retrato');
+  if (acaoWrap) acaoWrap.style.display = temPessoa ? '' : 'none';
+  if (ambWrap) ambWrap.style.display = (cena === 'retrato') ? 'none' : '';
+  _estFill('est-ambiente', EST_AMBIENTES, estState.ambiente);
+  _estFill('est-acao', EST_ACOES, estState.acao);
+  _estFill('est-estilo', EST_ESTILOS, estState.estilo);
 };
 
 // ════════════════════════════════════════════════
@@ -24746,12 +24845,24 @@ window.estProx = function(step) {
 function estAtualizarResumo() {
   estState.tema = document.getElementById('est-tema')?.value?.trim() || '';
   estState.copy_extra = document.getElementById('est-copy-extra')?.value?.trim() || '';
+  estState.ambiente = document.getElementById('est-ambiente')?.value || '';
+  estState.acao = document.getElementById('est-acao')?.value || '';
+  estState.estilo = document.getElementById('est-estilo')?.value || '';
   const tipoLabel = { banner_site:'Banner do site (21:9)', post_feed:'Post Instagram (1:1)', story_reel:'Story/Reels (9:16)', anuncio_meta:'Anúncio Meta (1:1)' }[estState.tipo_peca] || estState.tipo_peca;
+  const cenaLabel = { referencia:'Como a referência', produto:'Produto em destaque', lifestyle:'Lifestyle (em uso)', retrato:'Retrato profissional' }[estState.cena] || estState.cena;
+  const lblDe = (list, k) => (list.find(x => x[0] === k) || [,''])[1] || '';
+  const ambL = estState.cena !== 'referencia' && estState.cena !== 'retrato' ? lblDe(EST_AMBIENTES, estState.ambiente) : '';
+  const acaoL = (estState.cena === 'lifestyle' || estState.cena === 'retrato') ? lblDe(EST_ACOES, estState.acao) : '';
+  const estiloL = estState.cena !== 'referencia' ? lblDe(EST_ESTILOS, estState.estilo) : '';
   const r = document.getElementById('est-resumo');
   if (r) r.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:8px">
       <div><strong>Produto:</strong> ${esc(estState.produto?.nome || '—')}</div>
-      <div><strong>Tipo de peça:</strong> ${esc(tipoLabel)}</div>
+      <div><strong>Formato:</strong> ${esc(tipoLabel)}</div>
+      <div><strong>Cena:</strong> ${esc(cenaLabel)}</div>
+      ${ambL ? `<div><strong>Ambiente:</strong> ${esc(ambL)}</div>` : ''}
+      ${acaoL ? `<div><strong>Pose:</strong> ${esc(acaoL)}</div>` : ''}
+      ${estiloL ? `<div><strong>Estilo:</strong> ${esc(estiloL)}</div>` : ''}
       <div><strong>Tema:</strong> ${esc(estState.tema || '(genérico)')}</div>
       ${estState.copy_extra ? `<div><strong>Copy:</strong> ${esc(estState.copy_extra)}</div>` : ''}
     </div>
@@ -24795,6 +24906,11 @@ window.estGerar = async function() {
         tipo_peca: estState.tipo_peca,
         tema: estState.tema,
         copy_extra: estState.copy_extra,
+        // Configuração de cena (best-effort — se a edge ignorar, reforçamos no prompt abaixo)
+        cena: estState.cena,
+        ambiente_en: (EST_AMBIENTES.find(x => x[0] === estState.ambiente) || [,, ''])[2] || undefined,
+        acao_en: (EST_ACOES.find(x => x[0] === estState.acao) || [,, ''])[2] || undefined,
+        estilo_en: (EST_ESTILOS.find(x => x[0] === estState.estilo) || [,, ''])[2] || undefined,
       }),
     });
     const dataPrompt = await resPrompt.json();
@@ -24812,6 +24928,31 @@ window.estGerar = async function() {
     } else {
       _tecidoInfo = ' · 🧵 tecido: não identificado (sem injeção)';
     }
+
+    // ── Configuração de cena (reforço determinístico no prompt) ──
+    // "referencia" = comportamento antigo (não injeta nada).
+    let _cenaInfo = '';
+    if (estState.cena && estState.cena !== 'referencia') {
+      const ambEn = (EST_AMBIENTES.find(x => x[0] === estState.ambiente) || [,, ''])[2];
+      const acaoEn = (EST_ACOES.find(x => x[0] === estState.acao) || [,, ''])[2];
+      const estiloEn = (EST_ESTILOS.find(x => x[0] === estState.estilo) || [,, ''])[2];
+      const blocks = [];
+      if (estState.cena === 'produto') {
+        blocks.push('SCENE TYPE: clean product hero shot — the garment is the absolute focus, NO person, professional studio presentation (on a mannequin/flat-lay/floating as appropriate). Keep the exact product from the reference.');
+      } else if (estState.cena === 'lifestyle') {
+        blocks.push('SCENE TYPE: lifestyle / in-use shot — a real professional naturally WEARING/USING the exact product from the reference, in context. Keep the product identical (color, cut, fabric, brand pin). The person must look natural and professional.');
+      } else if (estState.cena === 'retrato') {
+        blocks.push('SCENE TYPE: professional portrait — a confident professional wearing the exact product from the reference, the PERSON is the focus, flattering portrait framing. Keep the product identical.');
+      }
+      if (ambEn) blocks.push(`SCENE ENVIRONMENT (replace background): place the subject in ${ambEn}. Lighting must match this environment naturally.`);
+      if (acaoEn && (estState.cena === 'lifestyle' || estState.cena === 'retrato')) blocks.push(`POSE / ACTION: the person is ${acaoEn}. Natural, professional, never stiff.`);
+      if (estiloEn) blocks.push(`VISUAL STYLE: ${estiloEn}.`);
+      if (blocks.length) {
+        promptVisual += '\n\n' + blocks.join('\n');
+        _cenaInfo = ` · 🎬 ${estState.cena}`;
+      }
+    }
+
     // Debug visivel: mostra o prompt gerado num <details>
     let debugBox = document.getElementById('est-debug-prompt');
     if (!debugBox) {
@@ -24822,7 +24963,7 @@ window.estGerar = async function() {
     }
     debugBox.innerHTML = `
       <details ${dataPrompt.viu_imagem ? '' : 'open'}>
-        <summary style="cursor:pointer;font-weight:600;color:#7c3aed">🔍 Prompt gerado (provider: ${esc(dataPrompt.provider || '?')}${dataPrompt.viu_imagem === false ? ' · ⚠ não viu a imagem do produto' : ' · ✓ viu imagem'}${esc(_tecidoInfo)})</summary>
+        <summary style="cursor:pointer;font-weight:600;color:#7c3aed">🔍 Prompt gerado (provider: ${esc(dataPrompt.provider || '?')}${dataPrompt.viu_imagem === false ? ' · ⚠ não viu a imagem do produto' : ' · ✓ viu imagem'}${esc(_tecidoInfo)}${esc(_cenaInfo)})</summary>
         <div style="margin-top:8px;padding:10px;background:var(--white);border-radius:6px;color:var(--text);line-height:1.5;max-height:240px;overflow-y:auto">${esc(promptVisual)}</div>
       </details>
     `;
