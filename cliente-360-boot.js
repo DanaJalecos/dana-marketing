@@ -6366,10 +6366,10 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       ? (c.cupom_enviado_em
           ? `<div style="font-size:10px;padding:3px 8px;background:rgba(34,197,94,0.18);color:#86efac;border-radius:4px;font-weight:600;white-space:nowrap">✅ ENVIADO</div>
              <button onclick="window.c360McAnivAbrir('${c.contato_id}')" style="padding:5px 10px;border-radius:5px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:11px;white-space:nowrap">Reabrir</button>`
-          : `<div style="font-size:10px;padding:3px 8px;background:rgba(124,58,237,0.18);color:#c4b5fd;border-radius:4px;font-weight:600;white-space:nowrap">🎁 ${escapeHtml(c.cupom_codigo||'')}</div>
+          : `<div style="font-size:10px;padding:3px 8px;background:rgba(124,58,237,0.18);color:#c4b5fd;border-radius:4px;font-weight:600;white-space:nowrap">✉️ Pronta</div>
              <button onclick="window.c360McAnivAbrir('${c.contato_id}')" style="padding:5px 10px;border-radius:5px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">Enviar 📤</button>`)
       : `<div></div>
-         <button onclick="window.c360McAnivGerar('${c.contato_id}', this)" style="padding:5px 12px;border-radius:5px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">🎁 Gerar cupom</button>`;
+         <button onclick="window.c360McAnivGerar('${c.contato_id}', this)" style="padding:5px 12px;border-radius:5px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">✉️ Preparar mensagem</button>`;
     const nomeEsc = (c.contato_nome || '').replace(/'/g,'&#39;');
     return `
       <div style="display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.04);align-items:center">
@@ -6489,7 +6489,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
         const gerados = lista.filter(c => c.cupom_ja_gerado).length;
         resumoEl.textContent = lista.length === 0
           ? 'ninguém faz aniversário este mês'
-          : `${lista.length} este mês · ${hoje} hoje · ${futuros} próximos · ${gerados} cupom${gerados!==1?'s':''} gerado${gerados!==1?'s':''}`;
+          : `${lista.length} este mês · ${hoje} hoje · ${futuros} próximos · ${gerados} mensagem${gerados!==1?'s':''} preparada${gerados!==1?'s':''}`;
       }
 
       if (lista.length === 0) {
@@ -6501,7 +6501,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       _mcAnivPag = 0;
       cont.innerHTML = `
         <div style="padding-top:8px;font-size:10.5px;color:#64748b;font-style:italic;margin-bottom:8px">
-          💡 Clique em "Gerar cupom" pra criar o código + mensagem pronta. Cupom = 10% off no mês de aniversário.
+          💡 Clique em "Preparar mensagem" pra abrir a mensagem pronta + criativo. O cliente ganha 10% OFF no mês todo — sem código, é só responder/comprar com você que aplica o desconto.
         </div>
         <input id="mc-aniv-busca" type="text" placeholder="🔍 Buscar aniversariante por nome…" value="${escapeHtml(_mcAnivBusca)}" oninput="window.c360McAnivBusca(this.value)" style="width:100%;box-sizing:border-box;padding:7px 10px;margin-bottom:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#e2e8f0;font-size:12px;outline:none">
         <div id="mc-aniv-lista"></div>
@@ -6612,7 +6612,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
   // Gera cupom (clique no botão da linha)
   window.c360McAnivGerar = async function(contatoId, btn) {
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando…'; btn.style.opacity = '0.6'; }
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Preparando…'; btn.style.opacity = '0.6'; }
     try {
       const { data, error } = await state.sb.functions.invoke('gerar-cupom-aniversario', {
         body: { contato_id: Number(contatoId) }
@@ -6621,8 +6621,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       _mcAbrirModalAniv(data);
       mcLoadAniversariantesWidget();  // refresh
     } catch (e) {
-      alert('Erro ao gerar cupom: ' + (e.message || e));
-      if (btn) { btn.disabled = false; btn.textContent = '🎁 Gerar cupom'; btn.style.opacity = ''; }
+      alert('Erro ao preparar mensagem: ' + (e.message || e));
+      if (btn) { btn.disabled = false; btn.textContent = '✉️ Preparar mensagem'; btn.style.opacity = ''; }
     }
   };
 
@@ -6660,18 +6660,14 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
         <div style="background:#0b0f17;border:1px solid rgba(255,255,255,0.12);border-radius:14px;max-width:620px;width:100%;color:#e2e8f0;box-shadow:0 30px 80px rgba(0,0,0,0.5)">
           <div style="padding:18px 22px;background:linear-gradient(135deg,#fb923c,#f97316);border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
             <div>
-              <div style="font-size:11px;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:0.5px;font-weight:700">🎂 Cupom de aniversário</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.85);text-transform:uppercase;letter-spacing:0.5px;font-weight:700">🎂 Mensagem de aniversário</div>
               <div style="font-size:19px;color:#fff;font-weight:800;margin-top:4px">${escapeHtml(contato.nome || cupom.contato_nome || '—')}</div>
-              <div style="font-size:11.5px;color:rgba(255,255,255,0.85);margin-top:3px">Válido até ${valFmt} · 10% OFF</div>
+              <div style="font-size:11.5px;color:rgba(255,255,255,0.85);margin-top:3px">🎁 Presente: 10% OFF no mês todo</div>
             </div>
             <button onclick="document.getElementById('mc-aniv-modal').remove()" style="background:rgba(0,0,0,0.2);border:none;color:#fff;font-size:18px;cursor:pointer;width:28px;height:28px;border-radius:50%">×</button>
           </div>
           <div style="padding:18px 22px">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
-              <div style="padding:8px 14px;background:rgba(124,58,237,0.15);border:1px dashed rgba(124,58,237,0.5);border-radius:8px;font-family:monospace;font-size:15px;color:#c4b5fd;font-weight:700">${escapeHtml(cupom.codigo || '—')}</div>
-              ${enviadoBadge}
-              <button onclick="navigator.clipboard.writeText('${escapeHtml(cupom.codigo||'')}');this.textContent='✓ Copiado'" style="padding:5px 10px;border-radius:5px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:11px">📋 Copiar código</button>
-            </div>
+            ${cupom.enviado_em ? `<div style="margin-bottom:12px">${enviadoBadge}</div>` : ''}
 
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
               <div>

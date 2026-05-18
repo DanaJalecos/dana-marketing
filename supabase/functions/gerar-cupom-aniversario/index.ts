@@ -64,15 +64,14 @@ function ultimoDiaDoMes(mes1Based: number, ano: number): string {
   return d.toISOString().slice(0, 10)
 }
 
-function gerarMensagem(nome: string, codigo: string, mesAniv: number): string {
+function gerarMensagem(nome: string, mesAniv: number): string {
   const nomeFmt = primeiroNome(nome)
   const mesNome = MESES_PT[mesAniv - 1] || ''
   return (
     `Oi ${nomeFmt}! 🎉\n\n` +
-    `A Dana quer comemorar seu aniversário com você! Como presente, separamos um cupom exclusivo de *10% OFF* válido durante todo o mês de ${mesNome}:\n\n` +
-    `🎁 *${codigo}*\n\n` +
-    `Use no site (danajalecos.com.br) ou direto comigo aqui no WhatsApp. Vale pra qualquer item — jaleco, scrub, gorro, tudo!\n\n` +
-    `Que esse ano seja especial pra você! 💛`
+    `A Dana quer comemorar seu aniversário com você! Como presente, você tem *10% OFF* em qualquer item — jaleco, scrub, gorro, tudo — durante todo o mês de ${mesNome}.\n\n` +
+    `É só me responder aqui ou fazer seu pedido comigo pelo WhatsApp que eu já aplico o seu desconto. 💛\n\n` +
+    `Que esse ano seja especial pra você!`
   )
 }
 
@@ -184,8 +183,8 @@ Deno.serve(async (req) => {
       cupom = novo
     }
 
-    // 4. Mensagem WhatsApp
-    const mensagem = gerarMensagem(contato.nome, cupom.codigo, mesAniv)
+    // 4. Mensagem WhatsApp (sem código — desconto aplicado no atendimento)
+    const mensagem = gerarMensagem(contato.nome, mesAniv)
     const telefoneEscolhido = contato.celular || contato.telefone || null
     const waLink = whatsappLink(telefoneEscolhido, mensagem)
 
