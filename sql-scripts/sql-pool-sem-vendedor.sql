@@ -26,7 +26,8 @@ CREATE OR REPLACE FUNCTION pool_auto_atribuir(
 ) RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
-  v_nome_contato TEXT;
+  v_nome_contato  TEXT;
+  v_bling_profile UUID;
 BEGIN
   IF p_contato_id IS NULL OR p_user_id IS NULL THEN RETURN; END IF;
   IF COALESCE(p_empresa,'') <> 'matriz' THEN RETURN; END IF;
@@ -43,19 +44,28 @@ BEGIN
     WHERE contato_id = p_contato_id AND empresa = p_empresa
   ) THEN RETURN; END IF;
 
-  -- já tem vendedor pelo Bling? então não é "sem vendedor" → não toca
+  -- já tem vendedor pelo Bling? MESMA regra da view cliente_scoring_vendedor:
+  -- olha só o ÚLTIMO pedido com vendedor e vê se mapeia p/ um profile ativo.
+  -- (NÃO usar "qualquer pedido" — senão diverge da view e o cliente fica
+  --  no limbo: aparece no pool mas não deixa pegar.)
   SELECT nome INTO v_nome_contato FROM contatos WHERE id = p_contato_id;
-  IF v_nome_contato IS NOT NULL AND EXISTS (
-    SELECT 1
-    FROM pedidos p
-    JOIN vendedor_mapping vm
-      ON vm.bling_vendedor_id = p.vendedor_id
-     AND vm.empresa = p.empresa
-     AND vm.ativo = true
-    WHERE p.contato_nome = v_nome_contato
-      AND p.empresa = p_empresa
-      AND p.vendedor_id IS NOT NULL AND p.vendedor_id > 0
-  ) THEN RETURN; END IF;
+  IF v_nome_contato IS NOT NULL THEN
+    SELECT vm.profile_id INTO v_bling_profile
+    FROM (
+      SELECT p.vendedor_id
+      FROM pedidos p
+      WHERE p.contato_nome = v_nome_contato
+        AND p.empresa = p_empresa
+        AND p.vendedor_id IS NOT NULL AND p.vendedor_id > 0
+      ORDER BY p.data DESC NULLS LAST
+      LIMIT 1
+    ) lp
+    LEFT JOIN vendedor_mapping vm
+      ON vm.bling_vendedor_id = lp.vendedor_id
+     AND vm.empresa = p_empresa
+     AND vm.ativo = true;
+    IF v_bling_profile IS NOT NULL THEN RETURN; END IF;
+  END IF;
 
   -- assume
   INSERT INTO cliente_vendedor_manual
