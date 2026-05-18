@@ -22018,7 +22018,17 @@ async function loadFaturamentoPorCanal() {
           .gte('data_hora', inicioISO).lt('data_hora', fimISO)
           .limit(20000);
 
-    const [blingR, magazordR] = await Promise.all([blingQuery, magazordPromise]);
+    // Mercado Livre: dados REAIS da API do ML (status=paid, por data de
+    // pagamento). ML = conta matriz; em BC não existe. Substitui o Bling.
+    const mlRealPromise = isBC
+      ? Promise.resolve({ data: [], error: null })
+      : sb.from('analytics_ml_pedidos')
+          .select('order_id, total_amount')
+          .eq('status', 'paid')
+          .gte('date_closed', inicioISO).lt('date_closed', fimISO)
+          .limit(50000);
+
+    const [blingR, magazordR, mlRealR] = await Promise.all([blingQuery, magazordPromise, mlRealPromise]);
 
     if (blingR.error) throw blingR.error;
 
@@ -22047,6 +22057,23 @@ async function loadFaturamentoPorCanal() {
       canais[key].total += valor;
       canais[key].pedidos += 1;
     });
+
+    // Sobrescreve ML com os dados REAIS do Mercado Livre (não Bling).
+    // Bate com o painel do seller. (BC não tem ML → fica zerado.)
+    if (!isBC && !mlRealR.error) {
+      const ordersML = new Set();
+      let receitaML = 0;
+      (mlRealR.data || []).forEach(r => {
+        ordersML.add(r.order_id);
+        receitaML += Number(r.total_amount || 0);
+      });
+      canais.ml.total = receitaML;
+      canais.ml.pedidos = ordersML.size;
+      canais.ml.fonte = 'Mercado Livre';
+    } else if (isBC) {
+      canais.ml.total = 0;
+      canais.ml.pedidos = 0;
+    }
 
     // Magazord: usa SOMENTE pagos pra evitar contar carrinhos cancelados como receita
     let magazordPagos = 0, magazordPedPagos = 0, magazordTodos = 0, magazordPedTodos = 0;
