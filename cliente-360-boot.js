@@ -5873,6 +5873,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
         ${mcRenderGamificacaoWidget(false)}
 
+        ${mcRenderPoolWidget(false)}
+
         ${mcRenderFiltrosBar(filtros, true)}
 
         ${apoioFiltrado.length > 0 ? `<div style="margin:14px 0 -4px;font-size:11.5px;color:#64748b">👁 Você também vê <strong style="color:#a78bfa">${apoioFiltrado.length}</strong> clientes da Beatriz (apoio · somente leitura — continuam na carteira dela).</div>` : ''}
@@ -5885,6 +5887,125 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     setTimeout(() => mcLoadFunilWidget(), 50);
     setTimeout(() => mcLoadAniversariantesWidget(), 80);
     setTimeout(() => mcLoadGamificacaoWidget(), 110);
+    setTimeout(() => mcLoadPoolWidget(), 140);
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // 📥 POOL "Clientes sem vendedor" (Matriz)
+  // Visível pra vendedores da Matriz + admin/gerentes. O cliente
+  // vira do vendedor automaticamente quando ele mexe no status ou
+  // registra um contato (triggers no banco). Aqui é só a vitrine.
+  // ══════════════════════════════════════════════════════════
+  let _mcPoolPag = 0, _mcPoolBusca = '', _mcPoolBuscaTimer = null;
+  const _MC_POOL_PP = 25;
+
+  function _mcPoolPodeVer() {
+    const c = state.profile?.cargo || '';
+    return ['vendedor','vendedor_b2b','admin','gerente_comercial','gerente_marketing','gerente_financeiro'].includes(c);
+  }
+
+  function mcRenderPoolWidget(defaultOpen) {
+    if (!_mcPoolPodeVer()) return '';
+    const aberto = defaultOpen ? '' : ' style="display:none"';
+    return `
+      <div id="mc-pool-widget" style="margin-top:6px;margin-bottom:14px;background:rgba(96,165,250,0.04);border:1px solid rgba(96,165,250,0.22);border-radius:10px;padding:12px 14px">
+        <div onclick="window.c360PoolToggle()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:13.5px;font-weight:700;color:#93c5fd">📥 Clientes sem vendedor · Matriz</span>
+            <span id="mc-pool-resumo" style="font-size:11px;color:#64748b">…</span>
+          </div>
+          <span id="mc-pool-toggle-icon" style="font-size:11px;color:#94a3b8">${defaultOpen ? '▼' : '▶'}</span>
+        </div>
+        <div id="mc-pool-conteudo"${aberto}>
+          <div style="padding:14px 0;text-align:center;color:#64748b;font-size:12px">⏳ Carregando…</div>
+        </div>
+      </div>
+    `;
+  }
+
+  window.c360PoolToggle = function() {
+    const c = document.getElementById('mc-pool-conteudo');
+    const ic = document.getElementById('mc-pool-toggle-icon');
+    if (!c) return;
+    const abrir = c.style.display === 'none';
+    c.style.display = abrir ? '' : 'none';
+    if (ic) ic.textContent = abrir ? '▼' : '▶';
+    if (abrir) mcLoadPoolWidget();
+  };
+
+  window.c360PoolPag = function(delta) {
+    _mcPoolPag = Math.max(0, _mcPoolPag + delta);
+    mcLoadPoolWidget();
+    const w = document.getElementById('mc-pool-widget');
+    if (w) w.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+
+  window.c360PoolBusca = function(v) {
+    _mcPoolBusca = v || '';
+    clearTimeout(_mcPoolBuscaTimer);
+    _mcPoolBuscaTimer = setTimeout(() => { _mcPoolPag = 0; mcLoadPoolWidget(); }, 280);
+  };
+
+  async function mcLoadPoolWidget() {
+    const cont = document.getElementById('mc-pool-conteudo');
+    const resumoEl = document.getElementById('mc-pool-resumo');
+    if (!cont) return;
+    try {
+      const { data, error } = await state.sb.rpc('clientes_sem_vendedor', {
+        p_empresa: 'matriz',
+        p_busca: _mcPoolBusca || null,
+        p_offset: _mcPoolPag * _MC_POOL_PP,
+        p_limit: _MC_POOL_PP,
+      });
+      if (error) throw error;
+      const linhas = Array.isArray(data) ? data : [];
+      const total = linhas.length ? Number(linhas[0].total_count || 0) : 0;
+      if (resumoEl) resumoEl.textContent = total === 0 ? 'nenhum' : `${total.toLocaleString('pt-BR')} sem dono`;
+
+      const totPag = Math.max(1, Math.ceil(total / _MC_POOL_PP));
+      if (_mcPoolPag >= totPag) { _mcPoolPag = totPag - 1; }
+
+      const fmtBRL = (v) => 'R$ ' + Math.round(Number(v)||0).toLocaleString('pt-BR');
+      const rows = linhas.map(c => {
+        const nomeEsc = (c.contato_nome || '').replace(/'/g,'&#39;');
+        const uc = c.ultima_compra ? new Date(c.ultima_compra + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
+        return `
+          <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.04);align-items:center">
+            <div style="min-width:0">
+              <a href="#" onclick="event.preventDefault();window.showClientDetail&&window.showClientDetail(encodeURIComponent('${nomeEsc}'))" style="font-size:13px;font-weight:600;color:#e2e8f0;text-decoration:none">${escapeHtml(c.contato_nome)}</a>
+              <div style="font-size:11px;color:#94a3b8;margin-top:2px">${escapeHtml(c.segmento||'—')} · ${c.total_pedidos||0} pedido(s) · últ. compra ${uc}</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:12px;font-weight:700;color:#86efac">${fmtBRL(c.total_gasto)}</div>
+              <div style="font-size:10px;color:#64748b">score ${c.score||0}</div>
+            </div>
+            <button onclick="window.showClientDetail&&window.showClientDetail(encodeURIComponent('${nomeEsc}'))" style="padding:6px 12px;border-radius:5px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">Trabalhar →</button>
+          </div>`;
+      }).join('');
+
+      const ini = _mcPoolPag * _MC_POOL_PP;
+      const fim = Math.min(ini + _MC_POOL_PP, total);
+      const pager = total <= _MC_POOL_PP ? '' : `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 4px 2px">
+          <button onclick="window.c360PoolPag(-1)" ${_mcPoolPag===0?'disabled':''} style="padding:5px 12px;border-radius:5px;border:1px solid rgba(255,255,255,0.18);background:${_mcPoolPag===0?'rgba(255,255,255,0.02)':'rgba(255,255,255,0.06)'};color:${_mcPoolPag===0?'#475569':'#e2e8f0'};cursor:${_mcPoolPag===0?'default':'pointer'};font-size:11px">◀ Anterior</button>
+          <span style="font-size:11px;color:#94a3b8">${total===0?0:ini+1}–${fim} de ${total.toLocaleString('pt-BR')} · pág. ${_mcPoolPag+1}/${totPag}</span>
+          <button onclick="window.c360PoolPag(1)" ${_mcPoolPag>=totPag-1?'disabled':''} style="padding:5px 12px;border-radius:5px;border:1px solid rgba(255,255,255,0.18);background:${_mcPoolPag>=totPag-1?'rgba(255,255,255,0.02)':'rgba(255,255,255,0.06)'};color:${_mcPoolPag>=totPag-1?'#475569':'#e2e8f0'};cursor:${_mcPoolPag>=totPag-1?'default':'pointer'};font-size:11px">Próxima ▶</button>
+        </div>`;
+
+      cont.innerHTML = `
+        <div style="padding-top:8px;font-size:10.5px;color:#64748b;font-style:italic;margin-bottom:8px">
+          💡 Clientes da Matriz sem nenhum vendedor. Abra um e <strong style="color:#93c5fd">mude o status</strong> ou <strong style="color:#93c5fd">registre um contato</strong> — ele vira <strong>automaticamente seu</strong> (e todas as compras dele passam a contar pra sua carteira). Primeiro que pega, leva.
+        </div>
+        <input id="mc-pool-busca" type="text" placeholder="🔍 Buscar cliente sem vendedor por nome…" value="${escapeHtml(_mcPoolBusca)}" oninput="window.c360PoolBusca(this.value)" style="width:100%;box-sizing:border-box;padding:7px 10px;margin-bottom:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#e2e8f0;font-size:12px;outline:none">
+        <div>${total===0 ? '<div style="padding:18px;text-align:center;color:#64748b;font-size:12px">🎉 Nenhum cliente sem vendedor'+(_mcPoolBusca?' com esse nome':'')+'</div>' : rows}</div>
+        ${pager}
+      `;
+      const inp = document.getElementById('mc-pool-busca');
+      if (inp && document.activeElement !== inp && _mcPoolBusca) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+    } catch (e) {
+      console.warn('[mc] pool widget:', e);
+      cont.innerHTML = `<div style="padding:14px;color:#fca5a5;font-size:11.5px">Erro: ${escapeHtml(e.message || String(e))}</div>`;
+    }
   }
 
   // ── Widget de Funil de Relacionamento (pedido Manu 14/05) ──
@@ -6709,6 +6830,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
         ${mcRenderGamificacaoWidget(true)}
 
+        ${mcRenderPoolWidget(false)}
+
         <div style="margin-bottom:24px">
           ${mcRenderRankingsBloco(ranking, totalFat)}
         </div>
@@ -6724,6 +6847,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     setTimeout(() => mcLoadFunilWidget(), 50);
     setTimeout(() => mcLoadAniversariantesWidget(), 80);
     setTimeout(() => mcLoadGamificacaoWidget(), 110);
+    setTimeout(() => mcLoadPoolWidget(), 140);
   }
 
   // ─── Helpers de UI ───
