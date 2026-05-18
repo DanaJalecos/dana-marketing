@@ -6221,6 +6221,97 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
   // ══════════════════════════════════════════════════════════
   const MESES_PT_ANIV = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 
+  // Paginação do widget (lista pode ter centenas de pessoas)
+  let _mcAnivFull = [];
+  let _mcAnivPag = 0;
+  let _mcAnivBusca = '';
+  const _MC_ANIV_PP = 25;
+
+  function _mcAnivRowHtml(c, mesAtual) {
+    const mesAniv = c.data_nascimento ? Number(c.data_nascimento.slice(5,7)) : mesAtual;
+    const dataFmt = `${c.dia_aniversario} de ${MESES_PT_ANIV[mesAniv - 1]}`;
+    const quando = c.dias_ate_aniversario === 0
+      ? '<strong style="color:#fbbf24">· hoje 🎉</strong>'
+      : c.dias_ate_aniversario > 0
+        ? `· em ${c.dias_ate_aniversario}d`
+        : '· passou';
+    const empBadge = c.empresa
+      ? `<span style="font-size:9.5px;padding:1px 6px;border-radius:3px;background:${c.empresa==='matriz'?'#3b82f6':'#10b981'};color:#fff;font-weight:700">${c.empresa==='matriz'?'Matriz':'BC'}</span>`
+      : '';
+    const vendedorTxt = c.vendedor_nome
+      ? `<span style="font-size:10px;color:#94a3b8;margin-left:6px">· ${escapeHtml(c.vendedor_nome)}</span>`
+      : '';
+    const acao = c.cupom_ja_gerado
+      ? (c.cupom_enviado_em
+          ? `<div style="font-size:10px;padding:3px 8px;background:rgba(34,197,94,0.18);color:#86efac;border-radius:4px;font-weight:600;white-space:nowrap">✅ ENVIADO</div>
+             <button onclick="window.c360McAnivAbrir('${c.contato_id}')" style="padding:5px 10px;border-radius:5px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:11px;white-space:nowrap">Reabrir</button>`
+          : `<div style="font-size:10px;padding:3px 8px;background:rgba(124,58,237,0.18);color:#c4b5fd;border-radius:4px;font-weight:600;white-space:nowrap">🎁 ${escapeHtml(c.cupom_codigo||'')}</div>
+             <button onclick="window.c360McAnivAbrir('${c.contato_id}')" style="padding:5px 10px;border-radius:5px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">Enviar 📤</button>`)
+      : `<div></div>
+         <button onclick="window.c360McAnivGerar('${c.contato_id}', this)" style="padding:5px 12px;border-radius:5px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">🎁 Gerar cupom</button>`;
+    const nomeEsc = (c.contato_nome || '').replace(/'/g,'&#39;');
+    return `
+      <div style="display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.04);align-items:center">
+        <div style="font-size:22px">🎂</div>
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            ${empBadge}
+            <a href="#" onclick="event.preventDefault();window.showClientDetail&&window.showClientDetail(encodeURIComponent('${nomeEsc}'))" style="font-size:13px;font-weight:600;color:#e2e8f0;text-decoration:none">${escapeHtml(c.contato_nome)}</a>
+            ${vendedorTxt}
+          </div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:2px">${dataFmt} ${quando}</div>
+        </div>
+        ${acao}
+      </div>`;
+  }
+
+  // Re-renderiza só a lista + paginador (preserva foco do campo de busca)
+  window.mcRenderAnivLista = function() {
+    const listaEl = document.getElementById('mc-aniv-lista');
+    const pagerEl = document.getElementById('mc-aniv-pager');
+    if (!listaEl) return;
+    const mesAtual = new Date().getMonth() + 1;
+    const termo = _mcAnivBusca.trim().toLowerCase();
+    const filt = termo
+      ? _mcAnivFull.filter(c => (c.contato_nome || '').toLowerCase().includes(termo))
+      : _mcAnivFull;
+    const total = filt.length;
+    const totPag = Math.max(1, Math.ceil(total / _MC_ANIV_PP));
+    if (_mcAnivPag >= totPag) _mcAnivPag = totPag - 1;
+    if (_mcAnivPag < 0) _mcAnivPag = 0;
+    const ini = _mcAnivPag * _MC_ANIV_PP;
+    const pageItems = filt.slice(ini, ini + _MC_ANIV_PP);
+    listaEl.innerHTML = total === 0
+      ? `<div style="padding:18px;text-align:center;color:#64748b;font-size:12px">🔍 Nenhum aniversariante ${termo ? 'com esse nome' : ''}</div>`
+      : pageItems.map(c => _mcAnivRowHtml(c, mesAtual)).join('');
+    if (pagerEl) {
+      if (total <= _MC_ANIV_PP) { pagerEl.innerHTML = ''; }
+      else {
+        const fim = Math.min(ini + _MC_ANIV_PP, total);
+        pagerEl.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 4px 2px">
+            <button onclick="window.c360McAnivPag(-1)" ${_mcAnivPag===0?'disabled':''} style="padding:5px 12px;border-radius:5px;border:1px solid rgba(255,255,255,0.18);background:${_mcAnivPag===0?'rgba(255,255,255,0.02)':'rgba(255,255,255,0.06)'};color:${_mcAnivPag===0?'#475569':'#e2e8f0'};cursor:${_mcAnivPag===0?'default':'pointer'};font-size:11px">◀ Anterior</button>
+            <span style="font-size:11px;color:#94a3b8">${ini+1}–${fim} de ${total} · pág. ${_mcAnivPag+1}/${totPag}</span>
+            <button onclick="window.c360McAnivPag(1)" ${_mcAnivPag>=totPag-1?'disabled':''} style="padding:5px 12px;border-radius:5px;border:1px solid rgba(255,255,255,0.18);background:${_mcAnivPag>=totPag-1?'rgba(255,255,255,0.02)':'rgba(255,255,255,0.06)'};color:${_mcAnivPag>=totPag-1?'#475569':'#e2e8f0'};cursor:${_mcAnivPag>=totPag-1?'default':'pointer'};font-size:11px">Próxima ▶</button>
+          </div>`;
+      }
+    }
+  };
+
+  window.c360McAnivPag = function(delta) {
+    _mcAnivPag += delta;
+    window.mcRenderAnivLista();
+    const w = document.getElementById('mc-aniv-widget');
+    if (w) w.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+
+  let _mcAnivBuscaTimer = null;
+  window.c360McAnivBusca = function(v) {
+    _mcAnivBusca = v || '';
+    clearTimeout(_mcAnivBuscaTimer);
+    _mcAnivBuscaTimer = setTimeout(() => { _mcAnivPag = 0; window.mcRenderAnivLista(); }, 220);
+  };
+
   function mcRenderAniversariantesWidget(defaultOpen) {
     const aberto = defaultOpen ? '' : ' style="display:none"';
     return `
@@ -6285,53 +6376,17 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
         return;
       }
 
-      const mesAtual = new Date().getMonth() + 1;
-      const linhas = lista.map(c => {
-        const mesAniv = c.data_nascimento ? Number(c.data_nascimento.slice(5,7)) : mesAtual;
-        const dataFmt = `${c.dia_aniversario} de ${MESES_PT_ANIV[mesAniv - 1]}`;
-        const quando = c.dias_ate_aniversario === 0
-          ? '<strong style="color:#fbbf24">· hoje 🎉</strong>'
-          : c.dias_ate_aniversario > 0
-            ? `· em ${c.dias_ate_aniversario}d`
-            : '· passou';
-        const empBadge = c.empresa
-          ? `<span style="font-size:9.5px;padding:1px 6px;border-radius:3px;background:${c.empresa==='matriz'?'#3b82f6':'#10b981'};color:#fff;font-weight:700">${c.empresa==='matriz'?'Matriz':'BC'}</span>`
-          : '';
-        const vendedorTxt = c.vendedor_nome
-          ? `<span style="font-size:10px;color:#94a3b8;margin-left:6px">· ${escapeHtml(c.vendedor_nome)}</span>`
-          : '';
-        const acao = c.cupom_ja_gerado
-          ? (c.cupom_enviado_em
-              ? `<div style="font-size:10px;padding:3px 8px;background:rgba(34,197,94,0.18);color:#86efac;border-radius:4px;font-weight:600;white-space:nowrap">✅ ENVIADO</div>
-                 <button onclick="window.c360McAnivAbrir('${c.contato_id}')" style="padding:5px 10px;border-radius:5px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:11px;white-space:nowrap">Reabrir</button>`
-              : `<div style="font-size:10px;padding:3px 8px;background:rgba(124,58,237,0.18);color:#c4b5fd;border-radius:4px;font-weight:600;white-space:nowrap">🎁 ${escapeHtml(c.cupom_codigo||'')}</div>
-                 <button onclick="window.c360McAnivAbrir('${c.contato_id}')" style="padding:5px 10px;border-radius:5px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">Enviar 📤</button>`)
-          : `<div></div>
-             <button onclick="window.c360McAnivGerar('${c.contato_id}', this)" style="padding:5px 12px;border-radius:5px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">🎁 Gerar cupom</button>`;
-
-        const nomeEsc = (c.contato_nome || '').replace(/'/g,'&#39;');
-        return `
-          <div style="display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.04);align-items:center">
-            <div style="font-size:22px">🎂</div>
-            <div style="min-width:0">
-              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                ${empBadge}
-                <a href="#" onclick="event.preventDefault();window.showClientDetail&&window.showClientDetail(encodeURIComponent('${nomeEsc}'))" style="font-size:13px;font-weight:600;color:#e2e8f0;text-decoration:none">${escapeHtml(c.contato_nome)}</a>
-                ${vendedorTxt}
-              </div>
-              <div style="font-size:11px;color:#94a3b8;margin-top:2px">${dataFmt} ${quando}</div>
-            </div>
-            ${acao}
-          </div>
-        `;
-      }).join('');
-
+      _mcAnivFull = lista;
+      _mcAnivPag = 0;
       cont.innerHTML = `
         <div style="padding-top:8px;font-size:10.5px;color:#64748b;font-style:italic;margin-bottom:8px">
           💡 Clique em "Gerar cupom" pra criar o código + mensagem pronta. Cupom = 10% off no mês de aniversário.
         </div>
-        <div>${linhas}</div>
+        <input id="mc-aniv-busca" type="text" placeholder="🔍 Buscar aniversariante por nome…" value="${escapeHtml(_mcAnivBusca)}" oninput="window.c360McAnivBusca(this.value)" style="width:100%;box-sizing:border-box;padding:7px 10px;margin-bottom:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#e2e8f0;font-size:12px;outline:none">
+        <div id="mc-aniv-lista"></div>
+        <div id="mc-aniv-pager"></div>
       `;
+      window.mcRenderAnivLista();
 
       _mcEnsureAnivRealtime();
     } catch (e) {
