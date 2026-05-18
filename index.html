@@ -20689,27 +20689,32 @@ async function confirmarExcluirReferencia() {
 }
 
 // ── MARKETPLACES (Social Selling) ──
-function loadMarketplaces() {
-  const pm = liveData.porMes;
-  if (!pm || Object.keys(pm).length === 0) {
-    // Timing: view abriu antes de loadSupabaseData terminar.
-    // Limpa cache do loadOnce e escuta evento 'livedata-ready' (mais robusto
-    // que setTimeout — dispara assim que liveData.porMes for populado).
-    if (window._viewLoaded) delete window._viewLoaded['marketplaces'];
-    if (!window._mktWaitingLive) {
-      window._mktWaitingLive = true;
-      const onReady = () => {
-        window._mktWaitingLive = false;
-        window.removeEventListener('livedata-ready', onReady);
-        try { loadMarketplaces(); } catch(e) { console.warn('retry loadMarketplaces:', e); }
-        try { loadMarketplacesExtras(); } catch(e) { console.warn('retry loadMarketplacesExtras:', e); }
-      };
-      window.addEventListener('livedata-ready', onReady);
-      // Fallback de segurança: se evento nunca chegar, tenta em 1.5s
-      setTimeout(() => { if (window._mktWaitingLive) onReady(); }, 1500);
+async function loadMarketplaces() {
+  // Fonte dedicada (RPC marketplaces_mensal): só pedidos CONCLUÍDOS
+  // (situacao 9) e valor SÓ DOS PRODUTOS — não usa o dashboard global.
+  if (!liveData._mpRaw) {
+    try {
+      const { data, error } = await sb.rpc('marketplaces_mensal');
+      if (error) throw error;
+      liveData._mpRaw = data || [];
+    } catch (e) {
+      console.warn('loadMarketplaces RPC falhou:', e?.message || e);
+      const elErr = document.getElementById('mp-ml-receita');
+      if (elErr) elErr.textContent = 'erro';
+      return;
     }
-    return;
   }
+  const empSel = (typeof empresaAtual === 'function' ? empresaAtual() : 'todas');
+  const pm = {};
+  liveData._mpRaw.filter(r => r.empresa === empSel).forEach(r => {
+    pm[r.ano + '-' + r.mes] = {
+      ano: r.ano, mes: r.mes,
+      receita_ml: +r.receita_ml || 0, pedidos_ml: +r.pedidos_ml || 0,
+      receita_shopee: +r.receita_shopee || 0, pedidos_shopee: +r.pedidos_shopee || 0,
+      receita_tiktok: +r.receita_tiktok || 0, pedidos_tiktok: +r.pedidos_tiktok || 0,
+    };
+  });
+  if (Object.keys(pm).length === 0) return;
 
   const now = new Date();
   const mesAtual = now.getMonth() + 1, anoAtual = now.getFullYear();
@@ -22279,24 +22284,27 @@ async function loadTopProdutos(container, mesLabel) {
 
 // ── MARKETPLACES: Vendas por canal + Top SKUs ──
 async function loadMarketplacesExtras() {
-  const pm = liveData.porMes;
-  if (!pm) {
-    // liveData ainda não carregou. Listener no loadMarketplaces ja vai chamar
-    // ambas funcoes quando livedata-ready disparar — apenas retorna aqui.
-    if (window._viewLoaded) delete window._viewLoaded['marketplaces'];
-    if (!window._mktWaitingLive) {
-      window._mktWaitingLive = true;
-      const onReady = () => {
-        window._mktWaitingLive = false;
-        window.removeEventListener('livedata-ready', onReady);
-        try { loadMarketplaces(); } catch(e) {}
-        try { loadMarketplacesExtras(); } catch(e) {}
-      };
-      window.addEventListener('livedata-ready', onReady);
-      setTimeout(() => { if (window._mktWaitingLive) onReady(); }, 1500);
-    }
-    return;
+  // Mesma fonte dedicada do card (RPC marketplaces_mensal): concluído + só produtos
+  if (!liveData._mpRaw) {
+    try {
+      const { data, error } = await sb.rpc('marketplaces_mensal');
+      if (error) throw error;
+      liveData._mpRaw = data || [];
+    } catch (e) { console.warn('loadMarketplacesExtras RPC falhou:', e?.message || e); return; }
   }
+  const _empSel = (typeof empresaAtual === 'function' ? empresaAtual() : 'todas');
+  const pm = {};
+  liveData._mpRaw.filter(r => r.empresa === _empSel).forEach(r => {
+    pm[r.ano + '-' + r.mes] = {
+      ano: r.ano, mes: r.mes,
+      receita_ml: +r.receita_ml || 0, pedidos_ml: +r.pedidos_ml || 0,
+      receita_shopee: +r.receita_shopee || 0, pedidos_shopee: +r.pedidos_shopee || 0,
+      receita_tiktok: +r.receita_tiktok || 0, pedidos_tiktok: +r.pedidos_tiktok || 0,
+      receita_site: +r.receita_site || 0, pedidos_site: +r.pedidos_site || 0,
+      receita_loja: +r.receita_loja || 0, pedidos_loja: +r.pedidos_loja || 0,
+    };
+  });
+  if (Object.keys(pm).length === 0) return;
   const now = new Date();
   const mesAtual = now.getMonth() + 1, anoAtual = now.getFullYear();
   const fmt = (v) => Math.round(v).toLocaleString('pt-BR');
