@@ -27908,6 +27908,10 @@ async function loadEstoque() {
   const container = document.getElementById('estoque-grupos-container');
   if (container) container.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:13px;padding:40px">Carregando...</div>';
 
+  // Espelha os alertas com os dados REAIS (cria os faltantes, resolve os
+  // que reabasteceram) — a seção passa a "puxar" tudo, não só notificação.
+  try { await sb.rpc('estoque_sync_alertas'); } catch (e) { console.warn('estoque_sync_alertas:', e); }
+
   // KPIs sempre globais (Críticos, Baixo, Parados 5m+, Valor parado)
   try {
     const { data: kpiData } = await sb.rpc('estoque_kpis', { empresa_filter: emp });
