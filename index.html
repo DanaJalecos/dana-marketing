@@ -290,46 +290,61 @@ function aplicarFiltroDashboard() {
   if (typeof loadFaturamentoPorCanal === 'function') {
     loadFaturamentoPorCanal().catch(e => console.warn('[fat canal]', e));
   }
-  // 📣 Canais/campanhas ativas (dados reais de canais_aquisicao)
+  // 📣 Campanhas internas ativas (dados reais de campanhas_internas)
   if (typeof loadDashCampanhas === 'function') {
     loadDashCampanhas().catch(e => console.warn('[dash campanhas]', e));
   }
 }
 
-// Widget "Canais Ativos" do dashboard — dados reais (canais_aquisicao)
+// Widget "Campanhas Ativas" do dashboard — campanhas internas em execução.
+// Clicar abre a campanha na seção Campanhas Internas.
 async function loadDashCampanhas() {
   const wrap = document.getElementById('dash-campanhas-lista');
   const sub = document.getElementById('dash-campanhas-sub');
   if (!wrap) return;
   try {
-    const { data, error } = await sb.from('canais_aquisicao')
-      .select('nome, tipo, status, investimento_mensal, responsavel')
-      .eq('status', 'ativo')
-      .order('investimento_mensal', { ascending: false, nullsFirst: false })
-      .order('nome');
+    const { data, error } = await sb.from('campanhas_internas')
+      .select('id, nome, tipo, status, data_inicio, data_fim, responsavel_nome')
+      .neq('status', 'encerrada')
+      .order('data_inicio', { ascending: false, nullsFirst: false });
     if (error) throw error;
-    const lista = data || [];
-    if (sub) sub.textContent = lista.length + (lista.length === 1 ? ' canal ativo' : ' canais ativos');
+    const hoje = new Date().toISOString().slice(0, 10);
+    // "Ativas" = rodando agora: status ativa/producao OU dentro da janela de datas
+    const lista = (data || []).filter(c => {
+      const st = (c.status || '').toLowerCase();
+      if (st === 'ativa' || st === 'producao') return true;
+      const iniOk = !c.data_inicio || c.data_inicio <= hoje;
+      const fimOk = !c.data_fim || c.data_fim >= hoje;
+      return iniOk && fimOk && !!c.data_inicio;
+    });
+    if (sub) sub.textContent = lista.length + (lista.length === 1 ? ' em execução' : ' em execução');
     if (!lista.length) {
-      wrap.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text3);font-size:12px">Nenhum canal ativo. Cadastre em Campanhas Pagas.</div>';
+      wrap.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text3);font-size:12px">Nenhuma campanha interna ativa no momento.</div>';
       return;
     }
-    const fmtR = v => 'R$ ' + Math.round(Number(v) || 0).toLocaleString('pt-BR');
+    const STATUS = {
+      ativa:        { label: 'Ativa',         cls: 'ativo', cor: 'var(--green)' },
+      producao:     { label: 'Em produção',   cls: 'prod',  cor: 'var(--blue)' },
+      planejamento: { label: 'Planejamento',  cls: 'rev',   cor: 'var(--amber)' },
+      revisao:      { label: 'Revisão',       cls: 'rev',   cor: 'var(--amber)' },
+    };
+    const fmtD = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : null;
     wrap.innerHTML = lista.slice(0, 6).map(c => {
-      const pago = (c.tipo || '') === 'pago';
-      const cor = pago ? 'var(--blue)' : 'var(--green)';
-      const inv = Number(c.investimento_mensal) > 0 ? fmtR(c.investimento_mensal) + '/mês' : 'sem verba cadastrada';
-      const meta = [c.responsavel ? '👤 ' + esc(c.responsavel) : null, inv].filter(Boolean).join(' · ');
+      const s = STATUS[(c.status || '').toLowerCase()] || { label: c.status || '—', cls: 'rev', cor: 'var(--text3)' };
+      const periodo = c.data_inicio
+        ? (fmtD(c.data_inicio) + (c.data_fim ? '–' + fmtD(c.data_fim) : ''))
+        : null;
+      const meta = [c.responsavel_nome ? '👤 ' + esc(c.responsavel_nome) : null, periodo].filter(Boolean).join(' · ');
       return `
-      <div class="camp-item">
-        <div class="camp-dot" style="background:${cor}"></div>
-        <div><div class="camp-name">${esc(c.nome || '—')}</div><div class="camp-meta">${meta}</div></div>
-        <div class="chip ${pago ? 'ativo' : 'prod'}">${pago ? 'Pago' : 'Orgânico'}</div>
+      <div class="camp-item" onclick="(typeof estoqueAbrirCampanhaCriada==='function') && estoqueAbrirCampanhaCriada('${c.id}')" style="cursor:pointer">
+        <div class="camp-dot" style="background:${s.cor}"></div>
+        <div><div class="camp-name">${esc(c.nome || '—')}</div><div class="camp-meta">${meta || '—'}</div></div>
+        <div class="chip ${s.cls}">${s.label}</div>
       </div>`;
     }).join('');
   } catch (e) {
     console.warn('loadDashCampanhas:', e);
-    if (wrap) wrap.innerHTML = `<div style="padding:14px;color:var(--red);font-size:12px">Erro ao carregar canais</div>`;
+    if (wrap) wrap.innerHTML = `<div style="padding:14px;color:var(--red);font-size:12px">Erro ao carregar campanhas</div>`;
   }
 }
 
@@ -3021,8 +3036,8 @@ select.input { cursor: pointer; }
     <!-- Campanhas ativas -->
     <div class="card">
       <div class="card-header">
-        <div><div class="card-title">Canais Ativos</div><div class="card-sub" id="dash-campanhas-sub">carregando…</div></div>
-        <button class="btn btn-ghost btn-sm" onclick="go(document.querySelector('[onclick*=campanhas]'),'campanhas')">Ver todas</button>
+        <div><div class="card-title">Campanhas Ativas</div><div class="card-sub" id="dash-campanhas-sub">carregando…</div></div>
+        <button class="btn btn-ghost btn-sm" onclick="go(document.querySelector('[onclick*=&quot;campanhas-internas&quot;]'),'campanhas-internas')">Ver todas</button>
       </div>
       <div id="dash-campanhas-lista">
         <div style="padding:16px;text-align:center;color:var(--text3);font-size:12px">carregando…</div>
