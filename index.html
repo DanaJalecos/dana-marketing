@@ -290,6 +290,47 @@ function aplicarFiltroDashboard() {
   if (typeof loadFaturamentoPorCanal === 'function') {
     loadFaturamentoPorCanal().catch(e => console.warn('[fat canal]', e));
   }
+  // 📣 Canais/campanhas ativas (dados reais de canais_aquisicao)
+  if (typeof loadDashCampanhas === 'function') {
+    loadDashCampanhas().catch(e => console.warn('[dash campanhas]', e));
+  }
+}
+
+// Widget "Canais Ativos" do dashboard — dados reais (canais_aquisicao)
+async function loadDashCampanhas() {
+  const wrap = document.getElementById('dash-campanhas-lista');
+  const sub = document.getElementById('dash-campanhas-sub');
+  if (!wrap) return;
+  try {
+    const { data, error } = await sb.from('canais_aquisicao')
+      .select('nome, tipo, status, investimento_mensal, responsavel')
+      .eq('status', 'ativo')
+      .order('investimento_mensal', { ascending: false, nullsFirst: false })
+      .order('nome');
+    if (error) throw error;
+    const lista = data || [];
+    if (sub) sub.textContent = lista.length + (lista.length === 1 ? ' canal ativo' : ' canais ativos');
+    if (!lista.length) {
+      wrap.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text3);font-size:12px">Nenhum canal ativo. Cadastre em Campanhas Pagas.</div>';
+      return;
+    }
+    const fmtR = v => 'R$ ' + Math.round(Number(v) || 0).toLocaleString('pt-BR');
+    wrap.innerHTML = lista.slice(0, 6).map(c => {
+      const pago = (c.tipo || '') === 'pago';
+      const cor = pago ? 'var(--blue)' : 'var(--green)';
+      const inv = Number(c.investimento_mensal) > 0 ? fmtR(c.investimento_mensal) + '/mês' : 'sem verba cadastrada';
+      const meta = [c.responsavel ? '👤 ' + esc(c.responsavel) : null, inv].filter(Boolean).join(' · ');
+      return `
+      <div class="camp-item">
+        <div class="camp-dot" style="background:${cor}"></div>
+        <div><div class="camp-name">${esc(c.nome || '—')}</div><div class="camp-meta">${meta}</div></div>
+        <div class="chip ${pago ? 'ativo' : 'prod'}">${pago ? 'Pago' : 'Orgânico'}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    console.warn('loadDashCampanhas:', e);
+    if (wrap) wrap.innerHTML = `<div style="padding:14px;color:var(--red);font-size:12px">Erro ao carregar canais</div>`;
+  }
 }
 
 // ── GRÁFICO DIÁRIO POR MÊS ──
@@ -2980,23 +3021,11 @@ select.input { cursor: pointer; }
     <!-- Campanhas ativas -->
     <div class="card">
       <div class="card-header">
-        <div><div class="card-title">Campanhas Ativas</div><div class="card-sub">3 em execução</div></div>
+        <div><div class="card-title">Canais Ativos</div><div class="card-sub" id="dash-campanhas-sub">carregando…</div></div>
         <button class="btn btn-ghost btn-sm" onclick="go(document.querySelector('[onclick*=campanhas]'),'campanhas')">Ver todas</button>
       </div>
-      <div class="camp-item">
-        <div class="camp-dot" style="background:var(--green)"></div>
-        <div><div class="camp-name">Profissional Liberal — Q2</div><div class="camp-meta">ROAS 3.8× · R$180k fatur.</div></div>
-        <div class="chip ativo">Ativo</div>
-      </div>
-      <div class="camp-item">
-        <div class="camp-dot" style="background:var(--blue)"></div>
-        <div><div class="camp-name">Clínicas — Padronização</div><div class="camp-meta">ROAS 4.2× · R$95k fatur.</div></div>
-        <div class="chip prod">Em produção</div>
-      </div>
-      <div class="camp-item">
-        <div class="camp-dot" style="background:var(--amber)"></div>
-        <div><div class="camp-name">Estudante — Primeiro Jaleco</div><div class="camp-meta">ROAS 2.1× · R$38k fatur.</div></div>
-        <div class="chip rev">Revisão</div>
+      <div id="dash-campanhas-lista">
+        <div style="padding:16px;text-align:center;color:var(--text3);font-size:12px">carregando…</div>
       </div>
 
       <!-- Tarefas desta semana (dinamico: puxa da tabela tarefas) -->
