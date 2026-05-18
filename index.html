@@ -19750,8 +19750,8 @@ async function loadInfluMapaHeatPromo() {
         const map = {};
         let maxV = 0;
         rows.forEach(r => { const k = r.regiao + '|' + r.nicho; map[k] = +r.creators || 0; maxV = Math.max(maxV, map[k]); });
-        let t = '<table style="border-collapse:collapse;font-size:10.5px;width:100%"><thead><tr><th style="padding:4px 6px;text-align:left;color:var(--text3)"></th>'
-          + nichos.map(n => `<th style="padding:4px 6px;color:var(--text3);font-weight:600;writing-mode:vertical-rl;transform:rotate(180deg);max-height:80px">${esc(n)}</th>`).join('') + '</tr></thead><tbody>';
+        let t = '<table style="border-collapse:collapse;font-size:10.5px;width:100%;table-layout:fixed"><thead><tr><th style="padding:4px 6px;text-align:left;color:var(--text3);width:90px"></th>'
+          + nichos.map(n => `<th style="padding:6px 4px;color:var(--text3);font-weight:600;font-size:9.5px;line-height:1.15;text-align:center;vertical-align:bottom;word-break:break-word">${esc(n)}</th>`).join('') + '</tr></thead><tbody>';
         regioes.forEach(reg => {
           t += `<tr><td style="padding:4px 6px;font-weight:600;white-space:nowrap">${esc(reg)}</td>`;
           nichos.forEach(n => {
