@@ -230,7 +230,8 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   v_nome TEXT;
 BEGIN
-  SELECT nome INTO v_nome FROM profiles WHERE id = auth.uid();
+  -- p.id qualificado: senão "id" colide com o OUT param id (RETURNS TABLE)
+  SELECT p.nome INTO v_nome FROM profiles p WHERE p.id = auth.uid();
   UPDATE cupons_aniversario
   SET enviado_em = now(),
       enviado_por = auth.uid(),
