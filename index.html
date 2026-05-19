@@ -9320,7 +9320,7 @@ updateDynamicField('foto');
   <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:17px;margin-bottom:4px">Anotações <span style="font-size:9px;padding:1px 6px;background:var(--red);color:#fff;border-radius:4px;vertical-align:middle">Só ADMs</span></div>
   <div style="font-size:12.5px;color:var(--text3);margin-bottom:16px">Banco de ideias da diretoria — mande links, recados e imagens. Tempo real. Você só apaga o que você mandou.</div>
 
-  <div id="anot-feed" style="display:flex;flex-direction:column;gap:10px;min-height:240px;max-height:58vh;overflow-y:auto;padding:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;margin-bottom:14px">
+  <div id="anot-feed" style="display:flex;flex-direction:column;gap:10px;min-height:240px;max-height:58vh;overflow-y:auto;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;margin-bottom:14px">
     <div style="text-align:center;color:var(--text3);font-size:13px;padding:30px">Carregando…</div>
   </div>
 
@@ -9330,12 +9330,12 @@ updateDynamicField('foto');
   </div>
 
   <div style="display:flex;gap:8px;align-items:flex-end">
-    <textarea id="anot-input" rows="2" placeholder="Escreva um recado, cole um link…" onkeydown="if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();anotEnviar();}" style="flex:1;resize:vertical;min-height:44px;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:13px;font-family:inherit;outline:none"></textarea>
+    <textarea id="anot-input" rows="2" placeholder="Escreva um recado, cole um link…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();anotEnviar();}" style="flex:1;resize:vertical;min-height:44px;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px;font-family:inherit;outline:none"></textarea>
     <input type="file" id="anot-file" accept="image/*" style="display:none" onchange="anotSelecionarImg(this)">
-    <button onclick="document.getElementById('anot-file').click()" title="Anexar imagem" style="padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#cbd5e1;cursor:pointer;font-size:16px">🖼️</button>
+    <button onclick="document.getElementById('anot-file').click()" title="Anexar imagem" style="padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer;font-size:16px">🖼️</button>
     <button id="anot-send-btn" onclick="anotEnviar()" style="padding:10px 18px;border-radius:8px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-size:13px;font-weight:600">Enviar</button>
   </div>
-  <div style="font-size:10.5px;color:var(--text3);margin-top:6px">Ctrl+Enter envia · imagens vão pro ImgBB</div>
+  <div style="font-size:10.5px;color:var(--text3);margin-top:6px">Enter envia · Shift+Enter pula linha · imagens vão pro ImgBB</div>
 </div></div>
 
 <div class="view" id="view-admin"><div style="padding:24px 28px">
@@ -24318,13 +24318,13 @@ function _anotRowHtml(r){
   let dt = '';
   try { dt = new Date(r.criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); } catch(e){}
   const corpo = [];
-  if (r.mensagem) corpo.push(`<div style="font-size:13px;color:#e2e8f0;line-height:1.5;white-space:pre-wrap;word-break:break-word">${_anotLinkify(r.mensagem)}</div>`);
-  if (r.imagem_url) corpo.push(`<a href="${_anotEsc(r.imagem_url)}" target="_blank" rel="noopener"><img src="${_anotEsc(r.imagem_url)}" loading="lazy" style="max-width:100%;max-height:280px;border-radius:8px;margin-top:6px;border:1px solid rgba(255,255,255,0.08)"></a>`);
+  if (r.mensagem) corpo.push(`<div style="font-size:13px;color:var(--text);line-height:1.5;white-space:pre-wrap;word-break:break-word">${_anotLinkify(r.mensagem)}</div>`);
+  if (r.imagem_url) corpo.push(`<a href="${_anotEsc(r.imagem_url)}" target="_blank" rel="noopener"><img src="${_anotEsc(r.imagem_url)}" loading="lazy" style="max-width:100%;max-height:280px;border-radius:8px;margin-top:6px;border:1px solid var(--border)"></a>`);
   return `<div id="anot-msg-${r.id}" style="display:flex;gap:10px;align-items:flex-start">
-    <div style="width:30px;height:30px;border-radius:50%;background:${meu?'#2563eb':'rgba(255,255,255,0.1)'};color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${_anotEsc(ini)}</div>
-    <div style="flex:1;min-width:0;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:8px 12px">
+    <div style="width:30px;height:30px;border-radius:50%;background:${meu?'#2563eb':'var(--surface3)'};color:${meu?'#fff':'var(--text2)'};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${_anotEsc(ini)}</div>
+    <div style="flex:1;min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 12px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
-        <span style="font-size:12px;font-weight:700;color:${meu?'#93c5fd':'#cbd5e1'}">${_anotEsc(r.autor_nome||'ADM')}${meu?' (você)':''}</span>
+        <span style="font-size:12px;font-weight:700;color:${meu?'#2563eb':'var(--text2)'}">${_anotEsc(r.autor_nome||'ADM')}${meu?' (você)':''}</span>
         <span style="font-size:10.5px;color:var(--text3)">${dt}</span>
         ${meu?`<button onclick="anotApagar('${r.id}')" title="Apagar (só você apaga a sua)" style="margin-left:auto;background:none;border:none;color:#f87171;cursor:pointer;font-size:11px">Apagar</button>`:''}
       </div>
