@@ -5958,6 +5958,20 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     _mcPoolBuscaTimer = setTimeout(() => { _mcPoolPag = 0; mcLoadPoolWidget(); }, 280);
   };
 
+  // Abre cliente do pool. O pool é EXCLUSIVAMENTE Matriz (RPC chamado com
+  // p_empresa:'matriz' fixo), mas showClientDetail usa state.empresa. Se o
+  // usuário está com o seletor em BC, dava "não encontrado na empresa atual".
+  // Aqui forçamos o contexto Matriz antes de abrir.
+  window.c360PoolAbrirCliente = async function(nome) {
+    if (!nome) return;
+    if (state.empresa !== 'matriz' && typeof window.c360SetEmpresa === 'function') {
+      await window.c360SetEmpresa('matriz');
+    }
+    if (typeof window.showClientDetail === 'function') {
+      await window.showClientDetail(encodeURIComponent(nome));
+    }
+  };
+
   async function mcLoadPoolWidget() {
     const cont = document.getElementById('mc-pool-conteudo');
     const resumoEl = document.getElementById('mc-pool-resumo');
@@ -5984,14 +5998,14 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
         return `
           <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.04);align-items:center">
             <div style="min-width:0">
-              <a href="#" onclick="event.preventDefault();window.showClientDetail&&window.showClientDetail(encodeURIComponent('${nomeEsc}'))" style="font-size:13px;font-weight:600;color:#e2e8f0;text-decoration:none">${escapeHtml(c.contato_nome)}</a>
+              <a href="#" onclick="event.preventDefault();window.c360PoolAbrirCliente&&window.c360PoolAbrirCliente('${nomeEsc}')" style="font-size:13px;font-weight:600;color:#e2e8f0;text-decoration:none">${escapeHtml(c.contato_nome)}</a>
               <div style="font-size:11px;color:#94a3b8;margin-top:2px">${escapeHtml(c.segmento||'—')} · ${c.total_pedidos||0} pedido(s) · últ. compra ${uc}</div>
             </div>
             <div style="text-align:right">
               <div style="font-size:12px;font-weight:700;color:#86efac">${fmtBRL(c.total_gasto)}</div>
               <div style="font-size:10px;color:#64748b">score ${c.score||0}</div>
             </div>
-            <button onclick="window.showClientDetail&&window.showClientDetail(encodeURIComponent('${nomeEsc}'))" style="padding:6px 12px;border-radius:5px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">Trabalhar →</button>
+            <button onclick="window.c360PoolAbrirCliente&&window.c360PoolAbrirCliente('${nomeEsc}')" style="padding:6px 12px;border-radius:5px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">Trabalhar →</button>
           </div>`;
       }).join('');
 
