@@ -6346,7 +6346,13 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
   let _mcAnivFull = [];
   let _mcAnivPag = 0;
   let _mcAnivBusca = '';
+  let _mcAnivMes = null;   // null = mês atual; 1-12 = mês específico
   const _MC_ANIV_PP = 25;
+  window.c360McAnivMes = function(v) {
+    _mcAnivMes = (v === '' || v == null) ? null : Number(v);
+    _mcAnivPag = 0; _mcAnivBusca = '';
+    mcLoadAniversariantesWidget();
+  };
 
   function _mcAnivRowHtml(c, mesAtual) {
     const mesAniv = c.data_nascimento ? Number(c.data_nascimento.slice(5,7)) : mesAtual;
@@ -6474,7 +6480,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
       const { data, error } = await state.sb.rpc('aniversariantes_do_mes', {
         p_vendedor_id: vendedorId,
-        p_mes: null,
+        p_mes: _mcAnivMes,
       });
       if (error) throw error;
       let lista = Array.isArray(data) ? data : [];
@@ -6487,13 +6493,21 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
         const hoje = lista.filter(c => c.dias_ate_aniversario === 0).length;
         const futuros = lista.filter(c => c.dias_ate_aniversario > 0).length;
         const gerados = lista.filter(c => c.cupom_ja_gerado).length;
+        const mesTxt = _mcAnivMes ? ('em ' + MESES_PT_ANIV[_mcAnivMes - 1]) : 'este mês';
         resumoEl.textContent = lista.length === 0
-          ? 'ninguém faz aniversário este mês'
-          : `${lista.length} este mês · ${hoje} hoje · ${futuros} próximos · ${gerados} mensagem${gerados!==1?'s':''} preparada${gerados!==1?'s':''}`;
+          ? ('ninguém faz aniversário ' + mesTxt)
+          : `${lista.length} ${mesTxt} · ${hoje} hoje · ${futuros} próximos · ${gerados} mensagem${gerados!==1?'s':''} preparada${gerados!==1?'s':''}`;
       }
 
+      const _mesSelHtml = `<select id="mc-aniv-mes" onchange="window.c360McAnivMes(this.value)" style="box-sizing:border-box;padding:7px 8px;margin-bottom:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#e2e8f0;font-size:12px;outline:none;cursor:pointer">`
+        + `<option value="" ${_mcAnivMes==null?'selected':''}>📅 Mês atual</option>`
+        + MESES_PT_ANIV.map((m,i)=>`<option value="${i+1}" ${_mcAnivMes===i+1?'selected':''}>${m.charAt(0).toUpperCase()+m.slice(1)}</option>`).join('')
+        + `</select>`;
+
       if (lista.length === 0) {
-        cont.innerHTML = `<div style="padding:18px;text-align:center;color:#64748b;font-size:12px">🎂 Nenhum aniversariante este mês na carteira</div>`;
+        cont.innerHTML = `
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:8px;margin-bottom:6px">${_mesSelHtml}</div>
+          <div style="padding:18px;text-align:center;color:#64748b;font-size:12px">🎂 Nenhum aniversariante ${_mcAnivMes ? ('em '+MESES_PT_ANIV[_mcAnivMes-1]) : 'este mês'} na carteira</div>`;
         return;
       }
 
@@ -6503,7 +6517,10 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
         <div style="padding-top:8px;font-size:10.5px;color:#64748b;font-style:italic;margin-bottom:8px">
           💡 Clique em "Preparar mensagem" pra abrir a mensagem pronta + criativo. O cliente ganha 10% OFF no mês todo — sem código, é só responder/comprar com você que aplica o desconto.
         </div>
-        <input id="mc-aniv-busca" type="text" placeholder="🔍 Buscar aniversariante por nome…" value="${escapeHtml(_mcAnivBusca)}" oninput="window.c360McAnivBusca(this.value)" style="width:100%;box-sizing:border-box;padding:7px 10px;margin-bottom:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#e2e8f0;font-size:12px;outline:none">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input id="mc-aniv-busca" type="text" placeholder="🔍 Buscar aniversariante por nome…" value="${escapeHtml(_mcAnivBusca)}" oninput="window.c360McAnivBusca(this.value)" style="flex:1;min-width:160px;box-sizing:border-box;padding:7px 10px;margin-bottom:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#e2e8f0;font-size:12px;outline:none">
+          ${_mesSelHtml}
+        </div>
         <div id="mc-aniv-lista"></div>
         <div id="mc-aniv-pager"></div>
       `;
