@@ -7048,10 +7048,18 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       <div>
         <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:0;border-bottom:1px solid rgba(255,255,255,0.08);flex-wrap:wrap;gap:8px">
           <div style="display:flex;gap:0">${tabsHtml}</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          ${tab === 'geral' ? `<select onchange="window.mcRankingPeriodoChange(this.value)" title="Faturamento/Share/Pedidos do período (carteira é estado atual)" style="padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:12px">
+              <option value="0" ${(state.mcRankingPeriodo||0)==0?'selected':''}>💰 Faturamento: tudo</option>
+              <option value="365" ${state.mcRankingPeriodo==365?'selected':''}>Últimos 12 meses</option>
+              <option value="90" ${state.mcRankingPeriodo==90?'selected':''}>Últimos 90 dias</option>
+              <option value="30" ${state.mcRankingPeriodo==30?'selected':''}>Últimos 30 dias</option>
+            </select>` : ''}
           ${mostrarPDF ? `<button type="button" onclick="window.mcExportarRankingPDF('${tab}')"
             style="padding:6px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:8px"
             onmouseover="this.style.background='rgba(255,255,255,0.08)'"
             onmouseout="this.style.background='rgba(255,255,255,0.04)'">🖨 Exportar PDF</button>` : ''}
+          </div>
         </div>
         <div id="mc-ranking-content" style="margin-top:14px">
           ${mcRankingTabRender(tab, rankingGeral, totalFat)}
@@ -7188,6 +7196,42 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
   }
 
   // Troca de tab — carrega lazy se necessário
+  window.mcRankingPeriodoChange = async function(dias) {
+    dias = Number(dias) || 0;
+    state.mcRankingPeriodo = dias;
+    const el = document.getElementById('mc-ranking-content');
+    if (!el) return;
+    const base = state.mcRankingGeralCache || [];
+    if (dias <= 0) {
+      el.innerHTML = mcRankingTable(base, state.mcRankingTotalFatCache || 0);
+      return;
+    }
+    el.innerHTML = '<div style="padding:30px;text-align:center;color:#64748b;font-size:12.5px">⏳ Calculando faturamento do período…</div>';
+    try {
+      const emp = state.empresa || 'todas';
+      const { data, error } = await state.sb.rpc('ranking_geral_periodo', { p_empresa: emp, p_dias: dias });
+      if (error) throw error;
+      const pmap = {};
+      (data || []).forEach(r => { pmap[r.vendedor_profile_id] = { fat: +r.faturamento || 0, ped: +r.pedidos || 0, nome: r.vendedor_nome }; });
+      const merged = base.map(r => {
+        const pid = r.vendedor_profile_id || r.profile_id;
+        const per = pmap[pid] || { fat: 0, ped: 0 };
+        return { ...r, faturamento: per.fat, pedidos_total: per.ped };
+      });
+      const naCache = new Set(base.map(r => r.vendedor_profile_id || r.profile_id));
+      Object.keys(pmap).forEach(pid => {
+        if (naCache.has(pid)) return;
+        merged.push({ vendedor_profile_id: pid, vendedor_nome: pmap[pid].nome, clientes: 0, vips: 0, ativos: 0, em_risco: 0, faturamento: pmap[pid].fat, pedidos_total: pmap[pid].ped });
+      });
+      merged.sort((a, b) => (+b.faturamento || 0) - (+a.faturamento || 0));
+      const totalPer = merged.reduce((s, r) => s + (+r.faturamento || 0), 0);
+      el.innerHTML = mcRankingTable(merged, totalPer);
+    } catch (e) {
+      console.warn('ranking periodo:', e);
+      el.innerHTML = '<div style="padding:24px;text-align:center;color:#fca5a5;font-size:12px">Erro ao calcular faturamento do período.</div>';
+    }
+  };
+
   window.mcSwitchRankingTab = async function(tab) {
     state.mcRankingTab = tab;
     const el = document.getElementById('mc-ranking-content');
@@ -7216,6 +7260,10 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     // Renderiza conteúdo
     if (el) {
       el.innerHTML = mcRankingTabRender(tab, state.mcRankingGeralCache || [], state.mcRankingTotalFatCache || 0);
+      // Reaplica filtro de período se voltou pra aba Geral com período ativo
+      if (tab === 'geral' && Number(state.mcRankingPeriodo) > 0) {
+        window.mcRankingPeriodoChange(state.mcRankingPeriodo);
+      }
     }
 
     // Mostra/esconde botão PDF conforme cargo
