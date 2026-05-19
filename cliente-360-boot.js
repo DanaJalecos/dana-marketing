@@ -868,7 +868,19 @@
 
     try {
       // Cliente completo + pedidos + inadimplência (Fase 2) + ciclo (Fase 4) + benchmark (Fase 4)
-      const c = state.clientes.find(x => x.contato_nome === nome);
+      let c = (state.clientes || []).find(x => x.contato_nome === nome);
+      // Fallback: cliente fora da carteira (ex.: pool "sem vendedor", drilldown de
+      // funil) não está em state.clientes → busca direto na cliente_scoring_full
+      // pra não cair no "não encontrado na empresa atual".
+      if (!c) {
+        const { data: _full } = await state.sb.from('cliente_scoring_full')
+          .select('*').eq('empresa', state.empresa).eq('contato_nome', nome).limit(1);
+        if (_full && _full[0]) {
+          c = _full[0];
+          state.clientes = state.clientes || [];
+          state.clientes.push(c);
+        }
+      }
       const [pedidos, inadResult, cicloResult, bench] = await Promise.all([
         fetchPedidosCliente(nome, state.empresa),
         state.sb.from('cliente_inadimplencia')
