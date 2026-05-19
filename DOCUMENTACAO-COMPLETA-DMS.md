@@ -9356,4 +9356,55 @@ Plus: alguns contatos têm `"0000-00-00"` (não preenchido).
 
 ---
 
-**Fim da documentação · Atualizado em 15/05/2026 — Section 93 (Aniversariantes deploy + Influencer OS Fase 1 + Gamificação vendedoras + fixes) · v12.9**
+## 94. CICLO 19/05/2026 — Sessão master 3 (Influencer Fase 2 · ML real · Pool sem vendedor · Estúdio IA cena/tecido · Estoque live · Menu acordeão)
+
+> Tudo **deployado** em `danajalecos/main` (Vercel) e/ou Supabase `wltmiqbhziefusnzmmkt` via Mgmt API. Padrão de deploy igual Section 93. `index.html` inline (sem cache-bust); `cliente-360-boot.js?v=N` → **hoje v=80**. C360 = iframe (`cliente-360.html`), CSS do index.html não o afeta.
+
+### 94.1 Influencer OS — FASE 2 (3 ondas, custo R$0)
+- **Onda 1 — Dashboard executivo + Ranking + Alertas** (`sql-influenciadores-fase2-onda1.sql`): RPC `influenciador_dashboard()` (1 linha/creator: receita, comissão, recebidos, saldo, **ROI** = receita ÷ (recebidos+comissão); Bling quando mapeado, manual senão). `gerar_alertas_influenciadores()` + cron `alertas_influenciadores_diario` (9h20 UTC): `influ_saldo` (≥R$100), `influ_credito_bling` (gerado +2d), `influ_inativo` (60d). Aba **📊 Dashboard** na seção Influenciadores (KPIs + ranking ordenável).
+- **Onda 2 — IA Briefings + Content Hub** (`edge-functions/gerar-briefing-influenciador.ts`, deployada): Groq Llama 3.3 → fallback Gemini 2.5; monta briefing sob medida com o CRM do creator. Modal "Nova Referência" ganhou bloco **🤖 Gerar briefing com IA** (objetivo livre → preenche a Descrição).
+- **Onda 3 — Mapa + Heatmap + Embaixadores** (`sql-influenciadores-fase2-onda3.sql`): RPCs `influenciador_mapa()`, `influenciador_heatmap()`, `influenciador_promocao_sugestoes()` (bandas receita: nano<5k·creator5-20k·embaixador20-50k·elite50k+). Alerta `influ_promocao`. Dashboard ganhou Mapa (barras/região), Heatmap região×nicho, **Candidatos a Promoção** com botão "⭐ Promover" (`influPromover` → muda nível, confirma, resolve alerta).
+- **Heatmap fix** (`sql-influ-heatmap-fix.sql`): nicho era texto livre → normalizado em ~12 categorias canônicas (Odontologia/Lifestyle/Saúde/Beleza-Estética/Estudantes/etc); header horizontal.
+- **2 influencers de teste APAGADOS** (`__TESTE_INFLU__`, Carol Demo). Restam 16 reais (0 com bling_vendedor_id/profile_id → comissão fica manual até Juan vincular login + Bling ID).
+
+### 94.2 Mercado Livre = dados REAIS da API do ML
+- O DMS já sincroniza `analytics_ml_pedidos` (API ML, status=paid, por `date_closed`). Antes os cards de ML puxavam do Bling (atrasado/incompleto/com cancelado).
+- **3 lugares corrigidos** pra usar `analytics_ml_pedidos`: (1) card "Marketplaces" (RPC `marketplaces_mensal` — `sql-marketplaces-mensal.sql`; ML real, Shopee/TikTok/Site/Loja seguem Bling situacao=9+total_produtos); (2) card "Mercado Livre" do dashboard "Faturamento por Canal" (`loadFaturamentoPorCanal` query direta a analytics_ml_pedidos); (3) legendas ajustadas. Maio: Bling mostrava ~R$34-37k → real ML **R$30.599 / 99 ped** (mês ainda aberto). BC não tem ML → zerado.
+
+### 94.3 Pool "Clientes sem vendedor" (Matriz) — auto-atribuição
+- `sql-pool-sem-vendedor.sql` + `sql-pool-sem-vendedor-fix.sql`: índice único `cliente_vendedor_manual(contato_id,empresa)` (lock 1º que pega), `pool_auto_atribuir()` (guards: matriz · quem mexeu é `vendedor`/`vendedor_b2b` · sem dono manual · **sem vendedor Bling pela MESMA regra da view** = último pedido com vendedor → mapping ativo), **triggers** em `cliente_status_historico` e `cliente_notas` (mexeu no status OU registrou contato → vira dele). RPCs `clientes_sem_vendedor(empresa,busca,offset,limit)` (paginado, server-side) e `soltar_cliente`. **Backfill retroativo** rodou (1º vendedor que trabalhou cada órfão leva). Bug corrigido: regra de "tem Bling" divergia da view (Lebon aparecia mas não deixava pegar) → agora idêntica. Widget **📥 Clientes sem vendedor · Matriz** em Meus Clientes (cliente-360-boot.js) p/ vendedor+admin, busca+paginação. Pool: ~20.7k matriz.
+- `cliente_scoring_vendedor` já usa `cliente_vendedor_manual` como override → ao virar dono, todas as compras (passadas+futuras) entram na carteira/ranking/scoring automaticamente. Auditado: 0 clientes que Natã trabalhou ficaram sem dono.
+
+### 94.4 Agente IA (ai-chat) sabe do pool
+- `edge-functions/ai-chat.ts` (deployada): nova tool `clientes_sem_vendedor` (lê `cliente_scoring_vendedor` vendedor_profile_id NULL, matriz) — bot sugere clientes do pool quando vendedor pergunta "por qual começo / tem cliente sem dono". SYSTEM_PROMPT reforça: **nunca oferecer como disponível quem não veio na ferramenta agora** (estado vivo; cliente que virou de alguém some). Repo `ai-chat.ts` sincronizado com produção (estava atrasado).
+- `edge-functions/cliente360-insight.ts` (deployada): vendedor agora gera insight de cliente **sem dono (pool)** além da carteira própria (era só carteira → bloqueava o pool). Cliente de OUTRO vendedor continua bloqueado.
+
+### 94.5 Estúdio IA — cena + tecido real
+- **Configuração de cena** (index.html): passo 3 do wizard ganhou tipo de cena (Como a referência / Produto em destaque / Lifestyle / Retrato) + Ambiente/lugar + Pose + Estilo (listas bilíngues nicho saúde). Injeta blocos `SCENE TYPE/ENVIRONMENT/POSE/STYLE` no prompt (padrão do FABRIC ACCURACY) + manda pro `gerar-peca-ia`. "Como a referência" = comportamento antigo intacto.
+- **Tecido real** (commit anterior `b129147`): glossário de 6 famílias (gabardine/elastano premium/poliamida/crepe/linho/microfibra/couro PU) resolvido por `_site_tecido` → prefixo SKU → nome da linha; injeta `FABRIC ACCURACY` no prompt; debug mostra tecido.
+
+### 94.6 Aniversariantes — só mensagem (sem cupom) + filtro de mês
+- Manu: código único obrigava cadastrar cada um no Magazord. `gerar-cupom-aniversario.ts` (deployada): mensagem **sem código** ("responda aqui/compre comigo que aplico os 10%"). Modal sem chip/cópia de código; widget "Preparar mensagem"/"Pronta"; tracking (cupons_aniversario + marcar enviado) mantido como controle interno. Bug `marcar_cupom_enviado` "column id is ambiguous" corrigido (qualificar `p.id`).
+- **Filtro de mês** no widget (cliente-360-boot.js v=79): seletor Mês atual/Jan-Dez (RPC `aniversariantes_do_mes` já aceitava p_mes). + busca + paginação 25/pág.
+
+### 94.7 Estoque "puxa de verdade" (não só notificação)
+- `sql-estoque-sync-alertas.sql`: `estoque_sync_alertas()` cria alerta p/ TODO produto que vende (velocidade 90d>0) e estoque≤5 sem alerta, e auto-resolve os que reabasteceram/pararam de vender. Roda ao abrir a seção (`loadEstoque`) + cron 6h. Resultado: de 733 desalinhados → **312 = exatamente os reais**. UX ignorar/resolver/parados/KPIs intacta. (Parados/valor empatado já era live do Bling — confirmado; KPI 212/R$192k da Matriz estava certo, é filtro de empresa.)
+
+### 94.8 C360 fixes + Ranking Geral período
+- **Funil "Convertidos"** (`sql-funil-convertido-fix.sql`): card mostrava 12, lista abria vazia (metadata usa `comprou`, filtro era `convertido`). `cliente_funil_detalhes` normaliza 'convertido'≡'comprou'. Bate 12=12.
+- **Ranking Geral filtro de período** (`sql-ranking-geral-periodo.sql` + cliente-360-boot.js v=80): RPC `ranking_geral_periodo(empresa,dias)` (atribuição = override manual senão Bling do pedido). Aba Geral ganha seletor Tudo/12m/90d/30d → Faturamento+Share+Pedidos do período; Clientes/VIPs/Ativos/Risco seguem estado atual.
+
+### 94.9 Menu acordeão + fonte maior (pedido Manu)
+- index.html: as 7 categorias do sidebar (Visão Geral/Vendas/Financeiro/Marketing/Inteligência/Produtividade/Sistema) viram **acordeão (1 aberta por vez)**: `toggleNavCat` (clica título abre/recolhe), `abrirCategoriaDaView` (hook único em `go()` → abre a categoria da tela atual em todo fluxo: clique/restore/popstate), `atualizarBadgesCategorias` (categoria recolhida c/ alerta ativo mostra pontinho no título — roll-up dos 5 badges). CSS: colapso via `.nav-section.nav-collapsed > .nav-item{display:none!important}` (compõe com applyNavPermissions, que usa inline display — inline vence ao expandir). `applyNavPermissions`/`firstAllowedView`/restore **intactos**.
+- **Fonte/descomprimir:** `.view.active{zoom:1.10}` global, **exceto `#view-cliente360{zoom:1!important}`** (C360 revisto depois) e desligado no `@media 768`. App é 100% px / ~1598 inline font-size → zoom foi a alavanca certa.
+
+### 94.10 O QUE FALTA / pendências
+- **Influencers:** Juan cria login (cargo Influenciador) p/ creators reais + vincula profile_id/bling_vendedor_id/empresa no CRM (sem isso comissão fica manual); confirmar com Bling se cupom liga a vendedor. Preencher nicho dos 5 sem nicho. Fase 3 (Meta/Modash + cupom checkout Magazord).
+- **Aniversariantes:** criativo no Estúdio IA → `criativos-aniversario/padrao.png`; DNS Resend → `email_config.resend_dns_configurado=true`.
+- **C360 zoom/fonte:** revisar separado se a Manu quiser.
+- **Pool:** botão "Soltar de volta ao pool" na ficha (RPC `soltar_cliente` pronta, falta UI).
+- **Manu pediu testar:** acordeão + zoom (ajustável 1.10→1.08/1.15 se preciso).
+
+---
+
+**Fim da documentação · Atualizado em 19/05/2026 — Section 94 (Influencer Fase 2 · ML real · Pool sem vendedor · Estúdio IA cena/tecido · Estoque live · Menu acordeão) · v13.0**
