@@ -19957,7 +19957,9 @@ function atualizarKPIsInfluenciadores() {
   const usosTotal = _influenciadoresCache.reduce((s, i) => s + (+i.usos_cupom || 0), 0);
   const conversaoMedia = usosTotal > 0 ? (vendasTotal / usosTotal * 100) : 0;
   const ticketMedio = vendasTotal > 0 ? receitaTotal / vendasTotal : 0;
-  const top = _influenciadoresCache.slice().sort((a, b) => (+b.receita || 0) - (+a.receita || 0))[0];
+  // Top Performer = quem mais teve USOS de cupom (pedido Manu); receita desempata
+  const top = _influenciadoresCache.slice().sort((a, b) =>
+    ((+b.usos_cupom || 0) - (+a.usos_cupom || 0)) || ((+b.receita || 0) - (+a.receita || 0)))[0];
 
   // Receita/dia: soma receita_diaria de cada influencer com inicio_parceria preenchido
   const hoje = new Date();
@@ -19978,14 +19980,14 @@ function atualizarKPIsInfluenciadores() {
   set('inf-kpi-total', total);
   set('inf-kpi-ativos', ativos + ' ativos');
   set('inf-kpi-cupons', usosTotal);
-  set('inf-kpi-vendas', vendasTotal + ' vendas geradas');
+  set('inf-kpi-vendas', fmtR(receitaTotal) + ' gerado · ' + vendasTotal + ' vendas');
   set('inf-kpi-receita', fmtR(receitaTotal));
   set('inf-kpi-receita-dia', fmtR(receitaDiaMedia) + '/dia média');
   set('inf-kpi-ticket', fmtR(ticketMedio));
   set('inf-kpi-conv', conversaoMedia.toFixed(2) + '%');
   if (top && top.nome) {
     set('inf-kpi-top', (top.nome.split(' ')[0] || top.nome).slice(0, 16));
-    set('inf-kpi-top-sub', fmtR(+top.receita || 0));
+    set('inf-kpi-top-sub', (+top.usos_cupom || 0) + ' usos · ' + fmtR(+top.receita || 0));
   } else {
     set('inf-kpi-top', '—');
     set('inf-kpi-top-sub', 'R$ 0,00');
