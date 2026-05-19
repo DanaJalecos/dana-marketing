@@ -6924,7 +6924,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:240px">
           <label style="color:#64748b;font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px">Buscar nome</label>
-          <input type="text" id="mc-filtro-busca" value="${escapeHtml(f.busca || '')}" placeholder="Ex: Natália, Clínica..." oninput="window.${fnFilter}Debounced()" style="padding:7px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:12.5px">
+          <input type="text" id="mc-filtro-busca" value="${escapeHtml(f.busca || '')}" placeholder="Ex: Natália, Clínica... (Enter pra buscar)" onkeydown="if(event.key==='Enter'){event.preventDefault();window.${fnFilter}();}" style="padding:7px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:#0b0f17;color:#e2e8f0;font-size:12.5px">
         </div>
         ${vendedorSelect}
         <div style="display:flex;flex-direction:column;gap:3px;min-width:140px">
