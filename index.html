@@ -24320,7 +24320,7 @@ function _anotRowHtml(r){
   const corpo = [];
   if (r.mensagem) corpo.push(`<div style="font-size:13px;color:var(--text);line-height:1.5;white-space:pre-wrap;word-break:break-word">${_anotLinkify(r.mensagem)}</div>`);
   if (r.imagem_url) corpo.push(`<a href="${_anotEsc(r.imagem_url)}" target="_blank" rel="noopener"><img src="${_anotEsc(r.imagem_url)}" loading="lazy" style="max-width:100%;max-height:280px;border-radius:8px;margin-top:6px;border:1px solid var(--border)"></a>`);
-  return `<div id="anot-msg-${r.id}" style="display:flex;gap:10px;align-items:flex-start">
+  return `<div id="anot-msg-${r.id}" data-del="${_anotEsc(r.imagem_delete_url||'')}" style="display:flex;gap:10px;align-items:flex-start">
     <div style="width:30px;height:30px;border-radius:50%;background:${meu?'#2563eb':'var(--surface3)'};color:${meu?'#fff':'var(--text2)'};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${_anotEsc(ini)}</div>
     <div style="flex:1;min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 12px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
@@ -24362,6 +24362,7 @@ function anotSelecionarImg(input){
 }
 function anotLimparImg(){
   window._anotImg = null;
+  window._anotImgDel = null;
   const box = document.getElementById('anot-img-preview'); if (box) box.style.display = 'none';
   const fi = document.getElementById('anot-file'); if (fi) fi.value = '';
 }
@@ -24388,12 +24389,14 @@ async function anotEnviar(){
       const jr = await r.json().catch(()=>({}));
       if (!r.ok || !jr.url) throw new Error(jr.error || 'falha no upload da imagem');
       imgUrl = jr.url;
+      window._anotImgDel = jr.delete_url || null;
     }
     const { data, error } = await sb.from('anotacoes_adm').insert({
       autor_id: currentUser.id,
       autor_nome: (currentProfile && (currentProfile.nome || currentProfile.email)) || 'ADM',
       mensagem: txt || null,
-      imagem_url: imgUrl
+      imagem_url: imgUrl,
+      imagem_delete_url: imgUrl ? (window._anotImgDel || null) : null
     }).select();
     if (error) throw error;
     if (data && data[0]) anotAppendRow(data[0], true); // realtime cobre os outros; dedupe evita duplicar
@@ -24407,9 +24410,22 @@ async function anotEnviar(){
 }
 async function anotApagar(id){
   if (!confirm('Apagar essa anotação? Some pra todos.')) return;
+  const el = document.getElementById('anot-msg-'+id);
+  const delUrl = el && el.getAttribute('data-del');
   const { error } = await sb.from('anotacoes_adm').delete().eq('id', id);
   if (error) { (showToast ? showToast('Não foi possível apagar') : alert('Não foi possível apagar: '+error.message)); return; }
-  const el = document.getElementById('anot-msg-'+id); if (el) el.remove();
+  if (el) el.remove();
+  // Best-effort: apaga a imagem do ImgBB (não trava nada se falhar)
+  if (delUrl) {
+    try {
+      const { data:{ session } } = await sb.auth.getSession();
+      fetch(`${SUPABASE_URL}/functions/v1/apagar-imgbb`, {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${session && session.access_token}` },
+        body: JSON.stringify({ delete_url: delUrl })
+      }).catch(()=>{});
+    } catch(e) { /* silencioso — best-effort */ }
+  }
 }
 
 function showApp() {
