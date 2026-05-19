@@ -9407,4 +9407,41 @@ Plus: alguns contatos têm `"0000-00-00"` (não preenchido).
 
 ---
 
-**Fim da documentação · Atualizado em 19/05/2026 — Section 94 (Influencer Fase 2 · ML real · Pool sem vendedor · Estúdio IA cena/tecido · Estoque live · Menu acordeão) · v13.0**
+## 95. CICLO 19/05/2026 — Sessão master 4 (Bling auto-atribuição · fix pool C360 · zoom 1.15 · busca Enter · seção Anotações ADM)
+
+> Tudo **deployado** em `danajalecos/main` (Vercel) e/ou Supabase `wltmiqbhziefusnzmmkt`. Padrão de deploy igual Section 93/94. `index.html` inline (sem cache-bust); `cliente-360-boot.js?v=N` → **hoje v=83**.
+
+### 95.1 Bling → carteira do vendedor: como funciona de verdade (diagnóstico, sem código)
+- Dúvida do Juan: venda da Thamyres no Bling não atribuiu cliente (Vanessa) no C360. **Causa**: o pedido foi criado no Bling **sem o campo "Vendedor" preenchido** (`pedidos.vendedor_id = null`). Estar logada no Bling ≠ preencher o vendedor do pedido. Confirmado: maio teve 128 pedidos "em aberto" COM vendedor vs 3 sem (os problemáticos).
+- Regra (relembrada): `cliente_scoring_vendedor.vendedor_profile_id = COALESCE(manual, vm)` onde `vm` = `vendedor_mapping` pelo **último pedido com vendedor_id**. Thamyres mapeada nos Bling IDs **15596839173 / 15596839174** (matriz, ativos) — mapping saudável (77 pedidos no mês).
+- Sync `sync-pedidos` roda **:00 e :30** (matriz; BC :15/:45; itens :10/:40). Forcei o sync manual 2×: na 2ª, a Vanessa já veio com vendedor_id 15596839174 → C360 atribuiu **sozinho** (`vendedor_fonte=bling`), sem precisar de manual. Conclusão: é automático e confiável **desde que o "Vendedor" esteja preenchido no pedido do Bling**; cada sync regrava o estado atual (se preencher depois, próximo sync corrige). Farmácia Bibi tinha pego Thamyres por outro caminho (mexeu no status → gatilho do pool = override manual).
+
+### 95.2 Fix C360: cliente do pool "sem vendedor" não abria ("não encontrado na empresa atual")
+- **Causa real** (2 camadas): (a) `showClientDetail` só procurava em `state.clientes` (carteira do vendedor) — cliente do pool não está na carteira de ninguém; (b) o widget do pool chama o RPC `clientes_sem_vendedor` **sempre com `'matriz'` fixo**, mas `showClientDetail` usa `state.empresa` — vendedor com seletor em BC nunca achava o cliente matriz.
+- **Fix 1** (`e4b49ef`): fallback no `showClientDetail` — se não achar em `state.clientes`, busca `cliente_scoring_full` por empresa+nome (mesmo padrão do `mcOpenClienteDetalhe`). Conserta também drilldowns de funil.
+- **Fix 2** (`5ae9136`, definitivo): novo `window.c360PoolAbrirCliente(nome)` que força `c360SetEmpresa('matriz')` antes de abrir (pool é exclusivamente matriz). Os 2 cliques do widget (nome + "Trabalhar →") passaram a usá-lo. `cliente-360-boot.js` v=81→v=83.
+- ⚠️ `cliente-360.html` não tem cache-bust → pedir **Ctrl+F5** uma vez pós-deploy (daí o `?v=` cuida).
+
+### 95.3 Fonte maior (pedido Manu): zoom 1.10 → 1.15
+- `index.html` `.view.active { zoom: 1.15 }` (era 1.10; teto seguro). C360 segue `zoom:1` (iframe) e mobile `zoom:1` no `@media 768`. Commit `352f53e`. Ajustável se Manu achar muito/pouco; risco de scroll horizontal em telas densas acima disso.
+
+### 95.4 Busca de "Meus Clientes" (C360) só no Enter
+- Campo "Buscar nome" usava `oninput`+debounce 400ms (pesquisava a cada tecla). Trocado pra `onkeydown` Enter → chama o filtro não-debounced (lê valor do DOM). Placeholder: "(Enter pra buscar)". Selects (segmento/status/vendedor) seguem no `onchange`. Commit `d6590f3`, boot v=82.
+
+### 95.5 Nova seção "Anotações" — banco de ideias da diretoria (só ADM · realtime)
+- **Onde**: categoria **Sistema**, junto do Administrador (selo "Só ADMs"). View `anotacoes` em `ADMIN_ONLY_VIEWS` → só cargo `admin` vê/abre.
+- **Banco** (`anotacoes_adm`): id uuid, autor_id (FK profiles, =auth.uid()), autor_nome, mensagem, imagem_url, imagem_delete_url, criado_em. **RLS**: SELECT/INSERT/DELETE só `cargo='admin'`; DELETE só a **própria** linha (`autor_id=auth.uid()`). `replica identity full` + publication `supabase_realtime` (DELETE em tempo real).
+- **Imagens → ImgBB** (não Supabase): edge **`upload-imgbb`** (auth admin, key `IMGBB_API_KEY` server-side, padrão `gerar-avatar-ia`). Front lê arquivo → base64 → edge → URL.
+- **Apagar imagem do ImgBB** (best-effort): ImgBB **não tem delete oficial por API**. Edge **`apagar-imgbb`** automatiza o `delete_url` (abre a página, raspa `auth_token`+cookie, POST `ibb.co/json`). Não-oficial → nunca trava: a anotação some sempre (realtime); a imagem física é best-effort (pode quebrar se ImgBB mudar). `anotApagar` lê `data-del` do DOM e chama a edge fire-and-forget.
+- **UX**: feed cronológico, autoria + (você), links clicáveis, **Enter envia / Shift+Enter pula linha**, anexo imagem (12MB, preview), realtime channel `realtime-anotacoes` (INSERT append / DELETE remove). Cores via **vars de tema** (`--surface/--border/--text…`) → adapta claro/escuro.
+- Commits: `38ac767` (feature) · `6770565` (Enter+tema) · `0072898` (ImgBB delete). Edges `upload-imgbb` e `apagar-imgbb` deployadas.
+- **Leitura pela IA**: sob demanda (quando Juan pedir, leio `anotacoes_adm` via Mgmt API). **Sem** automação/cron — decisão explícita do Juan.
+
+### 95.6 O QUE FALTA / pendências (atualizado)
+- Mantém pendências da 94.10 (Influencers vincular login/Bling; criativo aniversário; C360 zoom revisão; pool botão "soltar"; Manu testar).
+- **Anotações**: Juan testar como admin (texto+imagem+apagar+realtime) antes de divulgar pros outros ADMs. Se quiser delete de imagem 100% garantido no futuro → mover imagens do chat pra Supabase Storage (aí não usa ImgBB).
+- **Operacional Bling**: avisar vendedores a **preencher o campo "Vendedor"** no pedido do Bling (senão não auto-atribui).
+
+---
+
+**Fim da documentação · Atualizado em 19/05/2026 — Section 95 (Bling auto-atribuição · fix pool C360 · zoom 1.15 · busca Enter · seção Anotações ADM realtime + ImgBB) · v14.0**
