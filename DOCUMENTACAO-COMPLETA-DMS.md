@@ -9516,4 +9516,53 @@ Rodar via Management API (token em `…\TOKENS ANALYTICS\Token novo supabase.txt
 
 ---
 
-**Fim da documentação · Atualizado em 19/05/2026 — Section 96 (mini-fixes Influencers · pacote handoff DMS Finance AI · snapshot/baseline DMS p/ detectar mudanças) · v15.0**
+## 97. CICLO 19-20/05/2026 — Sessão master 6 (Magazord destravou: 7 novos syncs / 7 tabelas novas)
+
+> A Magazord liberou TODAS as rotas pro nosso token. O guia novo (`Itens Projeto/guia_api_magazord.md`, 199 endpoints) tem os paths certos. Os 405s antigos eram **path errado**, não permissão. **Regra 73.7 segue: TUDO read-only**.
+
+### 97.1 Achados (auditoria via guia + testes ao vivo)
+| Antes (Section 73.4 / 405) | Path correto que funciona |
+|---|---|
+| `/v2/site/cupom` | **`/v2/site/cupomDesconto`** |
+| `/v2/erp/*` | módulo `/v2/faturamento/*` (NOTA: contaPagar/contaReceber/notaFiscal/situacao-tributaria) |
+| `/v2/site/cliente` | `/v2/site/pessoa` (já era) |
+| `/v2/site/newsletter` | `/v2/newsletter` (sem `/site/`) |
+| `/v2/site/notaFiscal` | `/v2/faturamento/notaFiscal` |
+| `/v2/site/transportadora` | `/v2/site/transportadoras` (plural) |
+| `/v2/site/marcas` | `/v2/site/marca` (singular) |
+| `/v2/site/avaliacao` | `POST /v3/avaliacoes/query` (método/path diferentes) |
+| `/v2/site/menuSite` | `/v2/site/menu` |
+| `/v2/site/situacaoTributaria` | `/v2/faturamento/situacao-tributaria` |
+
+Tudo respondeu 200 (com parâmetros corretos quando exigidos). Bug separado: `/v1/listMovimentacaoEstoque` **ignora `page`** — paginação é via `offset`.
+
+### 97.2 7 novas tabelas espelho + 7 edges + 7 crons (Magazord read-only)
+| Tabela | Linhas (20/05) | Edge | Cron |
+|---|---:|---|---|
+| `magazord_cupons` | 140 | `sync-magazord-cupons` | `sync-magazord-cupons-diario` `55 9 * * *` |
+| `magazord_avaliacoes` | 346 | `sync-magazord-avaliacoes` | `sync-magazord-avaliacoes-diario` `0 10 * * *` |
+| `magazord_notas_fiscais` | 4.787 | `sync-magazord-notas-fiscais` | `sync-magazord-nf-2h` `5 */2 * * *` |
+| `magazord_atendimentos` | 546 | `sync-magazord-atendimentos` | `sync-magazord-atendimentos-1h` `7 * * * *` |
+| `magazord_newsletter` | 3.499 | `sync-magazord-newsletter` | `sync-magazord-newsletter-diario` `30 10 * * *` |
+| `magazord_estoque_movimentacoes` | 37.837 | `sync-magazord-estoque-mov` | `sync-magazord-estmov-1h` `12 * * * *` |
+| `magazord_pedido_payments` | 857 | `sync-magazord-pedido-payments` | `sync-magazord-pedido-payments-1h` `25 * * * *` |
+- **Padrão**: idêntico a `sync-magazord.ts` (Basic Auth Token:Senha, mzdGet helper, upsert PostgREST com Prefer merge-duplicates, `raw jsonb` + colunas-chave extraídas).
+- **Backfills** que estouravam o timeout do edge (150s) rodaram **localmente em Python** com mesmo upsert (anon escreve OK — `magazord_*` sem RLS). Edges agora são **incrementais** (rápidos pro cron).
+- **Achado importante (cupons)**: `FLOR10` aparece em `magazord_cupons` — confirma que dá pra automatizar tracking de cupom por influenciador cruzando `magazord_cupons.codigo` com `influenciadores.cupom`.
+- **`estoque_mov` paginação**: API v1 **só aceita `offset`**, não `page` (registrado no comentário do edge).
+- **`pedido_payments` cobertura**: 857 payments em 1.451 pedidos dos últimos 90d (~59%) — alguns pedidos não retornam payments (404 silencioso, especialmente antigos). Edge é tolerante (skip + count erros).
+
+### 97.3 Atualização do snapshot/baseline da Section 96.3
+- **Tabelas public** passam de 90 → **97** (+7 novas Magazord).
+- **Crons ativos** passam de 40 → **47** (+7 sync-magazord-*).
+- Edge functions novas (DMS): 7 sync-magazord-* (cupons, avaliacoes, notas-fiscais, atendimentos, newsletter, estoque-mov, pedido-payments).
+- **Os checks da 96.4 continuam válidos** — não houve mudança fora desse perímetro.
+
+### 97.4 Pendências
+- Cron de `sync-magazord-pedido-payments` cobre últimos 2d incremental; se quiser backfill maior (ex. 365d), rodar local com o mesmo padrão do Python usado aqui.
+- Endpoints com payload obrigatório que ainda não viraram sync: `/v2/site/carrinho` (precisa dataAtualizacaoInicio+Fim — magazord_carrinhos já existia parcial), `/v2/site/transporte/simulacao` (POST com cep+produtos — sob demanda, não sync).
+- Pacote **DMS Finance AI** (Section 96.2): agora ganhou **fontes novas** prontas pra reuso (cupons, NFs, contas via `/v2/faturamento/*`, payments) — atualizado em `02-CONTRATO-DE-DADOS.md` e `04-COMO-FUNCIONA.md`.
+
+---
+
+**Fim da documentação · Atualizado em 20/05/2026 — Section 97 (Magazord destravou: 7 syncs novos · 47k linhas espelhadas · regra 73.7 read-only mantida) · v16.0**
