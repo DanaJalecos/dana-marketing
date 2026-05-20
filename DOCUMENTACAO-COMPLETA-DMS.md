@@ -9608,4 +9608,40 @@ Tudo respondeu 200 (com parâmetros corretos quando exigidos). Bug separado: `/v
 
 ---
 
-**Fim da documentação · Atualizado em 20/05/2026 — Section 98 (correções dos achados da sessão Finance AI: contas_receber, view auditoria, bug ML diagnosticado, doc handoff corrigida) · v17.0**
+## 98.7 BUG ML CORRIGIDO (autorização: "pode rodar, se for pra melhorar o site")
+
+Executado em 20/05/2026 ~15:50 BRT:
+
+```sql
+-- 1) backfill pontual (116 pedidos de Maio + 6 residuais pre-Maio = 122 linhas)
+UPDATE analytics_ml_pedidos amp
+SET listing_type_id = a.listing_type_id
+FROM analytics_ml_anuncios a
+WHERE a.id = amp.mlb_id
+  AND amp.status='paid'
+  AND (amp.listing_type_id IS NULL OR amp.listing_type_id='')
+  AND a.listing_type_id IS NOT NULL;
+
+-- 2) rede de seguranca permanente (cron 2x/dia: 02:00 e 08:00 UTC)
+SELECT cron.schedule('ml-backfill-listing-type-diario','0 2,8 * * *', $$<mesmo UPDATE>$$);
+```
+
+Resultado por mês (DEPOIS):
+| Mês | Itens | Bruto | Comissão | `sem_listing` |
+|---|---:|---:|---:|---:|
+| Fev | 72 | R$ 19.222 | R$ 3.267 | 0 |
+| Mar | 140 | R$ 35.951 | R$ 6.098 | 0 |
+| Abr | 198 | R$ 51.803 | R$ 8.806 (+R$270) | 0 |
+| **Mai** | 116 | R$ 36.421 | **R$ 6.191 (de R$ 0)** | 0 |
+
+A coluna `comissao` é GENERATED — recalculou sozinha quando `listing_type_id` foi setado.
+
+**Cron de segurança:** `ml-backfill-listing-type-diario` (`0 2,8 * * *`) garante que se algum pedido novo entrar sem listing_type, ele será preenchido no próximo ciclo (idempotente — só toca linhas com `listing_type_id` vazio AND match em `analytics_ml_anuncios`). Independente da edge legada `sync-ml-analytics` (não foi possível baixar o source — erro 500 bundle).
+
+### 98.8 Snapshot atualizado final
+- Crons ativos: **48 → 49** (+`ml-backfill-listing-type-diario`).
+- Demais counts inalterados desde 98.5.
+
+---
+
+**Fim da documentação · Atualizado em 20/05/2026 — Section 98 com 98.7 (bug ML CORRIGIDO + rede de seguranca permanente) · v17.1**
