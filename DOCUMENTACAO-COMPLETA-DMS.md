@@ -9565,4 +9565,47 @@ Tudo respondeu 200 (com parâmetros corretos quando exigidos). Bug separado: `/v
 
 ---
 
-**Fim da documentação · Atualizado em 20/05/2026 — Section 97 (Magazord destravou: 7 syncs novos · 47k linhas espelhadas · regra 73.7 read-only mantida) · v16.0**
+## 98. CICLO 20/05/2026 — Sessão master 7 (correção pelos achados da Finance AI)
+
+> Reli `C:\Users\Juan - Dana Jalecos\Documents\Sistema Marketing\.claude\02-PARA-SESSAO-DMS.md` — carta da sessão Finance AI. Ela apontou **4 lacunas reais** no que fiz na Section 97 + **1 bug ativo no sync ML**. Esta seção corrige.
+
+### 98.1 Lacunas que pulei na 97 (e estou corrigindo agora)
+| Item | Onde errei | Correção |
+|---|---|---|
+| Faltou `magazord_contas_receber` | Criei `pedido_payments` (visão do pedido); Finance AI pedia `contaReceber` (visão do **título financeiro**, com `valor_liquidado`/`valor_saldo`/`data_geracao`). São diferentes. | Tabela criada + backfill 12.252 títulos via Python local (paginação `page=N` funciona em /v2; bug de parsing meu de `dataLiberacao` causou ~60 skips, corrigido na edge). Edge `sync-magazord-contas-receber` + cron horário. |
+| Não pinei filtro Site `pedido_situacao_tipo='1'` | A 02 do pacote Finance AI dizia "use `magazord_pedidos`" sem pinar filtro → o DMS estava subcontando o Site em ~R$43k/mês ao filtrar só "Crédito Aprovados". | `02-CONTRATO-DE-DADOS.md` reescrito com bloco **"Fórmula canônica"** explícita por canal. |
+| Não flagrei double-count Bling-NULL ↔ Magazord | Bling `loja_id=NULL` em Maio = R$137k → ~R$71k Magazord real + ~R$43k B2B manual. Quem soma os dois conta duplo. | Aviso explícito no 02 do pacote. |
+| Não detectei `analytics_ml_pedidos.comissao` zerada em Maio | Em Maio 116/116 pedidos ML com `listing_type_id` NULL → comissão GENERATED=0. Em Abril era 6/198 (3%); Maio bateu 100%. Backfill `UPDATE analytics_ml_pedidos.listing_type_id FROM analytics_ml_anuncios` parou. | **Diagnóstico fechado** (não corrigido ainda — depende de UPDATE em dado existente, aguarda autorização do Juan). |
+
+### 98.2 Novo: tabela `magazord_contas_receber`
+- **Endpoint** `GET /v2/faturamento/contaReceber` · 12.252 títulos · pageable por `page=N` (filtros de data **ignorados** pela API — paginação direta).
+- **Schema** principal: `id PK, numero, parcela, data_abertura, data_vencimento, data_geracao, data_liberacao, data_ultimo_movimento, valor_original, valor_liquidado, valor_saldo, situacao_id (9=Compensado), tipo_sigla (ARE), forma_pagamento_nome, pessoa_*, pedido_codigo, raw jsonb, synced_at`.
+- **Estrutura JSON peculiar**: cada item é `{"0": {…objeto principal…}, "tituloSituacaoId":…, "parcela":…, "saldo":…, "telefone":…, "dataLiberacao":…}` — campos `dataX` vêm como `{"date":"YYYY-MM-DD HH:MM:SS.uuuuuu","timezone_type":…,"timezone":…}`. Mapper extrai `.date` e remove a hora pra colunas `date`.
+- **Backfill**: rodado **local em Python** (não no edge — 12k títulos saturam o timeout). Cron incremental por MAX(id) ou janela de tempo recente.
+
+### 98.3 Novo: view `public.pedidos_total_inconsistente` (auditoria)
+- Lista pedidos NÃO cancelados onde `total=0 AND total_produtos>0` (bug de cadastro no Bling).
+- Achado: **3.293 históricos** (R$ 9.5M recuperáveis em valor de mercadoria) — Site/Null 2.409 · Piçarras 777 · BC 97 · outros 10. Cresceu desde 2020.
+- **Não corrige nada** — só facilita auditoria. A fórmula canônica `COALESCE(NULLIF(total,0), total_produtos)` já trata em consultas (Finance AI usa).
+
+### 98.4 Bug ativo (aguardando autorização do Juan pra corrigir)
+- `analytics_ml_pedidos.comissao` zerada em Maio. 116 pedidos consertáveis (R$ 36.421,73 bruto afetado).
+- Causa raiz: backfill de `listing_type_id` que pega de `analytics_ml_anuncios` parou de rodar em Maio.
+- Correção: 1 UPDATE — `UPDATE analytics_ml_pedidos amp SET listing_type_id = a.listing_type_id FROM analytics_ml_anuncios a WHERE a.id = amp.mlb_id AND amp.status='paid' AND amp.date_closed >= '2026-05-01' AND (amp.listing_type_id IS NULL OR amp.listing_type_id='') AND a.listing_type_id IS NOT NULL;`
+- A coluna `comissao` é GENERATED, recalcula automaticamente. **Aguardando OK do Juan pra alterar dado existente.**
+- Tarefa de fundo: identificar QUE cron/edge é responsável pelo backfill periódico e por que parou (Maio 1º?).
+
+### 98.5 Atualização do snapshot (Section 96.3)
+- Tabelas `public`: **97 → 98** (+1 `magazord_contas_receber`).
+- Views `public`: **36 → 37** (+1 `pedidos_total_inconsistente`).
+- Crons ativos: **47 → 48** (+1 `sync-magazord-contas-receber-1h`).
+- Edges novas (DMS): +1 `sync-magazord-contas-receber`.
+
+### 98.6 Pendências
+- **UPDATE de `listing_type_id`** (98.4): pedir OK ao Juan + descobrir/consertar cron de backfill.
+- **Re-rodar os ~60 títulos pulados** no backfill de `contas_receber` (bug `dataLiberacao` corrigido na edge — basta um re-trigger).
+- **Pacote DMS Finance AI** (`02-CONTRATO-DE-DADOS.md`): atualizado com fórmula canônica, double-count, bug ML — pronto pra reuso.
+
+---
+
+**Fim da documentação · Atualizado em 20/05/2026 — Section 98 (correções dos achados da sessão Finance AI: contas_receber, view auditoria, bug ML diagnosticado, doc handoff corrigida) · v17.0**
