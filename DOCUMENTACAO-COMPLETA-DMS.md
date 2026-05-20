@@ -9444,4 +9444,76 @@ Plus: alguns contatos têm `"0000-00-00"` (não preenchido).
 
 ---
 
-**Fim da documentação · Atualizado em 19/05/2026 — Section 95 (Bling auto-atribuição · fix pool C360 · zoom 1.15 · busca Enter · seção Anotações ADM realtime + ImgBB) · v14.0**
+## 96. CICLO 19/05/2026 — Sessão master 5 (mini-fixes influencers · pacote de handoff "DMS Finance AI" · snapshot/baseline do DMS)
+
+> Cobre: 2 micro-ajustes em Influenciadores depois da 95; criação do **pacote de handoff** pro novo sistema **DMS Finance AI** (fora deste repo); e o **snapshot do estado atual do DMS** pra eu detectar/consertar caso o outro sistema toque em algo.
+
+### 96.1 Mini-fixes pós-95 em Influenciadores (pedido Manu)
+- **Card "Total Cupons Usados"**: subtítulo passou de "X vendas geradas" → **"R$ Y gerado · X vendas"** (mostra o valor, não só a contagem). `index.html` em `loadInfluenciadores` (set `inf-kpi-vendas`).
+- **Top Performer por USOS de cupom** (não receita): ordenação trocada → `usos_cupom DESC` (receita só desempata); subtítulo do top mostra **"N usos · R$ X"** (deixa claro o porquê). Com tudo R$0,00, o top era qualquer um (Bianca); agora é quem performou (Flor, 15 usos).
+- Commit `bb217bf` → `danajalecos/main` (`4fed1f2`). O "R$ gerado" só sai de R$0 quando a receita for preenchida (manual hoje; auto só quando o influencer tiver `bling_vendedor_id` vinculado).
+
+### 96.2 Novo sistema **DMS Finance AI** — pacote de handoff (NÃO está neste repo)
+- Spec da Manu = um **CFO-IA empresarial** (não dashboard). O Juan decidiu **não recomeçar do zero nem re-sincronizar**: o novo sistema **reusa o MESMO Supabase** que o DMS já alimenta, em **somente leitura** sobre o `public`, criando/editando/apagando **apenas** o que é dele.
+- **Pasta dedicada (fora do repo DMS):** `C:\.Projetos Claude\DMS Finance AI\` — 9 arquivos (00–08) cobrindo regras de ferro, arquitetura, contrato de dados gerado do schema vivo, credenciais (com aviso de não-commitar), como funciona cada integração, agenda dos 40 crons, plano Fase 1 priorizado do mega-spec, prompt da Manu na íntegra, SQL bootstrap (`07-finance-schema-bootstrap.sql`) e **autenticação isolada** (`08-AUTENTICACAO.md`, login próprio em `finance.usuarios` — não toca `auth.users` nem `profiles`).
+- **Arquitetura decidida:** mesmo projeto Supabase (`wltmiqbhziefusnzmmkt`), **schema novo `finance`**, **role Postgres `finance_ai`** com `SELECT` no `public` e `ALL` só no `finance` (isolamento garantido pelo banco). Stack **Híbrido**: Postgres como camada de dados + **Python/FastAPI** pra IA/RAG/simulação. Frontend depois.
+- **3 conectores novos** que o Finance AI vai precisar (NÃO existem no DMS): extrato bancário/PIX/TED, repasses+taxas de gateway/marketplace (parcial: parte já em `analytics_ml_pedidos`), impostos detalhados. Tudo no schema `finance` — sem encostar no `public`.
+- **Plano file:** `~/.claude/plans/bubbly-forging-pelican.md` reescrito com esse plano (histórico anterior preservado abaixo no mesmo arquivo).
+
+### 96.3 SNAPSHOT do DMS — estado em 19/05/2026 (baseline pra detectar mudança não autorizada)
+Use isto como "como o DMS estava saindo desta sessão". Se uma sessão futura encontrar divergência (especialmente vinda do Finance AI), suspeitar de violação da Regra de Ferro.
+
+- **Banco** (`wltmiqbhziefusnzmmkt`): **90 tabelas** no `public`, **36 views**, **40 crons ativos** (cron.job). Schemas esperados: `public` (DMS) + futuramente `finance` (Finance AI). **Não deve aparecer schema novo** com prefixo "finance_*" no public; objetos do Finance AI ficam no schema `finance`.
+- **Roles**: roles padrão do Supabase + futuramente `finance_ai`. `finance_ai` **NÃO pode** ter privilégio de INSERT/UPDATE/DELETE/TRUNCATE em `public.*`. Se tiver, é violação.
+- **Tabelas-chave (não devem mudar de schema sem aviso):** `pedidos`, `pedidos_itens`, `contas_pagar`, `contas_receber`, `analytics_ml_pedidos` (cols GENERATED: `comissao`/`tarifa_fixa`/`lucro_liquido`), `produtos`, `produtos_custos`, `contatos`, `vendedor_mapping`, `bling_tokens` (id=1 matriz, id=2 bc — auto-refresh), `analytics_ml_connections`, `magazord_*`, `cliente_*`, `alertas`, `anotacoes_adm` (RLS admin-only + realtime, criada na 95.5), `cupons_aniversario`, `influenciador_*`.
+- **Views financeiras esperadas:** `dashboard_contas`, `dashboard_resumo`, `dashboard_mensal`, `cliente_scoring*`, `cliente_inadimplencia`, `produtos_velocidade_*`, `produtos_parados_150d`, `produtos_com_custo`, `top_produtos*`, `analytics_ml_ads_resumo`, `funil_vendas`, `vendedor_ranking_*`.
+- **RLS**: várias tabelas têm RLS (`anotacoes_adm`, `profiles`, etc). O `finance_ai` recebeu `BYPASSRLS` no bootstrap (só leitura é OK; escrita continua barrada pelos grants).
+- **Crons ativos = 40**, padrão `sync-*` (Bling/ML/Magazord/Google) + motor de alertas + housekeeping. **Não deve aparecer cron novo** rodando funções do Finance AI no `public` — crons do Finance AI vivem no schema `finance`.
+- **Edge functions** atuais (parcial, do DMS): `sync-pedidos`/`-bc`, `sync-pedidos-itens`/`-bc`, `sync-cr-*`, `sync-cp-*`, `sync-produtos`/`-bc`, `sync-contatos`/`-bc`, `sync-ml-analytics`, `sync-magazord`, `sync-analytics`, `gerar-alertas-*`, `gerar-cupom-aniversario`, `gerar-credito-influenciador`, `gerar-briefing-influenciador`, `gerar-avatar-ia`, `gerar-peca-ia`, `ai-chat`, `cliente360-insight`, `upload-imgbb`, `apagar-imgbb`, `marcar_cupom_enviado`. **Funções novas** com prefixo `finance-*` devem ser do Finance AI (deploy próprio dele, não daqui).
+- **Frontend DMS**: `index.html` (inline) v=acordeão+zoom 1.15+Anotações; `cliente-360-boot.js?v=83` (último cache-bust); `cliente-360.html` é iframe (não tem cache-bust próprio — Ctrl+F5 pega `?v=`).
+
+### 96.4 Como **detectar** se algo do DMS foi mexido indevidamente (checks rápidos)
+Rodar via Management API (token em `…\TOKENS ANALYTICS\Token novo supabase.txt`):
+
+1. **Privilégios indevidos de `finance_ai` em public** (deve voltar 0 linhas):
+   ```sql
+   SELECT grantee, table_name, privilege_type
+   FROM information_schema.role_table_grants
+   WHERE grantee='finance_ai' AND table_schema='public'
+     AND privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE');
+   ```
+2. **Tabela/view nova no public com cara de Finance AI** (deve voltar 0):
+   ```sql
+   SELECT table_schema, table_name FROM information_schema.tables
+   WHERE table_schema='public' AND table_name ILIKE 'finance%';
+   ```
+3. **Cron novo apontando pra função do Finance AI** (deve voltar 0):
+   ```sql
+   SELECT jobname, command FROM cron.job
+   WHERE command ILIKE '%finance%' OR jobname ILIKE 'finance%';
+   ```
+4. **Diff de contagem do baseline** (96.3): se `public` tiver ≠90 tabelas, ≠36 views ou ≠40 crons, investigar o delta (`information_schema.tables`/`views` + `cron.job`).
+5. **Tabelas-chave alteradas:** comparar `pg_dump --schema-only public` com snapshot anterior se desconfiar de mudança de schema.
+
+### 96.5 Como **consertar** se for confirmado que o Finance AI mexeu no DMS
+- **Privilégio errado em `finance_ai`:**
+  ```sql
+  REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+    ON ALL TABLES IN SCHEMA public FROM finance_ai;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+    ON TABLES FROM finance_ai;
+  ```
+- **Tabela/view "estranha" criada no public:** confirmar com Juan, depois `DROP` no `public` e recriar no `finance` (escopo do Finance AI).
+- **Cron indevido em `public`:** `SELECT cron.unschedule(jobid)`.
+- **Linha alterada em tabela do DMS:** restaurar via último sync do DMS (a tabela origem é Bling/ML/Magazord — basta rodar a edge `sync-*` correspondente, ela reapasta).
+- **Em qualquer caso:** confirmar com o Juan antes de qualquer ação destrutiva. Não restaurar nada por conta própria.
+
+### 96.6 O QUE FALTA / pendências (atualizado)
+- Mantém pendências da 94.10 e 95.6.
+- **Finance AI**: abrir outra sessão na pasta `C:\.Projetos Claude\DMS Finance AI\`, ler `00-LEIA-PRIMEIRO.md`, escolher recorte da Fase 1 (`05-PLANO-FASE-1.md`), revisar e rodar `07-finance-schema-bootstrap.sql` quando combinado.
+- **Não fazer no DMS**: nada relacionado ao Finance AI vive aqui. Se aparecer commit/edição neste repo "do Finance AI", é erro.
+
+---
+
+**Fim da documentação · Atualizado em 19/05/2026 — Section 96 (mini-fixes Influencers · pacote handoff DMS Finance AI · snapshot/baseline DMS p/ detectar mudanças) · v15.0**
