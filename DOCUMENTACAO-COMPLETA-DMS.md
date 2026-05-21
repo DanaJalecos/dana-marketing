@@ -9671,4 +9671,51 @@ A coluna `comissao` é GENERATED — recalculou sozinha quando `listing_type_id`
 
 ---
 
-**Fim da documentação · Atualizado em 21/05/2026 — Section 99 (sync de pedidos do site agora a cada 30 min) · v17.2**
+## 100. CICLO 21/05/2026 — Card verde corrigido + Feature #2 UTM Parser destravada
+
+> Fechando 3 frentes: (a) card verde do dashboard estava mostrando R$242.930 (Bling cru com cancelados + B2B duplicado); (b) Faturamento por Canal não tinha card de B2B; (c) Feature #2 (UTM Parser, suspensa desde Jan/2026 — Section 62.2/65/68) destravada agora que a Magazord libera o detalhe completo do pedido.
+
+### 100.1 Card verde + Faturamento por Canal — mesma fórmula canônica
+- Nova view **`public.faturamento_real_mensal`** consolidada:
+  - **Site** = `magazord_pedidos` `pedido_situacao_tipo='1'`
+  - **ML** = `analytics_ml_pedidos status='paid'` (API real, NÃO Bling) — fonte canônica Finance AI
+  - **Canais** = `pedidos` por loja_id real (excl ML), `COALESCE(NULLIF(total,0), total_produtos)`, excl `situacao_id=12`
+  - **B2B** = `pedidos loja_id=0` excl cancelado, **`NOT EXISTS` em magazord_pedidos por nome+data** (evita double-count com Site)
+  - 1 linha por empresa + linha `empresa='todas'` (soma)
+- `index.html` `loadSupabaseData` agora puxa essa view e sobrepõe `liveData.porMes[key].receita/pedidos` → card verde reflete o consolidado real. Demais campos `receita_site/_loja/_ml/etc` ficam intactos pra outras seções.
+- `loadFaturamentoPorCanal` ganhou card **🤝 B2B (manual no Bling)** com cor `#a855f7`. Lógica: pedidos Bling `loja_id=0` excl cancelados, COALESCE; cruza com Magazord por nome+data; os que batem viram "double-count descartado" (tooltip no card mostra o valor descartado). Os que não batem viram B2B real.
+- Resultado Maio 1-21 consolidado (matriz+BC): **R$ 366.813 / 668 pedidos**. Antes: R$ 242.930 (subcontado) ou R$ 219.918 (sem B2B). Diferença ≈ R$ 4-5k entre card verde e Total Consolidado = timing de queries.
+
+### 100.2 Bug do card Site (Magazord) corrigido
+- Função `loadFaturamentoPorCanal` filtrava por `tipo.includes('aprov')` etc. em `pedido_situacao_tipo` que é **NUMÉRICO** (`'1'`,`'2'`,`'3'`) — nunca casava. Trocado por `tipoStr === '1'`. Maio: R$ 23.451 → R$ 69.652.
+
+### 100.3 Feature #2 — UTM Parser destravada (autorização Juan)
+A Magazord não retorna UTM no endpoint de LISTA — só no de DETALHE (`/v2/site/pedido/{codigo}`, 84 campos). Como o sync atual usa LISTA, faltava o UTM.
+
+Novo sync de DETALHE on-demand:
+- **Tabela `public.magazord_pedido_detalhe`** — 84 campos extraídos, principais como colunas (`utm_source/medium/campaign/content/term`, `tracking_source`, `pessoa_email/data_nascimento/sexo`, endereço completo, `cupom_codigo`, `credito_utilizado`/`cashback_utilizado`, `valor_personalizacao`, `pedido_situacao_*`) + `raw jsonb` completo.
+- **Edge `sync-magazord-pedido-detalhe`** — itera pedidos das últimas 48h (body `dias_atras=N` ou `full=true`), GET `/v2/site/pedido/{cod}` por pedido, upsert por `id`. Tolerante a 404 (skip + erros contabilizados).
+- **Cron `sync-magazord-pedido-detalhe-1h`** (`45 * * * *`) — incremental 2d.
+- **Backfill histórico** (~5.2k pedidos) rodando em background no Python local (idempotente, ~30-45min).
+- **View `public.vendas_por_utm`** — agrupa receita+pedidos por canal de aquisição inferido (Google Ads/SEO, Meta Ads, E-mail, WhatsApp, TikTok, Direto/Orgânico, Manual). Filtro: `pedido_situacao_tipo='1'`.
+
+### 100.4 Cuidados / honestidade
+- Test prévio em 10 pedidos recentes: ~50% têm UTM nomeado (vieram de Ads); o resto é orgânico/direto. Pedidos manuais (origem=3) sem UTM por design.
+- Histórico de 2024-12 tem `pedidoTrackingParams` parcial (sem utm_source nomeado). 2026 tem UTM completo.
+- Hipótese de retroatividade: backfill traz o que existia no momento; pode haver pedidos antigos sem dado de tracking.
+
+### 100.5 Snapshot atualizado
+- Tabelas `public`: **98 → 99** (+`magazord_pedido_detalhe`)
+- Views `public`: **37 → 39** (+`faturamento_real_mensal`, +`vendas_por_utm`)
+- Crons ativos: **50 → 52** (+`sync-magazord-pedido-detalhe-1h`)
+- Edges novas: +`sync-magazord-pedido-detalhe`
+
+### 100.6 Próximos passos pro Finance AI
+A sessão Finance AI agora pode consumir:
+- `faturamento_real_mensal` (substitui a fórmula híbrida que ela tinha que calcular manualmente)
+- `vendas_por_utm` (alimenta "Engine de eficiência" — Section 6 do prompt da Manu — "quanto a empresa precisa gastar pra gerar R$1, por canal")
+- `magazord_pedido_detalhe` (UTM/tracking/cupom_codigo/email/endereço por pedido)
+
+---
+
+**Fim da documentação · Atualizado em 21/05/2026 — Section 100 (card verde+B2B corretos + Feature #2 UTM destravada) · v18.0**
