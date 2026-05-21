@@ -9644,4 +9644,31 @@ A coluna `comissao` é GENERATED — recalculou sozinha quando `listing_type_id`
 
 ---
 
-**Fim da documentação · Atualizado em 20/05/2026 — Section 98 com 98.7 (bug ML CORRIGIDO + rede de seguranca permanente) · v17.1**
+## 99. CICLO 21/05/2026 — Pedidos do site agora atualizam a cada 30 min (era 1×/dia)
+
+**Problema**: o `sync-magazord-diario` (1×/dia, 06:35 BRT) era o único caminho de sync de pedidos do site. Venda nova no site demorava até **24h** pra aparecer no DMS. Comparativo: Bling (Matriz/BC) sincroniza a cada 30 min.
+
+**Solução**: edge dedicada **`sync-magazord-pedidos`** rodando **a cada 30 min** (`:03` e `:33`). A `sync-magazord-diario` original continua rodando (puxa pessoas/produtos/categorias/marcas/carrinhos diariamente) — só **adicionei** uma rede de sync mais frequente pros pedidos.
+
+### 99.1 Como a edge nova é rápida
+- Usa `orderDirection=desc` na Magazord — pega os pedidos do mais novo pro mais antigo.
+- Para de paginar quando encontra pedido `dataHora < cutoff` (3 dias atrás default).
+- Resultado: **1s · 27 lidos · 26 upsertados** (smoke test). A diária faz ~25 min porque paginava do mais antigo até bater 8.000 registros.
+- Mapping de campos **idêntico** ao `syncPedidos` da edge antiga — mesma tabela, sem divergência.
+
+### 99.2 Schedule final dos crons Magazord
+| Cron | Frequência |
+|---|---|
+| `sync-magazord-pedidos-30min` (**NOVO**) | a cada 30 min (`:03`, `:33`) |
+| `sync-magazord-diario` (mantido) | 1×/dia 06:35 BRT — pessoas/produtos/categorias/marcas/carrinhos |
+| `sync-magazord-nf-2h` | 2h |
+| `sync-magazord-atendimentos-1h`, `-contas-receber-1h`, `-estmov-1h`, `-pedido-payments-1h` | 1h |
+| `sync-magazord-cupons-diario`, `-avaliacoes-diario`, `-newsletter-diario` | 1×/dia |
+
+### 99.3 Snapshot
+- Crons ativos: **49 → 50** (+`sync-magazord-pedidos-30min`).
+- Edge nova `sync-magazord-pedidos` deployada.
+
+---
+
+**Fim da documentação · Atualizado em 21/05/2026 — Section 99 (sync de pedidos do site agora a cada 30 min) · v17.2**
