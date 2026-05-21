@@ -3678,10 +3678,12 @@ select.input { cursor: pointer; }
     </div>
   </div>
 
-  <!-- Placeholder sobre integração futura (com avanço) -->
+  <!-- Status das integrações -->
   <div class="card mt20" style="background:var(--surface2)">
     <div style="font-size:12.5px;color:var(--text2);line-height:1.6">
-      <strong>💡 Integração futura:</strong> a receita por canal acima já é <strong>dado real</strong> (UTM do pedido). Falta o <strong>gasto por canal</strong> — quando Meta Ads, Google Ads ou TikTok Ads forem conectados em <strong onclick="document.querySelector('[onclick*=apis]')?.click()" style="cursor:pointer;text-decoration:underline">Conectar APIs</strong>, este painel mostra <strong>ROAS real</strong> (receita ÷ gasto) por canal.
+      <strong>📡 Status das integrações:</strong>
+      <span style="color:#22c55e;font-weight:600">✅ Google Ads conectado</span> (gasto + ROAS reais no card "Google Ads/SEO" acima) ·
+      <span style="color:var(--text3)">Meta Ads e TikTok Ads ainda não conectados</span> — quando ligados em <strong onclick="document.querySelector('[onclick*=apis]')?.click()" style="cursor:pointer;text-decoration:underline">Conectar APIs</strong>, ROAS aparece nesses canais também.
     </div>
   </div>
 
@@ -24482,13 +24484,24 @@ async function loadCanalAquisicao() {
   const fimISO = fim.toISOString();
 
   try {
-    const { data: rows, error } = await sb
-      .from('magazord_pedido_detalhe')
-      .select('utm_source,utm_medium,utm_campaign,tracking_source,origem,valor_total,pedido_situacao_tipo,data_hora')
-      .eq('pedido_situacao_tipo', '1')
-      .gte('data_hora', inicioISO).lt('data_hora', fimISO)
-      .limit(20000);
-    if (error) throw error;
+    // 2 queries paralelas: pedidos com UTM + gasto Google Ads do periodo
+    const inicioDate = inicio.toISOString().slice(0,10);
+    const fimDate = fim.toISOString().slice(0,10);
+    const [pedR, adsR] = await Promise.all([
+      sb.from('magazord_pedido_detalhe')
+        .select('utm_source,utm_medium,utm_campaign,tracking_source,origem,valor_total,pedido_situacao_tipo,data_hora')
+        .eq('pedido_situacao_tipo', '1')
+        .gte('data_hora', inicioISO).lt('data_hora', fimISO)
+        .limit(20000),
+      sb.from('analytics_ads_dia')
+        .select('cost')
+        .gte('data', inicioDate).lt('data', fimDate)
+    ]);
+    if (pedR.error) throw pedR.error;
+    const rows = pedR.data || [];
+    const error = null;
+    // Gasto Google Ads total do periodo (todos os custos somados)
+    const gastoGoogle = (adsR?.data || []).reduce((s, r) => s + Number(r.cost || 0), 0);
 
     const canais = {};
     const campanhas = {};
@@ -24532,24 +24545,39 @@ async function loadCanalAquisicao() {
     document.getElementById('caq-kpi-top-sub').textContent = top ? (_caqFmtR(top.receita) + ' · ' + _caqFmtN(top.pedidos) + ' pedidos') : '';
     document.getElementById('caq-kpi-ticket').textContent = _caqFmtR(ticket);
 
-    // Tabela canais
+    // Tabela canais (+ custo/ROAS pra Google Ads, que ja esta conectado)
     const wrapCanais = document.getElementById('caq-canais');
     if (!listaCanais.length) {
       wrapCanais.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text3);font-size:13px">Sem pedidos no período selecionado.</div>';
     } else {
-      wrapCanais.innerHTML = listaCanais.map(c => {
+      // Header pra deixar claro que coluna de custo/ROAS so se aplica a canais conectados
+      const header = `<div style="display:grid;grid-template-columns:36px 1fr 100px 130px 80px 80px 140px;gap:14px;padding:8px 18px;align-items:center;border-bottom:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:0.4px;color:var(--text3);font-weight:600">
+        <div></div><div>Canal</div><div style="text-align:right">Pedidos</div><div style="text-align:right">Receita</div><div style="text-align:right">Ticket</div><div style="text-align:right">% total</div><div style="text-align:right">Custo · ROAS</div>
+      </div>`;
+      wrapCanais.innerHTML = header + listaCanais.map(c => {
         const pct = totalReceita > 0 ? (c.receita/totalReceita*100) : 0;
         const tkt = c.pedidos > 0 ? c.receita/c.pedidos : 0;
-        return `<div style="display:grid;grid-template-columns:36px 1fr 110px 130px 90px 110px;gap:14px;padding:12px 18px;align-items:center;border-bottom:1px solid var(--border)">
+        // Custo/ROAS: por enquanto so Google Ads esta conectado
+        let custoCell = '<div style="font-size:10.5px;color:var(--text3);text-align:right;font-style:italic">não conectado</div>';
+        if (c.canal === 'Google Ads/SEO' && gastoGoogle > 0) {
+          const roas = c.receita / gastoGoogle;
+          const roasCor = roas >= 2 ? '#22c55e' : roas >= 1 ? '#fbbf24' : '#ef4444';
+          custoCell = `<div style="text-align:right">
+            <div style="font-size:11.5px;color:var(--text2)">${_caqFmtR(gastoGoogle)}</div>
+            <div style="font-size:13.5px;font-weight:800;color:${roasCor};font-family:'DM Sans',sans-serif">${roas.toFixed(2)}x</div>
+          </div>`;
+        }
+        return `<div style="display:grid;grid-template-columns:36px 1fr 100px 130px 80px 80px 140px;gap:14px;padding:12px 18px;align-items:center;border-bottom:1px solid var(--border)">
           <div style="font-size:22px">${_caqIco(c.canal)}</div>
           <div>
             <div style="font-weight:700;font-size:13.5px">${c.canal}</div>
             <div style="height:6px;margin-top:5px;background:var(--surface2);border-radius:3px;overflow:hidden"><div style="height:100%;width:${pct.toFixed(1)}%;background:${_caqCor(c.canal)};transition:width 0.5s"></div></div>
           </div>
-          <div style="font-size:11.5px;color:var(--text2);text-align:right">${_caqFmtN(c.pedidos)} pedidos</div>
+          <div style="font-size:11.5px;color:var(--text2);text-align:right">${_caqFmtN(c.pedidos)} ped</div>
           <div style="font-size:15px;font-weight:700;text-align:right;font-family:'DM Sans',sans-serif">${_caqFmtR(c.receita)}</div>
-          <div style="font-size:11px;color:var(--text3);text-align:right">tkt ${_caqFmtR(tkt)}</div>
+          <div style="font-size:11px;color:var(--text3);text-align:right">${_caqFmtR(tkt)}</div>
           <div style="font-size:12px;font-weight:600;text-align:right;color:${_caqCor(c.canal)}">${pct.toFixed(1)}%</div>
+          ${custoCell}
         </div>`;
       }).join('');
     }
