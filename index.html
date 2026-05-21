@@ -2759,9 +2759,6 @@ select.input { cursor: pointer; }
     <div class="nav-item" onclick="go(this,'relatorio')">
       <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 12l4-5 3 3 2.5-3 2.5 2.5"/><rect x="1" y="1" width="14" height="14" rx="2"/></svg></div>Relatório Executivo
     </div>
-    <div class="nav-item" onclick="go(this,'canalaquisicao')">
-      <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><path d="M8 2v6l4 2"/></svg></div>Canal de Aquisição
-    </div>
   </div>
 
   <div class="nav-section">
@@ -3626,10 +3623,65 @@ select.input { cursor: pointer; }
     </div>
   </div>
 
-  <!-- Placeholder sobre integração futura -->
+  <!-- ──────────────────────────────────────────────────────────────────
+       📡 De onde vieram as vendas do site (UTM real)
+       Dado dinâmico vindo de magazord_pedido_detalhe (UTM no pedido).
+       Complementa os canais cadastrados manualmente acima — aqui é o
+       que ACONTECEU de fato.
+       ─────────────────────────────────────────────────────────────────── -->
+  <div class="mt20" style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+    <div>
+      <div style="font-weight:800;font-size:17px;display:flex;align-items:center;gap:8px"><span>📡</span><span>De onde vieram as vendas do site</span><span style="font-size:9px;padding:2px 6px;background:rgba(168,139,250,0.18);color:#c4b5fd;border:1px solid rgba(168,139,250,0.3);border-radius:4px;font-weight:700">UTM REAL</span></div>
+      <div style="font-size:12px;color:var(--text3);margin-top:2px">Dados ao vivo do site (Magazord) — pedidos ativos · <span id="caq-periodo-label">mês atual</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:3px">
+      <label style="font-size:10.5px;color:var(--text3);text-transform:uppercase;letter-spacing:0.3px">Período</label>
+      <select class="input" id="caq-periodo-sel" onchange="loadCanalAquisicao()" style="height:32px;font-size:12.5px;min-width:160px">
+        <option value="atual">Mês atual</option>
+        <option value="anterior">Mês anterior</option>
+        <option value="ytd">Ano (YTD)</option>
+        <option value="30">Últimos 30 dias</option>
+        <option value="90">Últimos 90 dias</option>
+        <option value="365">Últimos 365 dias</option>
+        <option value="all">Todo histórico</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- KPIs UTM -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px">
+    <div class="card" style="padding:14px"><div style="color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Receita do site rastreada</div><div style="font-size:20px;font-weight:800;font-family:'DM Sans',sans-serif" id="caq-kpi-receita">—</div><div style="font-size:11px;color:var(--text3)" id="caq-kpi-receita-sub">carregando…</div></div>
+    <div class="card" style="padding:14px"><div style="color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Pedidos rastreados</div><div style="font-size:20px;font-weight:800;font-family:'DM Sans',sans-serif" id="caq-kpi-pedidos">—</div><div style="font-size:11px;color:var(--text3)" id="caq-kpi-pedidos-sub">—</div></div>
+    <div class="card" style="padding:14px"><div style="color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Canal #1 do período</div><div style="font-size:20px;font-weight:800;font-family:'DM Sans',sans-serif" id="caq-kpi-top">—</div><div style="font-size:11px;color:var(--text3)" id="caq-kpi-top-sub">—</div></div>
+    <div class="card" style="padding:14px"><div style="color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Ticket médio</div><div style="font-size:20px;font-weight:800;font-family:'DM Sans',sans-serif" id="caq-kpi-ticket">—</div><div style="font-size:11px;color:var(--text3)">receita ÷ pedidos</div></div>
+  </div>
+
+  <!-- Tabela canais -->
+  <div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:700;font-size:13.5px">Faturamento por canal (dado real do site)</div>
+      <div style="font-size:11px;color:var(--text3)">do mais rentável pro menor</div>
+    </div>
+    <div id="caq-canais" style="padding:6px 0">
+      <div style="padding:24px;text-align:center;color:var(--text3);font-size:12.5px">⏳ Carregando…</div>
+    </div>
+  </div>
+
+  <!-- Tabela campanhas (drill) -->
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:700;font-size:13.5px">Top campanhas (utm_campaign)</div>
+      <div style="font-size:11px;color:var(--text3)">só com nome de campanha · top 20</div>
+    </div>
+    <div id="caq-campanhas" style="padding:6px 0">
+      <div style="padding:24px;text-align:center;color:var(--text3);font-size:12.5px">⏳ Carregando…</div>
+    </div>
+  </div>
+
+  <!-- Placeholder sobre integração futura (com avanço) -->
   <div class="card mt20" style="background:var(--surface2)">
     <div style="font-size:12.5px;color:var(--text2);line-height:1.6">
-      <strong>💡 Integração futura:</strong> quando Meta Ads, Google Ads ou TikTok Ads forem conectados em <strong onclick="document.querySelector('[onclick*=apis]')?.click()" style="cursor:pointer;text-decoration:underline">Conectar APIs</strong>, os canais pagos desta página serão atualizados automaticamente com dados reais de investimento, ROAS e performance.
+      <strong>💡 Integração futura:</strong> a receita por canal acima já é <strong>dado real</strong> (UTM do pedido). Falta o <strong>gasto por canal</strong> — quando Meta Ads, Google Ads ou TikTok Ads forem conectados em <strong onclick="document.querySelector('[onclick*=apis]')?.click()" style="cursor:pointer;text-decoration:underline">Conectar APIs</strong>, este painel mostra <strong>ROAS real</strong> (receita ÷ gasto) por canal.
     </div>
   </div>
 
@@ -9737,71 +9789,6 @@ updateDynamicField('foto');
 </div>
 
 <!-- ════════ RELATÓRIO ════════ -->
-<!-- ════════════════════════════════════════════════════════════════════════
-     CANAL DE AQUISIÇÃO — De onde vem cada venda do site (UTM real)
-     Lê de public.vendas_por_utm (agrupado por canal+campanha) e
-     public.magazord_pedido_detalhe (drill-down).
-     ════════════════════════════════════════════════════════════════════════ -->
-<div class="view" id="view-canalaquisicao">
-<div style="padding:24px 28px">
-  <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:18px;flex-wrap:wrap">
-    <div>
-      <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:20px;margin-bottom:4px">📡 Canal de Aquisição</div>
-      <div style="font-size:13px;color:var(--text2)">De onde vem cada venda do site Dana — UTM real (não estimativa do Meta/Google)</div>
-      <div style="font-size:11.5px;color:var(--text3);margin-top:6px">Site (Magazord) · pedidos ativos · <span id="caq-periodo-label">mês atual</span></div>
-    </div>
-    <div style="display:flex;gap:8px;align-items:flex-end">
-      <div style="display:flex;flex-direction:column;gap:3px">
-        <label style="font-size:10.5px;color:var(--text3);text-transform:uppercase;letter-spacing:0.3px">Período</label>
-        <select class="input" id="caq-periodo-sel" onchange="loadCanalAquisicao()" style="height:32px;font-size:12.5px;min-width:160px">
-          <option value="atual">Mês atual</option>
-          <option value="anterior">Mês anterior</option>
-          <option value="ytd">Ano (YTD)</option>
-          <option value="30">Últimos 30 dias</option>
-          <option value="90">Últimos 90 dias</option>
-          <option value="365">Últimos 365 dias</option>
-          <option value="all">Todo histórico</option>
-        </select>
-      </div>
-    </div>
-  </div>
-
-  <!-- KPIs topo -->
-  <div id="caq-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:24px">
-    <div class="card" style="padding:16px"><div style="color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Receita total mapeada</div><div style="font-size:22px;font-weight:800;font-family:'DM Sans',sans-serif" id="caq-kpi-receita">—</div><div style="font-size:11.5px;color:var(--text3)" id="caq-kpi-receita-sub">carregando…</div></div>
-    <div class="card" style="padding:16px"><div style="color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Pedidos com UTM rastreado</div><div style="font-size:22px;font-weight:800;font-family:'DM Sans',sans-serif" id="caq-kpi-pedidos">—</div><div style="font-size:11.5px;color:var(--text3)" id="caq-kpi-pedidos-sub">—</div></div>
-    <div class="card" style="padding:16px"><div style="color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Canal #1 do período</div><div style="font-size:22px;font-weight:800;font-family:'DM Sans',sans-serif" id="caq-kpi-top">—</div><div style="font-size:11.5px;color:var(--text3)" id="caq-kpi-top-sub">—</div></div>
-    <div class="card" style="padding:16px"><div style="color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Ticket médio (todos canais)</div><div style="font-size:22px;font-weight:800;font-family:'DM Sans',sans-serif" id="caq-kpi-ticket">—</div><div style="font-size:11.5px;color:var(--text3)">receita ÷ pedidos</div></div>
-  </div>
-
-  <!-- Tabela canais -->
-  <div class="card" style="padding:0;overflow:hidden;margin-bottom:18px">
-    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-      <div style="font-weight:700;font-size:14px">Faturamento por Canal</div>
-      <div style="font-size:11px;color:var(--text3)">do mais rentável pro menor</div>
-    </div>
-    <div id="caq-canais" style="padding:8px 0">
-      <div style="padding:30px;text-align:center;color:var(--text3);font-size:13px">⏳ Carregando…</div>
-    </div>
-  </div>
-
-  <!-- Tabela campanhas (drill) -->
-  <div class="card" style="padding:0;overflow:hidden">
-    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-      <div style="font-weight:700;font-size:14px">Top Campanhas (com nome de UTM)</div>
-      <div style="font-size:11px;color:var(--text3)">só campanhas com utm_campaign preenchido · top 20</div>
-    </div>
-    <div id="caq-campanhas" style="padding:8px 0">
-      <div style="padding:30px;text-align:center;color:var(--text3);font-size:13px">⏳ Carregando…</div>
-    </div>
-  </div>
-
-  <div style="margin-top:18px;padding:12px 16px;background:rgba(168,139,250,0.08);border:1px solid rgba(168,139,250,0.25);border-radius:10px;font-size:12px;color:var(--text2);line-height:1.5">
-    <strong style="color:var(--text)">Como funciona:</strong> sempre que um cliente clica num anúncio (Google Ads, Meta, link de influencer, e-mail), o link traz uma "etiqueta" (UTM) escondida. A Magazord guarda essa etiqueta no pedido. Esta tela lê essa etiqueta direto do banco — então o número é o que <em>realmente</em> aconteceu, não estimativa de plataforma. Pedidos sem UTM aparecem como "Direto/Orgânico" (cliente entrou direto no site ou veio via busca natural). <a href="#" onclick="event.preventDefault();go(document.querySelector('.nav-item.active'), 'campanhas')" style="color:#a78bfa;text-decoration:none">Cruzar com gasto de Ads →</a>
-  </div>
-</div>
-</div>
-
 <div class="view" id="view-relatorio">
 <div style="padding:24px 28px">
   <div class="rel-hero">
@@ -10699,8 +10686,7 @@ const VIEW_META = {
   trafego: { title: 'Central do Tráfego', sub: 'Tudo pra rodar campanhas · criativos, briefings, andamento', action: '' },
   perfil: { title: 'Meu Perfil', sub: 'Configuracoes da sua conta', action: '' },
   admin: { title: 'Administrador', sub: 'Usuários, permissões e atividades', action: '' },
-  anotacoes: { title: 'Anotações', sub: 'Banco de ideias da diretoria · só ADMs · tempo real', action: '' },
-  canalaquisicao: { title: 'Canal de Aquisição', sub: 'De onde vem cada venda do site · UTM real (Google Ads · Meta · orgânico · etc)', action: '' }
+  anotacoes: { title: 'Anotações', sub: 'Banco de ideias da diretoria · só ADMs · tempo real', action: '' }
 };
 
 // ── NAVIGATION: Mapa slug ↔ viewId pro URL hash ──
@@ -11040,7 +11026,6 @@ function go(el, viewId, opts) {
     loadAdminUsers();
   }
   if (viewId === 'anotacoes') loadAnotacoes();
-  if (viewId === 'canalaquisicao') loadCanalAquisicao();
   if (viewId === 'perfil') loadPerfilView();
   if (viewId === 'briefingvisual') { if (typeof loadBriefings === 'function') loadBriefings(); }
   if (viewId === 'estudio') {
@@ -13628,6 +13613,8 @@ async function loadCanaisAquisicao() {
     listaPagos.innerHTML = `<div style="color:var(--red);font-size:12px;padding:12px">Erro ao carregar: ${esc(e.message || e)}</div>`;
     listaOrg.innerHTML = '';
   }
+  // Bloco UTM (dado dinâmico do site Magazord) — definido mais abaixo no arquivo
+  if (typeof loadCanalAquisicao === 'function') loadCanalAquisicao();
 }
 
 function renderCanaisAquisicao() {
