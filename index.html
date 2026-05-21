@@ -92,7 +92,11 @@ async function loadSupabaseData() {
       aplicarEmpresa(sb.from('vendedores').select('id', { count: 'exact', head: true })).then(r => r).catch(e => { console.warn('[loadSupabaseData] vendedores HEAD falhou:', e?.message || e); return { count: 0, data: null, error: e }; }),
       sb.from('sync_log').select('created_at').order('created_at', { ascending: false }).limit(1),
       // Faturamento REAL mensal (formula canonica: Site Magazord + Bling canais COALESCE + B2B sem double-count)
-      sb.from('faturamento_real_mensal').select('*').eq('empresa', empSelecionada).order('ano').order('mes').catch(e => { console.warn('[fat_real]', e?.message); return { data: [] }; }),
+      // Wrap em Promise.resolve pra normalizar — query builder do Supabase nao implementa .catch direto.
+      Promise.resolve().then(async () => {
+        try { return await sb.from('faturamento_real_mensal').select('*').eq('empresa', empSelecionada).order('ano').order('mes'); }
+        catch(e) { console.warn('[fat_real]', e?.message || e); return { data: [] }; }
+      }),
     ]);
 
     const resumo = resumoRes.data;
