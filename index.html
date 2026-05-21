@@ -2759,6 +2759,9 @@ select.input { cursor: pointer; }
     <div class="nav-item" onclick="go(this,'relatorio')">
       <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 12l4-5 3 3 2.5-3 2.5 2.5"/><rect x="1" y="1" width="14" height="14" rx="2"/></svg></div>Relatório Executivo
     </div>
+    <div class="nav-item" onclick="go(this,'canalaquisicao')">
+      <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><path d="M8 2v6l4 2"/></svg></div>Canal de Aquisição
+    </div>
   </div>
 
   <div class="nav-section">
@@ -9734,6 +9737,71 @@ updateDynamicField('foto');
 </div>
 
 <!-- ════════ RELATÓRIO ════════ -->
+<!-- ════════════════════════════════════════════════════════════════════════
+     CANAL DE AQUISIÇÃO — De onde vem cada venda do site (UTM real)
+     Lê de public.vendas_por_utm (agrupado por canal+campanha) e
+     public.magazord_pedido_detalhe (drill-down).
+     ════════════════════════════════════════════════════════════════════════ -->
+<div class="view" id="view-canalaquisicao">
+<div style="padding:24px 28px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:18px;flex-wrap:wrap">
+    <div>
+      <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:20px;margin-bottom:4px">📡 Canal de Aquisição</div>
+      <div style="font-size:13px;color:var(--text2)">De onde vem cada venda do site Dana — UTM real (não estimativa do Meta/Google)</div>
+      <div style="font-size:11.5px;color:var(--text3);margin-top:6px">Site (Magazord) · pedidos ativos · <span id="caq-periodo-label">mês atual</span></div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:flex-end">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <label style="font-size:10.5px;color:var(--text3);text-transform:uppercase;letter-spacing:0.3px">Período</label>
+        <select class="input" id="caq-periodo-sel" onchange="loadCanalAquisicao()" style="height:32px;font-size:12.5px;min-width:160px">
+          <option value="atual">Mês atual</option>
+          <option value="anterior">Mês anterior</option>
+          <option value="ytd">Ano (YTD)</option>
+          <option value="30">Últimos 30 dias</option>
+          <option value="90">Últimos 90 dias</option>
+          <option value="365">Últimos 365 dias</option>
+          <option value="all">Todo histórico</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- KPIs topo -->
+  <div id="caq-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:24px">
+    <div class="card" style="padding:16px"><div style="color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Receita total mapeada</div><div style="font-size:22px;font-weight:800;font-family:'DM Sans',sans-serif" id="caq-kpi-receita">—</div><div style="font-size:11.5px;color:var(--text3)" id="caq-kpi-receita-sub">carregando…</div></div>
+    <div class="card" style="padding:16px"><div style="color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Pedidos com UTM rastreado</div><div style="font-size:22px;font-weight:800;font-family:'DM Sans',sans-serif" id="caq-kpi-pedidos">—</div><div style="font-size:11.5px;color:var(--text3)" id="caq-kpi-pedidos-sub">—</div></div>
+    <div class="card" style="padding:16px"><div style="color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Canal #1 do período</div><div style="font-size:22px;font-weight:800;font-family:'DM Sans',sans-serif" id="caq-kpi-top">—</div><div style="font-size:11.5px;color:var(--text3)" id="caq-kpi-top-sub">—</div></div>
+    <div class="card" style="padding:16px"><div style="color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Ticket médio (todos canais)</div><div style="font-size:22px;font-weight:800;font-family:'DM Sans',sans-serif" id="caq-kpi-ticket">—</div><div style="font-size:11.5px;color:var(--text3)">receita ÷ pedidos</div></div>
+  </div>
+
+  <!-- Tabela canais -->
+  <div class="card" style="padding:0;overflow:hidden;margin-bottom:18px">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:700;font-size:14px">Faturamento por Canal</div>
+      <div style="font-size:11px;color:var(--text3)">do mais rentável pro menor</div>
+    </div>
+    <div id="caq-canais" style="padding:8px 0">
+      <div style="padding:30px;text-align:center;color:var(--text3);font-size:13px">⏳ Carregando…</div>
+    </div>
+  </div>
+
+  <!-- Tabela campanhas (drill) -->
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:700;font-size:14px">Top Campanhas (com nome de UTM)</div>
+      <div style="font-size:11px;color:var(--text3)">só campanhas com utm_campaign preenchido · top 20</div>
+    </div>
+    <div id="caq-campanhas" style="padding:8px 0">
+      <div style="padding:30px;text-align:center;color:var(--text3);font-size:13px">⏳ Carregando…</div>
+    </div>
+  </div>
+
+  <div style="margin-top:18px;padding:12px 16px;background:rgba(168,139,250,0.08);border:1px solid rgba(168,139,250,0.25);border-radius:10px;font-size:12px;color:var(--text2);line-height:1.5">
+    <strong style="color:var(--text)">Como funciona:</strong> sempre que um cliente clica num anúncio (Google Ads, Meta, link de influencer, e-mail), o link traz uma "etiqueta" (UTM) escondida. A Magazord guarda essa etiqueta no pedido. Esta tela lê essa etiqueta direto do banco — então o número é o que <em>realmente</em> aconteceu, não estimativa de plataforma. Pedidos sem UTM aparecem como "Direto/Orgânico" (cliente entrou direto no site ou veio via busca natural). <a href="#" onclick="event.preventDefault();go(document.querySelector('.nav-item.active'), 'campanhas')" style="color:#a78bfa;text-decoration:none">Cruzar com gasto de Ads →</a>
+  </div>
+</div>
+</div>
+
 <div class="view" id="view-relatorio">
 <div style="padding:24px 28px">
   <div class="rel-hero">
@@ -10631,7 +10699,8 @@ const VIEW_META = {
   trafego: { title: 'Central do Tráfego', sub: 'Tudo pra rodar campanhas · criativos, briefings, andamento', action: '' },
   perfil: { title: 'Meu Perfil', sub: 'Configuracoes da sua conta', action: '' },
   admin: { title: 'Administrador', sub: 'Usuários, permissões e atividades', action: '' },
-  anotacoes: { title: 'Anotações', sub: 'Banco de ideias da diretoria · só ADMs · tempo real', action: '' }
+  anotacoes: { title: 'Anotações', sub: 'Banco de ideias da diretoria · só ADMs · tempo real', action: '' },
+  canalaquisicao: { title: 'Canal de Aquisição', sub: 'De onde vem cada venda do site · UTM real (Google Ads · Meta · orgânico · etc)', action: '' }
 };
 
 // ── NAVIGATION: Mapa slug ↔ viewId pro URL hash ──
@@ -10971,6 +11040,7 @@ function go(el, viewId, opts) {
     loadAdminUsers();
   }
   if (viewId === 'anotacoes') loadAnotacoes();
+  if (viewId === 'canalaquisicao') loadCanalAquisicao();
   if (viewId === 'perfil') loadPerfilView();
   if (viewId === 'briefingvisual') { if (typeof loadBriefings === 'function') loadBriefings(); }
   if (viewId === 'estudio') {
@@ -24361,6 +24431,164 @@ function applyNavPermissions() {
     const visiveis = Array.from(itens).filter(it => it.style.display !== 'none');
     sec.style.display = (itens.length > 0 && visiveis.length === 0) ? 'none' : '';
   });
+}
+
+// ══════════════════════════════════════════════════════════════
+// CANAL DE AQUISIÇÃO — De onde vem cada venda do site (UTM real)
+// Lê de public.vendas_por_utm + public.magazord_pedido_detalhe.
+// Filtro de período: atual/anterior/ytd/30/90/365/all.
+// ══════════════════════════════════════════════════════════════
+const CAQ_CANAL_COR = {
+  'Google Ads/SEO': '#34a853',
+  'Meta Ads (Insta/FB)': '#1877f2',
+  'Direto/Organico': '#94a3b8',
+  'Manual (Bling)': '#a855f7',
+  'E-mail': '#f59e0b',
+  'WhatsApp': '#25d366',
+  'TikTok': '#0ea5e9',
+  'Insta Shopping': '#e1306c',
+  'ChatGPT': '#10a37f',
+};
+function _caqCor(canal){ return CAQ_CANAL_COR[canal] || '#64748b'; }
+function _caqIco(canal){
+  if (canal === 'Google Ads/SEO') return '🟢';
+  if (canal === 'Meta Ads (Insta/FB)') return '🔵';
+  if (canal === 'Direto/Organico') return '⚪';
+  if (canal === 'Manual (Bling)') return '🟣';
+  if (canal === 'E-mail') return '📧';
+  if (canal === 'WhatsApp') return '💬';
+  if (canal === 'TikTok') return '🎵';
+  if (canal && canal.toLowerCase().includes('shopping')) return '🛍';
+  if (canal === 'ChatGPT') return '🤖';
+  return '🌐';
+}
+function _caqFmtR(v){ return 'R$ ' + Math.round(Number(v)||0).toLocaleString('pt-BR'); }
+function _caqFmtN(v){ return Number(v||0).toLocaleString('pt-BR'); }
+
+async function loadCanalAquisicao() {
+  const filtro = document.getElementById('caq-periodo-sel')?.value || 'atual';
+  const now = new Date();
+  let inicio, fim, label;
+  if (filtro === 'atual') {
+    inicio = new Date(now.getFullYear(), now.getMonth(), 1);
+    fim = new Date(now.getFullYear(), now.getMonth()+1, 1);
+    label = inicio.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  } else if (filtro === 'anterior') {
+    inicio = new Date(now.getFullYear(), now.getMonth()-1, 1);
+    fim = new Date(now.getFullYear(), now.getMonth(), 1);
+    label = inicio.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  } else if (filtro === 'ytd') {
+    inicio = new Date(now.getFullYear(), 0, 1); fim = new Date(now.getFullYear()+1, 0, 1);
+    label = 'Ano ' + now.getFullYear();
+  } else if (filtro === 'all') {
+    inicio = new Date('2020-01-01'); fim = new Date(now.getFullYear()+1, 0, 1);
+    label = 'Todo histórico';
+  } else {
+    const d = parseInt(filtro, 10);
+    inicio = new Date(Date.now() - d*86400000); fim = now;
+    label = `Últimos ${d} dias`;
+  }
+  const lbl = document.getElementById('caq-periodo-label');
+  if (lbl) lbl.textContent = label;
+
+  const inicioISO = inicio.toISOString();
+  const fimISO = fim.toISOString();
+
+  try {
+    const { data: rows, error } = await sb
+      .from('magazord_pedido_detalhe')
+      .select('utm_source,utm_medium,utm_campaign,tracking_source,origem,valor_total,pedido_situacao_tipo,data_hora')
+      .eq('pedido_situacao_tipo', '1')
+      .gte('data_hora', inicioISO).lt('data_hora', fimISO)
+      .limit(20000);
+    if (error) throw error;
+
+    const canais = {};
+    const campanhas = {};
+    let totalReceita = 0, totalPedidos = 0;
+    (rows || []).forEach(r => {
+      const v = Number(r.valor_total)||0;
+      const src = (r.utm_source || r.tracking_source || '').toLowerCase().trim();
+      let canal;
+      if (!src && r.origem === 3) canal = 'Manual (Bling)';
+      else if (!src) canal = 'Direto/Organico';
+      else if (src === 'adwords' || src === 'google') canal = 'Google Ads/SEO';
+      else if (['facebook','instagram','meta','fb','ig'].includes(src)) canal = 'Meta Ads (Insta/FB)';
+      else if (src.startsWith('email')) canal = 'E-mail';
+      else if (src.startsWith('whats')) canal = 'WhatsApp';
+      else if (src.startsWith('tiktok')) canal = 'TikTok';
+      else if (src.includes('shopping')) canal = 'Insta Shopping';
+      else if (src.startsWith('chatgpt')) canal = 'ChatGPT';
+      else canal = src;
+      canais[canal] = canais[canal] || { canal, pedidos:0, receita:0 };
+      canais[canal].pedidos += 1; canais[canal].receita += v;
+      totalReceita += v; totalPedidos += 1;
+      const cName = (r.utm_campaign || '').trim();
+      if (cName) {
+        const ckey = canal + '||' + cName;
+        campanhas[ckey] = campanhas[ckey] || { canal, campaign:cName, pedidos:0, receita:0 };
+        campanhas[ckey].pedidos += 1; campanhas[ckey].receita += v;
+      }
+    });
+
+    const listaCanais = Object.values(canais).sort((a,b)=>b.receita-a.receita);
+    const top = listaCanais[0];
+    const ticket = totalPedidos > 0 ? totalReceita/totalPedidos : 0;
+
+    // KPIs
+    document.getElementById('caq-kpi-receita').textContent = _caqFmtR(totalReceita);
+    document.getElementById('caq-kpi-receita-sub').textContent = listaCanais.length + ' canais identificados';
+    document.getElementById('caq-kpi-pedidos').textContent = _caqFmtN(totalPedidos);
+    const comUtm = (rows||[]).filter(r => r.utm_source).length;
+    document.getElementById('caq-kpi-pedidos-sub').textContent = comUtm + ' com UTM nomeado (' + (totalPedidos>0 ? Math.round(comUtm/totalPedidos*100):0) + '%)';
+    document.getElementById('caq-kpi-top').textContent = top ? top.canal : '—';
+    document.getElementById('caq-kpi-top-sub').textContent = top ? (_caqFmtR(top.receita) + ' · ' + _caqFmtN(top.pedidos) + ' pedidos') : '';
+    document.getElementById('caq-kpi-ticket').textContent = _caqFmtR(ticket);
+
+    // Tabela canais
+    const wrapCanais = document.getElementById('caq-canais');
+    if (!listaCanais.length) {
+      wrapCanais.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text3);font-size:13px">Sem pedidos no período selecionado.</div>';
+    } else {
+      wrapCanais.innerHTML = listaCanais.map(c => {
+        const pct = totalReceita > 0 ? (c.receita/totalReceita*100) : 0;
+        const tkt = c.pedidos > 0 ? c.receita/c.pedidos : 0;
+        return `<div style="display:grid;grid-template-columns:36px 1fr 110px 130px 90px 110px;gap:14px;padding:12px 18px;align-items:center;border-bottom:1px solid var(--border)">
+          <div style="font-size:22px">${_caqIco(c.canal)}</div>
+          <div>
+            <div style="font-weight:700;font-size:13.5px">${c.canal}</div>
+            <div style="height:6px;margin-top:5px;background:var(--surface2);border-radius:3px;overflow:hidden"><div style="height:100%;width:${pct.toFixed(1)}%;background:${_caqCor(c.canal)};transition:width 0.5s"></div></div>
+          </div>
+          <div style="font-size:11.5px;color:var(--text2);text-align:right">${_caqFmtN(c.pedidos)} pedidos</div>
+          <div style="font-size:15px;font-weight:700;text-align:right;font-family:'DM Sans',sans-serif">${_caqFmtR(c.receita)}</div>
+          <div style="font-size:11px;color:var(--text3);text-align:right">tkt ${_caqFmtR(tkt)}</div>
+          <div style="font-size:12px;font-weight:600;text-align:right;color:${_caqCor(c.canal)}">${pct.toFixed(1)}%</div>
+        </div>`;
+      }).join('');
+    }
+
+    // Tabela campanhas
+    const wrapCamp = document.getElementById('caq-campanhas');
+    const listaCamp = Object.values(campanhas).sort((a,b)=>b.receita-a.receita).slice(0,20);
+    if (!listaCamp.length) {
+      wrapCamp.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text3);font-size:13px">Nenhuma campanha com utm_campaign no período (provavelmente só tráfego direto/orgânico).</div>';
+    } else {
+      wrapCamp.innerHTML = listaCamp.map(c => {
+        const tkt = c.pedidos > 0 ? c.receita/c.pedidos : 0;
+        const nomeCurto = c.campaign.length > 70 ? c.campaign.slice(0,67)+'…' : c.campaign;
+        return `<div style="display:grid;grid-template-columns:140px 1fr 90px 120px 80px;gap:14px;padding:10px 18px;align-items:center;border-bottom:1px solid var(--border)">
+          <div style="font-size:11.5px;font-weight:600;color:${_caqCor(c.canal)}">${c.canal}</div>
+          <div style="font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.campaign.replace(/"/g,'&quot;')}">${nomeCurto}</div>
+          <div style="font-size:11.5px;color:var(--text2);text-align:right">${_caqFmtN(c.pedidos)} ped</div>
+          <div style="font-size:13.5px;font-weight:700;text-align:right;font-family:'DM Sans',sans-serif">${_caqFmtR(c.receita)}</div>
+          <div style="font-size:10.5px;color:var(--text3);text-align:right">tkt ${_caqFmtR(tkt)}</div>
+        </div>`;
+      }).join('');
+    }
+  } catch (e) {
+    console.error('[loadCanalAquisicao]', e);
+    document.getElementById('caq-canais').innerHTML = '<div style="padding:30px;text-align:center;color:#ef4444;font-size:13px">Erro: '+ (e?.message || e) +'</div>';
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
