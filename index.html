@@ -84,13 +84,15 @@ async function loadSupabaseData() {
     // Views agora tem 1 linha por empresa + 1 linha 'todas' (soma).
     // Seletor global escolhe qual linha usar.
     const empSelecionada = empresaAtual(); // 'matriz' | 'bc' | 'todas'
-    const [resumoRes, mensalRes, contasRes, vendedoresRes, syncRes] = await Promise.all([
+    const [resumoRes, mensalRes, contasRes, vendedoresRes, syncRes, fatRealRes] = await Promise.all([
       sb.from('dashboard_resumo').select('*').eq('empresa', empSelecionada).maybeSingle(),
       sb.from('dashboard_mensal').select('*').eq('empresa', empSelecionada).order('ano').order('mes'),
       sb.from('dashboard_contas').select('*').eq('empresa', empSelecionada).maybeSingle(),
       // vendedores HEAD count — wrappa em catch pra nao derrubar dashboard se Supabase retornar 503 intermitente
       aplicarEmpresa(sb.from('vendedores').select('id', { count: 'exact', head: true })).then(r => r).catch(e => { console.warn('[loadSupabaseData] vendedores HEAD falhou:', e?.message || e); return { count: 0, data: null, error: e }; }),
       sb.from('sync_log').select('created_at').order('created_at', { ascending: false }).limit(1),
+      // Faturamento REAL mensal (formula canonica: Site Magazord + Bling canais COALESCE + B2B sem double-count)
+      sb.from('faturamento_real_mensal').select('*').eq('empresa', empSelecionada).order('ano').order('mes').catch(e => { console.warn('[fat_real]', e?.message); return { data: [] }; }),
     ]);
 
     const resumo = resumoRes.data;
@@ -105,6 +107,21 @@ async function loadSupabaseData() {
     liveData.contas = contas;
     liveData.porMes = agruparPorMes(mensalRaw);
     liveData.vendCount = vendCount;
+    // Faturamento REAL (formula canonica) — sobreescreve receita/pedidos em liveData.porMes
+    // mantendo as breakdowns por canal (receita_site/_loja/_ml/etc) intactas pro resto do dashboard.
+    const fatRealRows = (fatRealRes && fatRealRes.data) || [];
+    fatRealRows.forEach(r => {
+      const key = r.ano + '-' + r.mes;
+      const dst = liveData.porMes[key] || (liveData.porMes[key] = { ano:r.ano, mes:r.mes, receita:0, pedidos:0, receita_site:0,pedidos_site:0,receita_loja:0,pedidos_loja:0,receita_ml:0,pedidos_ml:0,receita_tiktok:0,pedidos_tiktok:0,receita_shopee:0,pedidos_shopee:0 });
+      dst.receita = parseFloat(r.receita) || 0;
+      dst.pedidos = parseInt(r.pedidos) || 0;
+      dst.b2b_receita = parseFloat(r.b2b_val) || 0;
+      dst.b2b_pedidos = parseInt(r.b2b_pedidos) || 0;
+      dst.real_site_receita = parseFloat(r.site_val) || 0;
+      dst.real_site_pedidos = parseInt(r.site_pedidos) || 0;
+      dst.real_canais_receita = parseFloat(r.canais_val) || 0;
+      dst.real_canais_pedidos = parseInt(r.canais_pedidos) || 0;
+    });
 
     // Sinaliza pras views que possam estar esperando esses dados (ex: marketplaces
     // que abriu antes do load terminar). Dispatcha custom event que qualquer função
@@ -22203,18 +22220,20 @@ async function loadFaturamentoPorCanal() {
     const empAtual = (typeof empresaAtual === 'function') ? empresaAtual() : 'todas';
     const isBC = empAtual === 'bc';
 
-    // Bling: aplica .eq('empresa', f) se filtro ativo
+    // Bling: aplica .eq('empresa', f) se filtro ativo. Adicionado contato_nome+data+total_produtos
+    // pra cruzar loja_id=0 com Magazord (B2B real vs site_misto) — pedido Finance AI.
     let blingQuery = sb.from('pedidos')
-      .select('loja_id, total, vendedor_id')
+      .select('loja_id, total, total_produtos, contato_nome, data, vendedor_id, situacao_id')
       .gte('data', inicioDate).lt('data', fimDate)
       .limit(50000);
     if (typeof aplicarEmpresa === 'function') blingQuery = aplicarEmpresa(blingQuery);
 
-    // Magazord: site é da matriz. Se empresa = 'bc', pula (não tem split na Magazord)
+    // Magazord: site é da matriz. Se empresa = 'bc', pula (não tem split na Magazord).
+    // Adicionado pessoa_nome+data_hora pra cruzar com Bling loja_id=0 (B2B vs site).
     const magazordPromise = isBC
       ? Promise.resolve({ data: [], error: null })
       : sb.from('magazord_pedidos')
-          .select('valor_total, pedido_situacao_tipo, pedido_situacao_descricao')
+          .select('valor_total, pedido_situacao_tipo, pedido_situacao_descricao, pessoa_nome, data_hora')
           .gte('data_hora', inicioISO).lt('data_hora', fimISO)
           .limit(20000);
 
@@ -22244,18 +22263,25 @@ async function loadFaturamentoPorCanal() {
       // O site verdadeiro é o Magazord (puxado abaixo). Esses pedidos agora são
       // ignorados pra não inflar o consolidado.
     };
+    // Candidatos B2B (loja_id=0/null no Bling): separados pra cruzar com Magazord depois.
+    // Os que NAO baterem em magazord_pedidos viram card B2B; os que baterem sao descartados
+    // (ja foram contados no Site Magazord — evita double-count).
+    const b2bCandidatos = [];
     (blingR.data || []).forEach(p => {
-      const lid = String(p.loja_id || '0');
-      const valor = Number(p.total || 0);
-      let key = null;
-      if (lid === '203536978' || lid === '203550865') key = 'lojawhats';
-      else if (lid === '205337834') key = 'ml';
-      else if (lid === '205522474') key = 'shopee';
-      else if (lid === '205430008') key = 'tiktok';
-      else if (lid === '0' || lid === 'null' || lid === 'undefined') return;  // ignora B2B/manuais
-      else key = 'magalu';
-      canais[key].total += valor;
-      canais[key].pedidos += 1;
+      // exclui canceladas
+      if (p.situacao_id === 12) return;
+      const lid = String(p.loja_id == null ? '0' : p.loja_id);
+      // COALESCE: recupera pedidos com total=0 via total_produtos
+      const valor = Number(p.total) || Number(p.total_produtos) || 0;
+      if (lid === '203536978' || lid === '203550865') { canais.lojawhats.total += valor; canais.lojawhats.pedidos += 1; return; }
+      if (lid === '205337834') { canais.ml.total += valor; canais.ml.pedidos += 1; return; }
+      if (lid === '205522474') { canais.shopee.total += valor; canais.shopee.pedidos += 1; return; }
+      if (lid === '205430008') { canais.tiktok.total += valor; canais.tiktok.pedidos += 1; return; }
+      if (lid === '0' || lid === 'null' || lid === 'undefined') {
+        b2bCandidatos.push({ valor, contato_nome: (p.contato_nome||'').toLowerCase().trim(), data: (p.data||'').slice(0,10) });
+        return;
+      }
+      canais.magalu.total += valor; canais.magalu.pedidos += 1;
     });
 
     // Sobrescreve ML com os dados REAIS do Mercado Livre (não Bling).
@@ -22275,8 +22301,10 @@ async function loadFaturamentoPorCanal() {
       canais.ml.pedidos = 0;
     }
 
-    // Magazord: usa SOMENTE pagos pra evitar contar carrinhos cancelados como receita
+    // Magazord: usa SOMENTE pagos pra evitar contar carrinhos cancelados como receita.
+    // Tambem indexa por (data, pessoa_nome) pra cruzar com Bling loja_id=0 (B2B vs site).
     let magazordPagos = 0, magazordPedPagos = 0, magazordTodos = 0, magazordPedTodos = 0;
+    const siteKeys = new Set(); // chave = "YYYY-MM-DD|nome_lower_trim"
     (magazordR.data || []).forEach(p => {
       const v = Number(p.valor_total || 0);
       // pedido_situacao_tipo eh NUMERICO ('1','2','3'). Padrao Finance AI:
@@ -22286,7 +22314,12 @@ async function loadFaturamentoPorCanal() {
       const isCancelado = tipoStr === '3';
       const isPago = tipoStr === '1';
       magazordTodos += v; magazordPedTodos += 1;
-      if (isPago && !isCancelado) { magazordPagos += v; magazordPedPagos += 1; }
+      if (isPago && !isCancelado) {
+        magazordPagos += v; magazordPedPagos += 1;
+        const dt = (p.data_hora || '').slice(0,10);
+        const nm = (p.pessoa_nome || '').toLowerCase().trim();
+        if (dt && nm) siteKeys.add(dt + '|' + nm);
+      }
     });
 
     const siteCard = {
@@ -22296,9 +22329,26 @@ async function loadFaturamentoPorCanal() {
       fonte: 'Magazord'
     };
 
-    // Constrói lista ordenada por total
-    const ordenado = [siteCard, ...Object.values(canais)]
-      .filter(c => c.total > 0 || c.pedidos > 0);
+    // B2B real: candidatos Bling (loja_id=0) que NAO batem com Magazord por nome+data.
+    // Os que batem ja foram contados no Site (siteCard) — descarta pra evitar double-count.
+    // Pedido Finance AI (Section 5.3): R$144k em Maio era ~R$13k double-count + ~R$131k B2B real.
+    let b2bTotal = 0, b2bPed = 0, b2bDescartado = 0, b2bPedDescartado = 0;
+    b2bCandidatos.forEach(c => {
+      const k = c.data + '|' + c.contato_nome;
+      if (siteKeys.has(k)) { b2bDescartado += c.valor; b2bPedDescartado += 1; return; }
+      b2bTotal += c.valor; b2bPed += 1;
+    });
+    const b2bCard = (b2bPed > 0) ? {
+      nome: '🤝 B2B (manual no Bling)', cor: '#a855f7',
+      total: b2bTotal, pedidos: b2bPed,
+      totalBruto: b2bTotal + b2bDescartado, pedidosBruto: b2bPed + b2bPedDescartado,
+      fonte: 'Bling',
+      b2bDouble: b2bDescartado, b2bDoubleQtd: b2bPedDescartado, // pra tooltip
+    } : null;
+
+    // Constrói lista ordenada por total (inclui B2B real se houver)
+    const ordenado = [siteCard, ...Object.values(canais), b2bCard]
+      .filter(c => c && (c.total > 0 || c.pedidos > 0));
     ordenado.sort((a, b) => b.total - a.total);
 
     const totalGeral = ordenado.reduce((s, c) => s + c.total, 0);
@@ -22329,6 +22379,7 @@ async function loadFaturamentoPorCanal() {
           <div style="font-size:22px;font-weight:800;color:${c.cor};font-family:'DM Sans',sans-serif;margin-bottom:2px">${fmtR(c.total)}</div>
           <div style="font-size:11px;color:var(--text2);margin-bottom:8px">${fmtN(c.pedidos)} pedidos · ticket ${fmtR(ticket)}</div>
           ${isMagazord && c.totalBruto > c.total ? `<div style="font-size:10px;color:var(--text3);margin-bottom:6px">Bruto: ${fmtR(c.totalBruto)} (${fmtN(c.pedidosBruto)}) — só pagos no card</div>` : ''}
+          ${c.b2bDouble > 0 ? `<div style="font-size:10px;color:var(--text3);margin-bottom:6px" title="${c.b2bDoubleQtd} pedidos com mesmo nome+data do Site (descartados pra não contar 2x)">Bling \"loja=0\": ${fmtR(c.totalBruto)} (${fmtN(c.pedidosBruto)}) — descontado ${fmtR(c.b2bDouble)} de double-count com Site</div>` : ''}
           <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-bottom:4px">
             <div style="height:100%;background:${c.cor};width:${pct.toFixed(1)}%;transition:width 0.4s"></div>
           </div>
