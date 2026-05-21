@@ -2924,6 +2924,11 @@ select.input { cursor: pointer; }
     <div class="topbar-sub" id="topbar-sub">Visão geral · Dana Jalecos Exclusivos</div>
   </div>
   <div class="topbar-right" style="position:relative">
+    <!-- Toggle privacidade (esconde/mostra valores R$) — estilo banco -->
+    <button id="privacy-toggle" onclick="togglePrivacidade()" title="Esconder/mostrar valores R$" style="margin-right:8px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--white);cursor:pointer;font-size:14px;display:inline-flex;align-items:center;line-height:1">
+      <svg id="privacy-icon-open" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+      <svg id="privacy-icon-closed" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+    </button>
     <!-- Toggle dark mode (Ciclo 48) -->
     <button id="theme-toggle" onclick="toggleTheme()" title="Alternar tema (claro/escuro)" style="margin-right:8px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--white);cursor:pointer;font-size:14px;display:inline-flex;align-items:center;line-height:1">
       <span id="theme-icon">🌙</span>
@@ -32574,6 +32579,111 @@ function toggleTheme() {
 // Init: o anti-flash script no <head> ja setou o atributo. Aqui só atualizamos o ícone do botão.
 document.addEventListener('DOMContentLoaded', () => {
   applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
+});
+
+// ════════════════════════════════════════════════
+// PRIVACIDADE — esconde/mostra valores R$ (estilo app de banco)
+// ════════════════════════════════════════════════
+// Walker que percorre o DOM e substitui qualquer "R$ X" por "R$ ●●●●" preservando o original em data attr.
+// MutationObserver re-aplica quando novos nodes entram (rerenders de cards, modais, etc).
+// Estado persiste em localStorage ('dms_priv').
+const _PRIV_REGEX = /R\$\s*[-]?[\d.,]+/g;
+const _PRIV_MASK = 'R$ ●●●●';
+let _privObserver = null;
+
+function _privIsOn() {
+  return document.body.classList.contains('priv');
+}
+
+function _privProcessTextNode(node, on) {
+  if (!node || node.nodeType !== Node.TEXT_NODE) return;
+  const parent = node.parentNode;
+  if (!parent) return;
+  // pula scripts, styles, inputs
+  const tag = parent.nodeName;
+  if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'TEXTAREA') return;
+  // pula se já estiver dentro de input
+  if (parent.closest && parent.closest('input,textarea,select')) return;
+  if (on) {
+    if (parent.dataset && parent.dataset.privMasked === '1') return; // já mascarado
+    const original = node.textContent;
+    if (!original || !_PRIV_REGEX.test(original)) return;
+    _PRIV_REGEX.lastIndex = 0; // reset stateful regex
+    if (!parent.dataset.privOriginal) parent.dataset.privOriginal = original;
+    node.textContent = original.replace(_PRIV_REGEX, _PRIV_MASK);
+    parent.dataset.privMasked = '1';
+  } else {
+    if (parent.dataset && parent.dataset.privMasked === '1') {
+      if (parent.dataset.privOriginal != null) {
+        node.textContent = parent.dataset.privOriginal;
+      }
+      delete parent.dataset.privMasked;
+      delete parent.dataset.privOriginal;
+    }
+  }
+}
+
+function _privWalk(root, on) {
+  if (!root) return;
+  if (root.nodeType === Node.TEXT_NODE) { _privProcessTextNode(root, on); return; }
+  if (root.nodeType !== Node.ELEMENT_NODE) return;
+  // pula subarvores que não interessam
+  const tag = root.nodeName;
+  if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  let n; const batch = [];
+  while ((n = walker.nextNode())) batch.push(n);
+  batch.forEach(node => _privProcessTextNode(node, on));
+}
+
+function _privStartObserver() {
+  if (_privObserver) return;
+  _privObserver = new MutationObserver(mutations => {
+    if (!_privIsOn()) return;
+    for (const m of mutations) {
+      m.addedNodes.forEach(node => {
+        if (node.nodeType === Node.TEXT_NODE) _privProcessTextNode(node, true);
+        else _privWalk(node, true);
+      });
+      // Quando o text muda (ex: setText em KPI), m.type === 'characterData'
+      if (m.type === 'characterData') _privProcessTextNode(m.target, true);
+    }
+  });
+  _privObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+}
+
+function _privAplicarIcone() {
+  const open = document.getElementById('privacy-icon-open');
+  const closed = document.getElementById('privacy-icon-closed');
+  const on = _privIsOn();
+  if (open) open.style.display = on ? 'none' : '';
+  if (closed) closed.style.display = on ? '' : 'none';
+  const btn = document.getElementById('privacy-toggle');
+  if (btn) btn.title = on ? 'Mostrar valores' : 'Esconder valores (privacidade)';
+}
+
+function togglePrivacidade() {
+  const next = !_privIsOn();
+  document.body.classList.toggle('priv', next);
+  try { localStorage.setItem('dms_priv', next ? '1' : '0'); } catch(e){}
+  _privWalk(document.body, next);
+  _privAplicarIcone();
+  if (next) _privStartObserver();
+}
+
+// Init: aplica estado salvo
+document.addEventListener('DOMContentLoaded', () => {
+  let on = false;
+  try { on = localStorage.getItem('dms_priv') === '1'; } catch(e){}
+  if (on) {
+    document.body.classList.add('priv');
+    // aplica em duas fases: imediatamente + de novo depois dos primeiros loads
+    _privWalk(document.body, true);
+    setTimeout(() => _privWalk(document.body, true), 800);
+    setTimeout(() => _privWalk(document.body, true), 2500);
+    _privStartObserver();
+  }
+  _privAplicarIcone();
 });
 
 </script>
