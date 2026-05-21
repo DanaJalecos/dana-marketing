@@ -22279,10 +22279,12 @@ async function loadFaturamentoPorCanal() {
     let magazordPagos = 0, magazordPedPagos = 0, magazordTodos = 0, magazordPedTodos = 0;
     (magazordR.data || []).forEach(p => {
       const v = Number(p.valor_total || 0);
-      const tipo = (p.pedido_situacao_tipo || '').toLowerCase();
-      const desc = (p.pedido_situacao_descricao || '').toLowerCase();
-      const isPago = tipo.includes('aprov') || tipo.includes('pago') || tipo.includes('separa') || tipo.includes('envia') || tipo.includes('entreg') || tipo.includes('faturad') || desc.includes('pago') || desc.includes('aprovad');
-      const isCancelado = tipo.includes('cancel') || desc.includes('cancel');
+      // pedido_situacao_tipo eh NUMERICO ('1','2','3'). Padrao Finance AI:
+      //   '1' = ativos (aprovado, em transporte, NF emitida, entregue) → pago
+      //   '2' = analise · '3' = cancelado
+      const tipoStr = String(p.pedido_situacao_tipo || '');
+      const isCancelado = tipoStr === '3';
+      const isPago = tipoStr === '1';
       magazordTodos += v; magazordPedTodos += 1;
       if (isPago && !isCancelado) { magazordPagos += v; magazordPedPagos += 1; }
     });
