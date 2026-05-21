@@ -9718,4 +9718,56 @@ A sessão Finance AI agora pode consumir:
 
 ---
 
-**Fim da documentação · Atualizado em 21/05/2026 — Section 100 (card verde+B2B corretos + Feature #2 UTM destravada) · v18.0**
+## 101. CICLO 21/05/2026 (noite) — Canal de Aquisição integrado + ROAS Google Ads + modo privacidade
+
+> Continuação direta da Section 100. Três entregas: (a) bloco UTM movido pra dentro da página "Canais de Aquisição" já existente (eu havia duplicado por engano); (b) ROAS real do Google Ads no card de canal; (c) botão "olho" no topbar pra esconder valores R$ (estilo app de banco).
+
+### 101.1 Bloco UTM integrado em **Canais de Aquisição** (não duplicar)
+
+Quando criei a Section 100, fiz a view nova `canalaquisicao` sem perceber que já existia `canaisaquisicao` (com cards cadastrados manualmente — CRM, Lojas físicas, Marketplaces, Influenciadores, etc). Juan apontou.
+
+**Correção:**
+- ❌ Removido tudo do `canalaquisicao` (nav-item, VIEW_META, hook em `go()`, markup HTML).
+- ✅ Bloco UTM realocado **dentro** da `view-canaisaquisicao` existente, antes da caixa "Integração futura".
+- Função `loadCanalAquisicao()` mantida, agora chamada de dentro de `loadCanaisAquisicao()` (carrega tudo junto).
+- Manuais (cards Pagos/Orgânicos cadastrados) seguem **intactos** — é o "setup estratégico" do canal. O bloco UTM novo é o "resultado real do que aconteceu".
+
+### 101.2 ROAS real do Google Ads no card de canal
+
+Juan apontou que Google Ads já estava conectado (`analytics_ads_dia`, 98 dias de dado, R$21k gasto histórico). Atualizado:
+
+- **Texto da caixa** "Integração futura" corrigido: ✅ **Google Ads conectado** · Meta + TikTok ainda pendentes.
+- **Coluna nova `Custo · ROAS`** na tabela de canais:
+  - **Google Ads/SEO** → busca `SUM(cost) FROM analytics_ads_dia WHERE data BETWEEN inicio AND fim` em paralelo com a query principal, e calcula `ROAS = receita_canal ÷ gasto_google`.
+  - Cor do ROAS: 🟢 `≥ 2x` · 🟡 `1-2x` · 🔴 `< 1x`.
+  - Demais canais (Meta/TikTok/etc) mostram **"não conectado"** em cinza até ligar.
+- **Ressalva no doc**: o card "Google Ads/SEO" agrupa `utm_source=google` + `utm_source=adwords`. Em teoria SEO orgânico também entraria — mas pedidos vindos de SEO orgânico geralmente não trazem `utm_source` (vão pro "Direto/Orgânico"). Logo, na prática, o card é **só Google Ads pago** — ROAS confiável.
+- Header da tabela ganhou nomes de colunas (Canal · Pedidos · Receita · Ticket · % · Custo·ROAS).
+
+### 101.3 Modo Privacidade (botão "olho" no topbar)
+
+Estilo app de banco. Esconde **todos os valores R$** da tela inteira com 1 clique.
+
+- **Botão no topbar** (antes do toggle de tema). SVG olho aberto/fechado alternando.
+- **Como funciona internamente**:
+  - `togglePrivacidade()` adiciona `class="priv"` no `body` + persiste em `localStorage.dms_priv`.
+  - Walker percorre o DOM e troca `R$ X,XX` por `R$ ●●●●` (regex `R\$\s*[-]?[\d.,]+`). Original do parent salvo em `data-priv-original` pra restaurar.
+  - **`MutationObserver`** observa `childList + subtree + characterData` no `body`: quando novo nodes entram (cards rerenderizados, modais, KPIs atualizados via JS), automaticamente mascara.
+  - Pula `<script>/<style>/<input>/<textarea>/<select>` (não bagunça formulários).
+  - Init no `DOMContentLoaded` reaplica estado salvo + reaplica em 800ms e 2500ms (pra pegar dados que carregam assincronamente).
+- **Persistência**: F5 não desfaz. Cada user mantém preferência.
+- **Não toca em outros números** (% meta, contagem de pedidos, idades) — só `R$`. Extensível pra mascarar nº de pedidos também, se Juan quiser depois.
+
+### 101.4 Snapshot atualizado
+- Tabelas `public`: **99** (sem mudança desde 100).
+- Views `public`: **39** (`canalaquisicao` standalone removida — só existia em markup, não tinha view própria).
+- Crons ativos: **52** (sem mudança).
+- Edges novas: nenhuma nesta seção (só JS).
+
+### 101.5 Pendências / próximos passos
+- Quando **Meta Ads** e **TikTok Ads** forem conectados (`analytics_meta_dia`, `analytics_tiktok_dia` ou similar), seguir mesmo padrão: 1 query paralela em `loadCanalAquisicao`, 1 condicional no render → ROAS aparece nesses canais também.
+- Modo privacidade pode ser estendido pra **mascarar nº de pedidos** (regex `\d+\s*pedidos`) se Juan pedir.
+
+---
+
+**Fim da documentação · Atualizado em 21/05/2026 (noite) — Section 101 (UTM dentro da página Canais de Aquisição + ROAS Google Ads + modo privacidade topbar) · v18.1**
