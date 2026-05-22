@@ -9770,4 +9770,81 @@ Estilo app de banco. Esconde **todos os valores R$** da tela inteira com 1 cliqu
 
 ---
 
-**Fim da documentação · Atualizado em 21/05/2026 (noite) — Section 101 (UTM dentro da página Canais de Aquisição + ROAS Google Ads + modo privacidade topbar) · v18.1**
+## 102. CICLO 22/05/2026 — View `magazord_pedido_itens` (atende carta Finance AI) + backfill 2026 100%
+
+> Pedido da sessão Finance AI (`Itens Projeto/03-PARA-SESSAO-DMS.md`): "preciso de itens dos pedidos do Site/Magazord pra calcular CPV exato no DRE e top produtos do site". Eles tinham investigado errado (procuraram em `magazord_pedidos.raw` em vez de `magazord_pedido_detalhe.raw`) e tinham deixado de ver `pedidos_itens` (que já existe há tempos pro Bling).
+
+### 102.1 Diagnóstico (carta Finance AI)
+| Pedido | Status |
+|---|---|
+| `pedidos_itens` (Bling) | **JÁ EXISTIA** — 65.044 linhas (52.537 matriz + 12.507 BC), sync 30min via `sync-pedidos-itens-30min` |
+| `magazord_pedido_itens` (Site) | **NÃO existia como tabela MAS os dados já estavam no banco** — dentro de `magazord_pedido_detalhe.raw->arrayPedidoRastreio[0].pedidoItem[*]` (84-field detalhe que criei no ciclo 100). 2.768/2.768 rows com items embutidos |
+| `magazord_avaliacoes.nome_pessoa` vazio | **Não é bug**. 1/347 (0,28%) anônimo na origem — confirmado no raw |
+
+### 102.2 Nova view `public.magazord_pedido_itens`
+Decidida pela **Opção A** (view, não tabela materializada) — zero ETL, zero risco, sempre fresca, flatten on-read.
+
+```sql
+CREATE VIEW magazord_pedido_itens AS
+SELECT d.codigo AS pedido_codigo, d.id AS pedido_id, d.data_hora AS pedido_data_hora,
+       (item->>'produtoId')::bigint AS produto_id,
+       item->>'produtoDerivacaoCodigo' AS produto_codigo,
+       item->>'codigoPai' AS produto_codigo_pai,
+       item->>'produtoNome' AS produto_nome, item->>'produtoTitulo' AS produto_titulo,
+       (item->>'quantidade')::numeric AS quantidade,
+       (item->>'valorUnitario')::numeric AS preco_unitario,
+       (item->>'valorDesconto')::numeric AS valor_desconto,
+       (item->>'valorItem')::numeric AS valor_total,
+       item->>'ean' AS ean, item->>'marcaNome' AS marca_nome,
+       item->>'categoria' AS categoria, item->>'categoriaArvore' AS categoria_arvore,
+       /* + categoria_id, deposito, produto_tipo, rastreio_id, synced_at */
+       d.synced_at
+FROM magazord_pedido_detalhe d
+CROSS JOIN LATERAL jsonb_array_elements(COALESCE(d.raw->'arrayPedidoRastreio','[]'::jsonb)) ar
+CROSS JOIN LATERAL jsonb_array_elements(COALESCE(ar->'pedidoItem','[]'::jsonb)) item;
+```
+
+Arquivo: `sql-scripts/sql-view-magazord-pedido-itens.sql`.
+
+### 102.3 Match de SKU & limites (importante)
+Magazord vende **variação** (SKU `002-SD-002-000-F`), Bling cadastra **produto mãe** (`codigoPai = 002-SD-002-000-F-P`):
+- Match Maio: **71% via `produto_codigo_pai`** vs **43% via `produto_codigo`** → join sempre por `_pai`
+- `produtos.preco_custo > 0` em apenas **41% dos SKUs vendidos** → Finance AI precisa fallback chain: `produtos.preco_custo` → `produtos_custos.custo_total` (Tecidos) → custo médio categoria
+- Esses limites documentados em `C:\.Projetos Claude\DMS Finance AI\02-CONTRATO-DE-DADOS.md` (bloco "Match de SKU & CPV exato do Site")
+
+### 102.4 Backfill `magazord_pedido_detalhe` Jan-Abr 2026
+Cobertura antes: Jan 58% · Fev 56% · Mar 46% · Abr 43% · Mai 100% (cron já cobre o mês corrente).
+
+Backfill rodado **local em Python sequencial** (`sql-scripts/backfill_magazord_pedido_detalhe.py`):
+- Primeira tentativa: 8 threads → Magazord rate-limitou (429) e 805 dos 928 skipparam.
+- Segunda tentativa: 1 worker sequencial + sleep 180ms + retry com backoff em 429 → **803/805 upserted em 8min19s**. Os 2 skips reais foram pedidos antigos que o endpoint não retorna mais.
+
+Cobertura depois:
+| Mês | Antes | Depois |
+|---|---:|---:|
+| Jan/26 | 58,1% | **100%** |
+| Fev/26 | 56,3% | **100%** |
+| Mar/26 | 46,0% | 99,7% (2 deletados) |
+| Abr/26 | 43,0% | **100%** |
+| Mai/26 | 100% | 100% |
+
+Resultado view: **4.816 → 6.394 itens** (+1.578) · **2.768 → 3.694 pedidos** (+926) · **R$ 1,11M → R$ 1,49M** (+R$ 380k Jan-Abr).
+
+### 102.5 Pacote DMS Finance AI atualizado
+- `02-CONTRATO-DE-DADOS.md`: view `magazord_pedido_itens` documentada na seção de Views, bloco novo "Match de SKU & CPV exato do Site" com limites e fallback chain, exemplo de CPV exato pro Bling via `pedidos_itens`.
+- Sem mudança em outros arquivos (Finance AI ainda não tem login Postgres, vão consumir via service role do bootstrap deles).
+
+### 102.6 Snapshot atualizado
+- Tabelas `public`: **99** (sem mudança — view, não tabela).
+- Views `public`: **39 → 40** (+`magazord_pedido_itens`).
+- Crons ativos: **52** (sem mudança — o `-pedido-detalhe-1h` que já existia alimenta a view via origem).
+- Edges novas: nenhuma.
+- Linhas em `magazord_pedido_detalhe`: 2.763 → **3.694** (+931 backfill Jan-Abr).
+
+### 102.7 Pendências
+- Quando Finance AI rodar `cpvExato()` em produção: monitorar se 41% match em `preco_custo` é suficiente. Se não, considerar enriquecer `produtos.preco_custo` via cron novo ou priorizar `produtos_custos` (Tecidos) — não decidido nesta sessão.
+- Backfill de detalhe pre-2026 (5 mil pedidos): só se Finance AI pedir histórico mais profundo. Custo ~50 min sequencial.
+
+---
+
+**Fim da documentação · Atualizado em 22/05/2026 — Section 102 (View `magazord_pedido_itens` + backfill 2026 → 99,9% cobertura) · v18.2**
