@@ -9936,4 +9936,81 @@ PostgREST retorna nomes de tabelas próximos como "hint" em 404 — comportament
 
 ---
 
-**Fim da documentação · Atualizado em 22/05/2026 (tarde) — Section 103 (security hardening pós-pentest Manus AI: 49 DROPs + 50 CREATEs + 13 ENABLE RLS, exposição zero pra anon) · v18.3**
+## 104. CICLO 22/05/2026 (tarde) — 🚨 FASE 2 DO HARDENING: VIEWS ESTAVAM VAZANDO
+
+> Reteste do Manus AI flagrou: dashboard ainda carregava dado real ("R$ 561k BC, 1.085 pedidos, Abril"). Investigação revelou que **as VIEWs não estavam protegidas** — só as tabelas-base. O fix da Section 103 fechou tabelas, mas views continuavam expostas pra anon.
+
+### 104.1 Causa raiz (importante entender)
+
+No PostgreSQL:
+- **Tabelas** têm RLS — políticas controlam acesso por role.
+- **Views** rodam por default com privilégios do owner (semântica equivalente a `SECURITY DEFINER`). RLS das tabelas-fonte **NÃO se aplica** automaticamente quando lê via view.
+- A única forma da view respeitar RLS da base é criar com `security_invoker = true` (Postgres 15+), o que **nenhuma das nossas views tinha**.
+
+Confirmado: com a anon key, `GET /rest/v1/dashboard_resumo` retornou **R$ 561.629 (BC), 1.468 pedidos 2026** — dado real, mesmo com a tabela `pedidos` fechada.
+
+Views expostas que eu confirmei vazando:
+- `dashboard_resumo`, `dashboard_mensal`, `dashboard_contas` — KPIs financeiros
+- `top_produtos`, `top_produtos_mes`, `top_produtos_marketplaces*` — best-sellers
+- `faturamento_real_mensal` — fórmula consolidada
+- `cliente_scoring*`, `cliente_inadimplencia` — base de clientes
+- `vendedor_performance`, `vendedor_ranking_*` — equipe
+- `magazord_pedido_completo`, `magazord_pedido_itens` — pedidos site
+- + 25 outras (40 views totais)
+
+### 104.2 Fix aplicado (`sql-scripts/sql-security-hardening-views-2026-05-22.sql`)
+
+```sql
+REVOKE SELECT ON public.<view> FROM anon, public;
+GRANT  SELECT ON public.<view> TO authenticated;
+-- repete pra 40 views
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  REVOKE SELECT ON TABLES FROM anon, PUBLIC;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT ON TABLES TO authenticated;
+```
+
+40 REVOKEs + 40 GRANTs + default privilege change (protege views futuras automaticamente).
+
+### 104.3 Validação pós-fix
+
+```
+14/14 views críticas → HTTP 401 "permission denied for table dashboard_resumo"
+Service role (cron/edge): continua lendo (R$ 1.353.332 matriz 2026 — sanidade)
+```
+
+### 104.4 Resposta aos outros pontos do reteste Manus AI
+
+- **"Anon key rotacionada"** — **falso**. A chave continua válida (200 OK). O que mudou foi RLS + view permissions. Anon key NÃO é segredo (design Supabase: deve ficar exposta no front; segurança vem de RLS).
+
+- **"Dashboard ainda abre sem login"** — **parcialmente verdade na interpretação, falso na causa**. O HTML carrega (é SPA), mas:
+  - `checkAuth()` mostra `login-screen` overlay se sem session.
+  - `loadSupabaseData()` é chamado no init (linha 14158), mas agora todas as queries voltam 401 ou `[]` → dashboard fica zerado.
+  - Visual: tela login encima do dashboard vazio. Se o atacante fechar overlay no DevTools, vê tela em branco/zero — não vê dado real.
+
+- **"Sugerir Next.js middleware"** — **inaplicável**. DMS é HTML single-file estático no Vercel, não Next.js. Pra ter middleware server-side teria que migrar arquitetura. **Não vale a pena** — barreira do banco (RLS + REVOKE views) já é a barreira real e correta.
+
+### 104.5 Snapshot final
+- Tabelas `public`: 99 (sem mudança).
+- Views `public`: 40 — todas com `REVOKE SELECT FROM anon, public` + `GRANT SELECT TO authenticated`.
+- `ALTER DEFAULT PRIVILEGES`: novas views/tabelas no `public` já nascem **sem** acesso pra anon (proteção futura).
+- Crons ativos: 52 (sem mudança — service_role bypassa tudo).
+
+### 104.6 Lição pra próximas sessões
+
+> **Toda vez que criar uma VIEW no `public`, fazer logo após:**
+> ```sql
+> REVOKE SELECT ON public.<nova_view> FROM anon, public;
+> GRANT  SELECT ON public.<nova_view> TO authenticated;
+> ```
+> O ALTER DEFAULT PRIVILEGES já fecha auto, mas grant explícito garante.
+
+### 104.7 Status final do site (após Section 103 + 104)
+- Anon: HTTP 401 ou `[]` em **TUDO** (tabelas + views).
+- Usuário logado: tudo normal.
+- Cron/edge (service_role): tudo normal.
+- **Próxima ação:** pedir reteste ao Manus AI pra confirmar fix do dashboard.
+
+---
+
+**Fim da documentação · Atualizado em 22/05/2026 (tarde) — Section 104 (FASE 2 hardening: views REVOKE anon, 40 views protegidas, default privileges fechadas) · v18.4**
