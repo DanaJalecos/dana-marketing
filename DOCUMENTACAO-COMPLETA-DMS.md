@@ -9847,4 +9847,93 @@ Resultado view: **4.816 → 6.394 itens** (+1.578) · **2.768 → 3.694 pedidos*
 
 ---
 
-**Fim da documentação · Atualizado em 22/05/2026 — Section 102 (View `magazord_pedido_itens` + backfill 2026 → 99,9% cobertura) · v18.2**
+## 103. CICLO 22/05/2026 — 🚨 SECURITY HARDENING (pentest Manus AI revelou exposição total)
+
+> Pentest externo do Manus AI ("Relatório de Pentest — Dana Marketing System") flagrou exposição crítica. Verifiquei com `curl` usando a anon key pública e **confirmei**: dados sensíveis vazando via PostgREST direto, sem precisar logar no app.
+
+### 103.1 O que estava exposto (verificado em produção)
+
+**Tabelas com policy `{anon}` ou `{public}` qual=true (qualquer um do mundo lia/escrevia):**
+
+| Tabela | Que vazava |
+|---|---|
+| `contatos` | 41.627 nomes + CPF + telefone + email de clientes (LGPD!) |
+| `pedidos` | Histórico completo de vendas |
+| `pedidos_itens` | Cada item vendido (SKU + preço) |
+| `produtos` + `produtos_custos` | Catálogo + **custo real de produção** |
+| `contas_receber` + `contas_pagar` | Financeiro inteiro |
+| `tarefas` | Campanhas planejadas + INSERT/UPDATE/DELETE anon (qualquer um criava/apagava tarefa) |
+| `calendario` | INSERT/UPDATE/DELETE anon |
+| `briefings_campanha` | Briefings estratégicos |
+| `influenciadores` | Lista + cupom + comissão |
+| `vendedores`, `depositos`, `revendas_parceiros` | Operacional |
+| `kanban_colunas`, `concorrentes`, `criativos`, `materiais_briefing`, `referencias_conteudo`, `canais_aquisicao`, `brandkit_itens`, `cliente_status_historico`, `prospeccao_config`, `sync_log`, `resumo_mensal` | Diversos |
+
+**Tabelas SEM RLS habilitado (13 — todas criadas por mim na onda Magazord 20-21/05, esqueci o ALTER ENABLE):**
+`email_config`, `magazord_atendimentos`, `magazord_avaliacoes`, `magazord_contas_receber`, `magazord_cupons`, `magazord_estoque_movimentacoes`, `magazord_newsletter`, `magazord_notas_fiscais`, `magazord_pedido_detalhe` (UTM+email+endereço!), `magazord_pedido_payments`, `produtos_mix`, `sync_failures`, `sync_job_routes`
+
+**Falsos positivos do relatório Manus:** `bling_tokens` e `profiles` na verdade JÁ tinham RLS correto (`[]` em anon). HTTP 200 mas zero linhas — relatório confundiu 200 com sucesso.
+
+### 103.2 Fix aplicado (1 transação SQL atômica)
+
+Arquivo: `sql-scripts/sql-security-hardening-2026-05-22.sql`. Aplicada via Management API em ~1s.
+
+**Fase 1 — DROP** de 49 policies `{anon}`/`{public}` com `qual=true` ou `qual=null` (sem auth check):
+- 8 SELECTs puros pra anon (contas, contatos, depositos, pedidos, produtos, resumo_mensal, vendedores)
+- 6 CRUDs pra anon em `tarefas` e 6 em `calendario`
+- 25 policies `{public}` ALL/SELECT abertas em brandkit, briefings, canais, concorrentes, criativos, influenciadores, kanban, materiais, pedidos_itens, produtos_custos, prospeccao_config, referencias, revendas, sync_log + cliente_status_historico
+
+**Fase 2 — CREATE** policies `{authenticated}` equivalentes pra cada tabela acima (37 novas).
+
+**Fase 3 — ENABLE RLS** + policy SELECT authenticated nas 13 tabelas que estavam nuas.
+
+**Total:** 49 DROPs + 50 CREATEs + 13 ALTER ENABLE RLS = **112 mudanças**, todas em uma transação.
+
+### 103.3 Validação pós-fix
+
+```bash
+# Anon: 23/23 tabelas críticas retornam [] (era dado vazando antes)
+# Service role (cron/edge): vê tudo normal (3.706 magazord_pedido_detalhe, etc) — sync OK
+# INSERT anon em tarefas/calendario: HTTP 401 "row violates RLS policy" (era 201 OK antes)
+```
+
+Tabela final por status de policy SELECT (38 tabelas críticas):
+
+| Estado | Quantidade |
+|---|---|
+| `sel_auth=1+, sel_anon=0` ✅ | **38** (100%) |
+| Anon consegue ler | 0 |
+
+### 103.4 Por que NÃO quebrou o sistema
+
+- **Front DMS sempre loga ANTES de qualquer query** → JWT vira `authenticated` → policies novas permitem.
+- **Crons/edges usam SERVICE_ROLE** (`BYPASSRLS`) → continuam escrevendo/lendo sem mudança.
+- **Realtime exige auth** → continua OK pros usuários logados.
+- **Não tem fluxo público no DMS** (cadastre-se, calculadora etc — não existe).
+
+### 103.5 Sobre o claim 1 do Manus ("Bypass de auth na home")
+
+A tela de login do DMS é controlada por `checkAuth()` no init (`index.html` ~L24348) que chama `sb.auth.getSession()` e mostra `login-screen` se sem session. Funções como `loadSupabaseData()`/`loadTarefas()`/`loadProfile()` só rodam **depois** de `signInWithPassword` em `doLogin()`. Logo, **o claim 1 do Manus está errado pra dado real** — o que ele provavelmente viu foi o HTML estático da view com placeholders (`-`, `--`, etc), porque as queries só disparam pós-login.
+
+**Independente disso, o RLS fechado é a barreira real:** mesmo se um atacante bypassasse o front, as queries voltariam `[]`.
+
+### 103.6 Sobre o claim 3 do Manus ("Hints do PostgREST")
+
+PostgREST retorna nomes de tabelas próximos como "hint" em 404 — comportamento padrão da lib, não dá pra desabilitar via "Expose schema in API" (essa flag controla outra coisa). Risco real é **mínimo** (atacante descobre nome de tabela, mas com RLS fechado não acessa). Aceito como vetor de info disclosure de baixa severidade.
+
+### 103.7 Snapshot atualizado
+- Tabelas `public`: 99 (sem mudança — só liguei RLS nas 13 que estavam sem).
+- Views `public`: 40 (sem mudança).
+- Crons ativos: 52 (sem mudança).
+- Policies RLS no schema `public`: ~150 antes → ~150 depois (49 DROPs + 50 CREATEs, líquido +1).
+
+### 103.8 Pendências futuras (se for refinar mais)
+
+- **Granularidade por cargo**: hoje toda `authenticated` lê tudo. Pode restringir financeiro só pra `admin`/`gerente_financeiro` (igual já é em `cliente_notas`/`prospects`). Aceitar como técnico — não urgente.
+- **Anotações ADM**: tabela `anotacoes_adm` já tem check de cargo admin em SELECT — verificar se cobre o caso completo.
+- **Auditoria periódica**: criar cron mensal que roda `SELECT tablename FROM pg_tables WHERE schemaname='public' AND rowsecurity=false` e dispara alerta. (Backlog.)
+- **Manus AI auditoria reentrante**: pedir pra Manus AI re-testar pra confirmar que tudo fechou — meio externo de validação independente.
+
+---
+
+**Fim da documentação · Atualizado em 22/05/2026 (tarde) — Section 103 (security hardening pós-pentest Manus AI: 49 DROPs + 50 CREATEs + 13 ENABLE RLS, exposição zero pra anon) · v18.3**
