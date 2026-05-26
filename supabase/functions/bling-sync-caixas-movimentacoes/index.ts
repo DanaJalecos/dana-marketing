@@ -1,8 +1,9 @@
 // ════════════════════════════════════════════════════════════════════════════
-// bling-sync-caixas-movimentacoes — Lote 3 Tabela 4
-// Lançamentos caixa/banco do Bling. Volume ~100/dia. Cron 1h.
-// Endpoint: GET /caixas (paginado, filtro data)
-// FAI cruza com OFX bancário pra detectar divergências.
+// bling-sync-caixas-movimentacoes — Lote 3 Tabela 4 (v2 com drill)
+// Lançamentos caixa/banco do Bling.
+// v2: LIST não traz categoria → drill em /caixas/{id} pra cada movimento NOVO
+//     ou com categoria_id IS NULL (catch-up).
+// Cron 1h. FAI cruza com OFX bancário pra divergências + DRE por categoria.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { getAdminClient, getValidToken, Empresa } from '../_shared/bling-oauth.ts';
@@ -13,40 +14,76 @@ const LOJAS: { empresa: Empresa; loja_id: number }[] = [
   { empresa: 'bc',     loja_id: 203550865 },
 ];
 
-interface BlingCaixaMov {
-  id: number;
+interface BlingCaixaList {
+  id: number | string;
   data: string;
   descricao?: string;
-  historico?: string;
   valor?: number;
+  debCred?: 'D' | 'C';
   situacao?: string;
-  categoria?: { id?: number; descricao?: string; nome?: string };
-  contaContabil?: { id?: number; descricao?: string; nome?: string };
-  conta?: { id?: number; nome?: string };
-  conciliado?: boolean;
-  situacaoConciliacao?: number;
   origem?: { id?: number; tipo?: string };
-  documento?: string;
+  contato?: { id?: number; nome?: string };
+  contaFinanceira?: { id?: number; descricao?: string };
 }
 
-function mapMov(d: BlingCaixaMov, loja_id: number) {
-  const cat = d.categoria;
-  const cc  = d.contaContabil || d.conta;
+interface BlingCaixaDetalhe extends BlingCaixaList {
+  saldo?: string;
+  categoria?: { id?: number };
+  competencia?: string;            // data fiscal "DD/MM/YYYY"
+  observacoes?: string;
+  transferencia?: string;
+  tipoLancamento?: string;
+}
+
+// Normaliza data "DD/MM/YYYY" pra "YYYY-MM-DD"
+function normData(d?: string): string | null {
+  if (!d) return null;
+  if (d.includes('/')) {
+    const [dd, mm, yy] = d.split('/');
+    return `${yy}-${mm}-${dd}`;
+  }
+  return d.split('T')[0];
+}
+
+// Map de fallback (LIST sem drill — categoria fica null)
+function mapMovList(d: BlingCaixaList, loja_id: number) {
   return {
-    id_bling: d.id,
+    id_bling: typeof d.id === 'string' ? Number(d.id) : d.id,
     loja_id,
-    data: d.data,
-    descricao: d.descricao || d.historico || null,
-    categoria_id: cat?.id ?? null,
-    categoria_nome: cat?.descricao || cat?.nome || null,
-    conta_financeira_id: cc?.id ?? 0,
-    conta_financeira_nome: cc?.descricao || cc?.nome || null,
-    valor: d.valor ?? 0,
-    situacao: d.situacao || (d.conciliado ? 'R' : 'P'),
-    situacao_conciliacao: d.situacaoConciliacao ?? (d.conciliado ? 1 : 2),
+    data: normData(d.data) || new Date().toISOString().split('T')[0],
+    descricao: d.descricao || null,
+    categoria_id: null,
+    categoria_nome: null,
+    conta_financeira_id: d.contaFinanceira?.id ?? 0,
+    conta_financeira_nome: d.contaFinanceira?.descricao ?? null,
+    valor: typeof d.valor === 'number' ? Math.abs(d.valor) * (d.debCred === 'D' ? -1 : 1) : 0,
+    situacao: d.situacao || 'R',
+    situacao_conciliacao: null,
     origem_id: d.origem?.id ?? null,
     origem_tipo: d.origem?.tipo || null,
-    documento: d.documento || null,
+    documento: null,
+    raw: d,
+    synced_at: new Date().toISOString(),
+  };
+}
+
+// Map enriquecido (com drill /caixas/{id} + JOIN bling_categorias pra nome)
+function mapMovDetalhe(d: BlingCaixaDetalhe, loja_id: number, catNome: string | null) {
+  return {
+    id_bling: typeof d.id === 'string' ? Number(d.id) : d.id,
+    loja_id,
+    data: normData(d.data) || new Date().toISOString().split('T')[0],
+    descricao: d.descricao || null,
+    categoria_id: d.categoria?.id ?? null,
+    categoria_nome: catNome,
+    conta_financeira_id: d.contaFinanceira?.id ?? 0,
+    conta_financeira_nome: d.contaFinanceira?.descricao ?? null,
+    valor: typeof d.valor === 'number' ? Math.abs(d.valor) * (d.debCred === 'D' ? -1 : 1) : 0,
+    situacao: d.situacao || 'R',
+    situacao_conciliacao: null,
+    origem_id: d.origem?.id ?? null,
+    origem_tipo: d.origem?.tipo || null,
+    documento: null,
     raw: d,
     synced_at: new Date().toISOString(),
   };
@@ -56,12 +93,14 @@ Deno.serve(async (req) => {
   const t0 = Date.now();
   const sb = getAdminClient();
 
-  let dias_atras = 7; // padrão: 1 semana
+  let dias_atras = 7;
   let full = false;
+  let drillExisting = false;  // se true, drilla TUDO (não só novos) — pra catch-up
   try {
     const b = await req.json();
     if (b?.dias_atras) dias_atras = Math.min(Number(b.dias_atras), 365);
     if (b?.full) full = true;
+    if (b?.drillExisting) drillExisting = true;
   } catch { /* sem body */ }
 
   const resultados: Record<string, unknown>[] = [];
@@ -73,10 +112,17 @@ Deno.serve(async (req) => {
     }).select('id').single();
     const logId = logRow?.id ?? null;
 
-    let totalUpserted = 0, apiCalls = 0;
+    let totalUpserted = 0, totalDrilled = 0, apiCalls = 0;
 
     try {
       const token = await getValidToken(sb, empresa);
+
+      // Cache de nomes de categoria pra essa loja (1 query, ~70 linhas)
+      const { data: catsRaw } = await sb.from('bling_categorias')
+        .select('id_bling, nome')
+        .eq('loja_id', loja_id);
+      const catNomeMap = new Map<number, string>();
+      for (const c of (catsRaw ?? [])) catNomeMap.set(Number(c.id_bling), String(c.nome));
 
       let desde: Date;
       if (full) {
@@ -99,10 +145,12 @@ Deno.serve(async (req) => {
       const desdeStr = desde.toISOString().split('T')[0];
       const ateStr = ate.toISOString().split('T')[0];
 
+      // 1) LIST paginada — pega IDs + campos básicos
       let pagina = 1;
+      const items: BlingCaixaList[] = [];
       const deadline = t0 + 130_000;
       while (Date.now() < deadline) {
-        const r = await blingGet<{ data?: BlingCaixaMov[] }>(
+        const r = await blingGet<{ data?: BlingCaixaList[] }>(
           token, '/caixas',
           { pagina, limite: 100, dataInicial: desdeStr, dataFinal: ateStr }
         );
@@ -111,18 +159,87 @@ Deno.serve(async (req) => {
           if (r.status === 404) break;
           throw new Error(`bling /caixas status=${r.status}: ${r.errorBody}`);
         }
-        const items = r.data?.data ?? [];
-        if (!items.length) break;
-
-        const rows = items.map(i => mapMov(i, loja_id));
-        const { error } = await sb.from('bling_caixas_movimentacoes').upsert(rows, { onConflict: 'id_bling' });
-        if (error) throw new Error(`upsert: ${error.message}`);
-        totalUpserted += rows.length;
-
-        if (items.length < 100) break;
+        const page = r.data?.data ?? [];
+        if (!page.length) break;
+        items.push(...page);
+        if (page.length < 100) break;
         pagina++;
         await sleep(400);
       }
+
+      // 2) Decide quais precisam drill (categoria_id NULL ou drillExisting)
+      const allIds = items.map(i => typeof i.id === 'string' ? Number(i.id) : i.id);
+      let idsParaDrill: number[] = [];
+      if (drillExisting) {
+        idsParaDrill = allIds;
+      } else {
+        // Drill apenas em IDs NOVOS ou com categoria_id NULL
+        const idsSet = new Set<number>();
+        for (let k = 0; k < allIds.length; k += 500) {
+          const chunk = allIds.slice(k, k + 500);
+          const { data: existentes } = await sb.from('bling_caixas_movimentacoes')
+            .select('id_bling, categoria_id').in('id_bling', chunk);
+          const existMap = new Map<number, number | null>();
+          for (const e of (existentes ?? [])) existMap.set(Number(e.id_bling), e.categoria_id as number | null);
+          for (const id of chunk) {
+            const cat = existMap.get(id);
+            if (cat === undefined) idsSet.add(id);              // novo
+            else if (cat === null) idsSet.add(id);              // existe mas sem categoria
+          }
+        }
+        idsParaDrill = [...idsSet];
+      }
+
+      // 3) Upsert dos itens SEM drill (mantém campos básicos atualizados)
+      const idsSemDrill = allIds.filter(id => !idsParaDrill.includes(id));
+      if (idsSemDrill.length) {
+        const rowsBasic = items
+          .filter(i => idsSemDrill.includes(typeof i.id === 'string' ? Number(i.id) : i.id))
+          .map(i => {
+            const m = mapMovList(i, loja_id);
+            // remove categoria_* pra não sobrescrever drill anterior
+            return { ...m, categoria_id: undefined, categoria_nome: undefined } as Record<string, unknown>;
+          });
+        // upsert mas sem coluna categoria
+        const rowsOk = rowsBasic.map(r => {
+          const { categoria_id: _ci, categoria_nome: _cn, ...rest } = r as Record<string, unknown>;
+          return rest;
+        });
+        if (rowsOk.length) {
+          const { error } = await sb.from('bling_caixas_movimentacoes').upsert(rowsOk, { onConflict: 'id_bling' });
+          if (error) throw new Error(`upsert basic: ${error.message}`);
+          totalUpserted += rowsOk.length;
+        }
+      }
+
+      // 4) Drill em batches de 3 (rate-limit Bling ~3/s)
+      for (let i = 0; i < idsParaDrill.length; i += 3) {
+        if (Date.now() > deadline) break;
+        const batch = idsParaDrill.slice(i, i + 3);
+        const results = await Promise.all(
+          batch.map(id => blingGet<{ data?: BlingCaixaDetalhe }>(token, `/caixas/${id}`, {}))
+        );
+        apiCalls += batch.length;
+
+        const rows = [];
+        for (const r of results) {
+          if (!r.ok) continue;
+          const d = r.data?.data;
+          if (d) {
+            const catId = d.categoria?.id ?? null;
+            const catNome = catId !== null ? (catNomeMap.get(catId) ?? null) : null;
+            rows.push(mapMovDetalhe(d, loja_id, catNome));
+          }
+        }
+        if (rows.length) {
+          const { error } = await sb.from('bling_caixas_movimentacoes').upsert(rows, { onConflict: 'id_bling' });
+          if (error) throw new Error(`upsert drill: ${error.message}`);
+          totalDrilled += rows.length;
+        }
+        await sleep(350);
+      }
+
+      totalUpserted += totalDrilled;
 
       const dur = Date.now() - t0;
       const ranOut = Date.now() > deadline;
@@ -131,14 +248,14 @@ Deno.serve(async (req) => {
         duracao_ms: dur,
         desde: desde.toISOString(),
         ate: ate.toISOString(),
-        qtd_lidos: totalUpserted,
+        qtd_lidos: allIds.length,
         qtd_atualizados: totalUpserted,
         status: ranOut ? 'parcial' : 'ok',
         erro_tipo: ranOut ? 'timeout' : null,
-        erro_msg: ranOut ? `parou em ${totalUpserted} (deadline 130s)` : null,
+        erro_msg: ranOut ? `parou drill ${totalDrilled}/${idsParaDrill.length}` : null,
         api_calls: apiCalls,
       }).eq('id', logId);
-      resultados.push({ empresa, loja_id, upserted: totalUpserted, dur_ms: dur, status: ranOut ? 'parcial' : 'ok' });
+      resultados.push({ empresa, loja_id, lidos: allIds.length, drilled: totalDrilled, upserted: totalUpserted, dur_ms: dur, status: ranOut ? 'parcial' : 'ok' });
 
     } catch (e) {
       const msg = String((e as Error).message || e).slice(0, 500);
