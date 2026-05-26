@@ -10269,4 +10269,116 @@ Próxima sessão deve começar lendo nessa ordem:
 
 ---
 
-**Fim da documentação · Atualizado em 26/05/2026 — Section 105+106+107 (C360 pacote comercial + Bling Sync v3 Lote 1+2 + Lote 3 pendente) · v19.0**
+## 108. CICLO 26/05/2026 (TARDE) — Bling Sync v3 Lote 3 ENTREGUE + 2 fixes
+
+> Finance AI aprovou Lote 2 formal + autorizou Lote 3 (mensagem `11-RESPOSTA-FAI-LOTE2-LOTE3.md`). Executei Lote 3 inteiro em uma única sessão.
+
+### 108.1 Correção factual importante — descoberta Lote 1 era PARCIAL
+
+Eu reportei no Lote 1: *"todas as 1.288 NFs em `bling_nfe_entrada` são devoluções"*. **Errado.** Generalizei olhando os 5 mais recentes (que por acaso eram devoluções). Análise CFOP do FAI mostrou a verdade:
+
+| CFOP / tipo | Qtd | Valor |
+|---|---|---|
+| Compra mercadoria (5101/5102/5151/6102/6105/6151) | **470** | **R$ 2,32M** ⭐ Márcia confere |
+| Outros (frete, transferência) | 214 | R$ 302k |
+| Devolução cliente (12xx/19xx/29xx) | 434 | R$ 227k |
+| Compra uso/consumo (xxx556) | 161 | R$ 198k |
+| Aluguel/locação (2914) | 9 | R$ 3,23M (Center Norte) |
+| **Total** | **1.288** | **R$ 6,28M** |
+
+O caso de uso "Márcia confere NFs de fornecedor" É VIÁVEL com a tabela como está — basta filtrar por `tipo_operacao = 'compra_mercadoria'` (coluna nova adicionada nesse ciclo).
+
+### 108.2 2 fixes aplicados pré-Lote 3 (`sql-bling-lote3-fixes.sql`)
+
+```sql
+-- Fix 1: tem_nf retornava NULL pra array vazio
+ALTER TABLE bling_pedidos_compras
+  DROP COLUMN tem_nf,
+  ADD COLUMN tem_nf boolean GENERATED ALWAYS AS
+    (COALESCE(array_length(nf_entrada_ids, 1), 0) > 0) STORED;
+
+-- Fix 2: tipo_operacao indexável (pedido FAI)
+ALTER TABLE bling_nfe_entrada
+  ADD COLUMN tipo_operacao text GENERATED ALWAYS AS (
+    CASE
+      WHEN cfop ~ '^[56](101|102|151)$' THEN 'compra_mercadoria'
+      WHEN cfop ~ '^[1256]556$'         THEN 'compra_uso_consumo'
+      WHEN cfop ~ '^[12](201|902|915)$' THEN 'devolucao_cliente'
+      WHEN cfop = '2914'                THEN 'aluguel_locacao'
+      ELSE 'outros'
+    END
+  ) STORED;
+CREATE INDEX idx_bne_tipo_operacao ON bling_nfe_entrada (tipo_operacao);
+```
+
+### 108.3 8 tabelas novas (Lote 3) — todas em produção
+
+| Tabela | Volume real | Cron | Endpoint Bling |
+|---|---|---|---|
+| `bling_naturezas_operacao` | 51 matriz + 18 bc = **69** | `5 3 * * *` jobid=64 | `GET /naturezas-operacoes` |
+| `bling_contas_financeiras` | 18 + 4 = **22** | `15 3 * * *` jobid=65 | `GET /contas-contabeis` |
+| `bling_categorias` | 73 + 56 = **129** | `25 3 * * *` jobid=66 | `GET /categorias/receitas-despesas` |
+| `bling_formas_pagamento` | 32 + 10 = **42** | `35 3 * * *` jobid=67 | `GET /formas-pagamentos` |
+| `bling_notificacoes` | 2 + 2 = **4** | `20,50 * * * *` jobid=68 | `GET /notificacoes` |
+| `bling_caixas_movimentacoes` | 1119 + 585 = **1704** (30d) | `40 * * * *` jobid=69 | `GET /caixas` |
+| `bling_borderos` | 0 (Renato não usa) | `50 */6 * * *` jobid=70 | `GET /borderos/{id}` (lazy enrich) |
+| `bling_ordens_producao` | 0 (Dana não fabrica) | `55 */6 * * *` jobid=71 | `GET /ordens-producao` |
+
+**Smoke test:** 16/16 invocações OK via `_call_edge`. Todos status `'ok'`.
+
+**Padrão usado:**
+- Cadastros simples (1×/dia): paginação + upsert direto
+- Transacionais com filtro de data: paginação + filtro `dataInicial/dataFinal` + deadline 130s
+- `bling_borderos` especial: Bling **NÃO tem listagem** — varre `contas_pagar.raw.borderoId` dos últimos 90d, drilla cada ID único via `GET /borderos/{id}`
+
+### 108.4 Estado dos 13 crons Bling ativos (final do Lote 3)
+
+```
+58: bling-token-refresh-5h              '0 */5 * * *'
+59: bling-sync-nfe-entrada-1h           '0 * * * *'
+60: bling-sync-nfe-saida-1h             '15 * * * *'
+61: bling-sync-nfse-4h                  '30 */4 * * *'
+62: check-bling-health-30min            (do Finance AI — jobid externo)
+63: bling-sync-pedidos-compras-6h       '45 */6 * * *'
+64: bling-sync-naturezas-operacao-24h   '5 3 * * *'    ← Lote 3
+65: bling-sync-contas-financeiras-24h   '15 3 * * *'   ← Lote 3
+66: bling-sync-categorias-24h           '25 3 * * *'   ← Lote 3
+67: bling-sync-formas-pagamento-24h     '35 3 * * *'   ← Lote 3
+68: bling-sync-notificacoes-30min       '20,50 * * * *' ← Lote 3
+69: bling-sync-caixas-movimentacoes-1h  '40 * * * *'   ← Lote 3
+70: bling-sync-borderos-6h              '50 */6 * * *' ← Lote 3
+71: bling-sync-ordens-producao-6h       '55 */6 * * *' ← Lote 3
+```
+
+Total: **12 sync edges + 1 token refresh** (jobid 62 do FAI é externo).
+
+### 108.5 Commits Lote 3
+
+```
+worktree 9210f69  → cherry-pick danajalecos/main 9e0aa7b
+"Bling Sync v3 Lote 3: 8 novas tabelas + 2 fixes"
+18 arquivos: 10 SQL (8 schemas + 1 fixes + 1 crons) + 8 edges
+```
+
+### 108.6 Estado final consolidado Bling Sync v3 (Lotes 1+2+3)
+
+**12 tabelas espelho:**
+- Lote 1: `bling_sync_log`, `bling_nfe_entrada` (1.288)
+- Lote 2: `bling_nfe_saida` (3.114), `bling_nfse` (0), `bling_pedidos_compras` (5)
+- Lote 3: `bling_naturezas_operacao` (69), `bling_contas_financeiras` (22), `bling_categorias` (129), `bling_formas_pagamento` (42), `bling_notificacoes` (4), `bling_caixas_movimentacoes` (1.704), `bling_borderos` (0), `bling_ordens_producao` (0)
+
+**3 RPC wrappers no Vault:** `bling_token_upsert/get`, `bling_client_creds`, `_call_edge`
+
+**21 edges Bling no total:** 11 legados migrados pro Vault + 2 oauth + 8 novas Lote 3
+
+**Performance:** sync-pedidos 20s→2s, cache token 5min, deduplicação inteligente
+
+### 108.7 Próximas frentes possíveis
+
+- **Finance AI desenvolve** UI/RPCs do lado dele consumindo as 12 tabelas
+- **DMS pode parar de mexer** em Bling Sync — está completo. Manutenção apenas se Bling mudar API.
+- Outras frentes (UI Manu, Estoque, C360, etc) ficam em backlog normal
+
+---
+
+**Fim da documentação · Atualizado em 26/05/2026 — Section 108 (Bling Sync v3 Lote 3 entregue, 8 tabelas + 2 fixes) · v20.0**
