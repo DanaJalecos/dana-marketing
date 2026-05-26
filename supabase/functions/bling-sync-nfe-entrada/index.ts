@@ -101,8 +101,15 @@ Deno.serve(async (req) => {
         }
       }
       const ate = new Date();
-      const desdeStr = desde.toISOString().replace('T', ' ').slice(0, 19);
-      const ateStr = ate.toISOString().replace('T', ' ').slice(0, 19);
+      // Bling /nfe NÃO aceita dataAlteracaoInicial — só dataEmissaoInicial/Final.
+      // E limita janela a ~90 dias. Pra incremental, isso é OK (janela pequena).
+      // Se 'desde' for > 80d atrás (deveria ser raro pós-bootstrap), limita pra 80d.
+      const MAX_JANELA_MS = 80 * 86400 * 1000;
+      if (ate.getTime() - desde.getTime() > MAX_JANELA_MS) {
+        desde = new Date(ate.getTime() - MAX_JANELA_MS);
+      }
+      const desdeStr = desde.toISOString().split('T')[0]; // YYYY-MM-DD
+      const ateStr = ate.toISOString().split('T')[0];
 
       // Pagina lista — Bling /nfe retorna campos mínimos. Pra ter detalhes (cfop, valorNota,
       // links), precisa chamar /nfe/{id} pra cada item. Faremos batch.
@@ -112,7 +119,7 @@ Deno.serve(async (req) => {
       while (true) {
         const r = await blingGet<{ data?: BlingNFeLista[] }>(
           token, '/nfe',
-          { tipo: 0, pagina, limite: 100, dataAlteracaoInicial: desdeStr, dataAlteracaoFinal: ateStr }
+          { tipo: 0, pagina, limite: 100, dataEmissaoInicial: desdeStr, dataEmissaoFinal: ateStr }
         );
         apiCalls++;
         if (!r.ok) throw new Error(`bling /nfe?tipo=0 status=${r.status}: ${r.errorBody}`);
