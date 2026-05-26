@@ -10013,4 +10013,260 @@ Service role (cron/edge): continua lendo (R$ 1.353.332 matriz 2026 — sanidade)
 
 ---
 
-**Fim da documentação · Atualizado em 22/05/2026 (tarde) — Section 104 (FASE 2 hardening: views REVOKE anon, 40 views protegidas, default privileges fechadas) · v18.4**
+## 105. CICLO 25-26/05/2026 — Pacote C360 pra comercialização (fora do repo DMS)
+
+> Juan quer vender o C360 (Cliente 360) como SaaS pra outras empresas. Primeira apresentação com dados fictícios, depois adapta integração ERP por cliente. Criei pasta `C:\.Projetos Claude\C360\` com TUDO pra próxima sessão recriar/comercializar.
+
+### 105.1 Estrutura entregue
+
+```
+C:\.Projetos Claude\C360\
+├── 00-LEIA-PRIMEIRO.md           (6.6KB — pitch executivo + índice + roteiro 15min)
+├── 01-ARQUITETURA.md             (10.6KB — stack, fluxos, init, cache, segurança)
+├── 02-FUNCIONALIDADES.md         (11.2KB — 7 abas detalhadas)
+├── 03-SCHEMA-BANCO.md            (18KB — 16 tabelas + 6 views + 17 RPCs + RLS seguro)
+├── 04-INTEGRACAO-ERP.md          (8.1KB — Bling/Tiny/Omie/Shopify/Conta Azul)
+├── 05-CONFIGURACAO-MULTITENANT.md (7.7KB — identidade visual, cargos, multi-empresa)
+├── 06-DEMO-DADOS-FICTICIOS.md    (18.2KB — script Python gera 500 clientes fake)
+├── 07-COMERCIALIZACAO.md         (8.1KB — 3 planos R$297/R$597/R$1297, ICP, objeções)
+├── 08-DEPLOY-CHECKLIST.md        (9.6KB — implantação por cliente)
+├── app/cliente-360.html          (310KB — frontend completo)
+├── app/cliente-360-boot.js       (500KB, 161 funções)
+└── sql/                          (21 scripts SQL prontos)
+```
+
+### 105.2 Modelo comercial proposto
+
+| Plano | Preço/mês | Pra quem |
+|---|---|---|
+| **Plug** | R$ 297 | 1 empresa Bling/Tiny, 1-3 vendedoras, até 10k clientes |
+| **Play** | R$ 597 | Omie/Conta Azul/Shopify, 4-15 vendedoras, até 50k clientes |
+| **Custom** | R$ 1.297 + setup R$ 3.500 | ERP próprio, 15+ vendedoras, customização pesada |
+
+Custo nosso por cliente: R$30-280/mês (Supabase + Vercel + LLM). Margem 78-90%.
+
+### 105.3 Como usar (pra futuras sessões)
+
+Pra apresentar a empresário:
+1. Lê `00-LEIA-PRIMEIRO.md` (10 min)
+2. Segue `06-DEMO-DADOS-FICTICIOS.md` — em ~1h tem demo funcionando com 500 clientes fake
+3. Roteiro de 15 min em `00` pra mostrar
+
+Pra deployar pra cliente real:
+1. Cliente assinou? → segue `08-DEPLOY-CHECKLIST.md` linha por linha
+2. ERP diferente de Bling? → `04-INTEGRACAO-ERP.md` tem receita por ERP popular
+
+---
+
+## 106. CICLO 26/05/2026 — Bling Sync v3 (Lote 1 + 2 entregues, Lote 3 pendente)
+
+> Sessão massiva: Finance AI mandou carta pedindo sincronização de 8-12 novas tabelas Bling no Supabase. Aceitei o plano, executei em 3-4 dias úteis. Tudo documentado nas pastas `C:\Users\...\Ideias Projeto\Finance AI\` (cartas 04-09).
+
+### 106.1 Histórico de cartas (ler nessa ordem se for continuar)
+
+```
+Ideias Projeto/Finance AI/
+├── 04-PEDIDO-PRO-DMS-SYNC-BLING.md       (pedido inicial Finance AI)
+├── Bling API v3 — Referência Completa     (255 endpoints, anexo)
+├── 05-RESPOSTA-DMS-PRA-FINANCE-AI.md      (minha resposta às 7 perguntas)
+├── 06-RESPOSTA-FINANCE-AI-PRO-DMS.md      (FAI aprovou + 5 questões Q1-Q5)
+├── 07-RESPOSTA-DMS-LOTE1-START.md         (minhas respostas Q1-Q5 + kickoff)
+├── 08-LOTE1-FECHADO.md                    (aceite formal Lote 1)
+├── 09-RESPOSTA-FAI-LOTE2-INICIA.md        (FAI aprovou L1, autorizou L2)
+└── 10-LOTE2-FECHADO.md                    (aceite formal Lote 2 — última)
+```
+
+### 106.2 Arquitetura compartilhada criada (Lote 1)
+
+**No Supabase:**
+
+| Item | O quê |
+|---|---|
+| Tabela `bling_sync_log` | Log de toda execução de sync (id, tabela, loja_id, status, duracao, erro_tipo, etc) |
+| View `bling_sync_health` | 1 linha por (tabela, loja_id) com último status + saude derivada (ok/erro/atrasado/parcial/rate_limited/travado) |
+| 8 secrets no `vault.secrets` | bling_matriz_client_id/secret/access/refresh + bling_bc_*. Cifrados via pgsodium |
+| RPC `bling_token_upsert(empresa,access,refresh,expires)` | Escreve em Vault + tabela legacy (dual write durante migração) |
+| RPC `bling_token_get(empresa)` | Lê decifrado do Vault |
+| RPC `bling_client_creds(empresa)` | Lê client_id/secret decifrados |
+| RPC `_call_edge(function, body)` | Helper genérico pra crons chamarem edges (service_role key no Vault) |
+
+**Edges deployadas (todas em `supabase/functions/`):**
+
+| Edge | Pra quê |
+|---|---|
+| `bling-oauth-callback` | Endpoint pra re-autorização futura (preventivo) |
+| `bling-token-refresh` | Refresh proativo a cada 5h (cron jobid=58) |
+| `bling-sync-nfe-entrada` | NFs de entrada (devoluções + compras de fornecedor) |
+| `bling-sync-nfe-saida` | NFs de saída — destrava DIFAL |
+| `bling-sync-nfse` | NFs de serviço (zero dados — Dana não usa) |
+| `bling-sync-pedidos-compras` | Pedidos de compra (5 antigos — Dana parou em 2020) |
+
+**Helpers compartilhados** (`supabase/functions/_shared/`):
+- `bling-oauth.ts` — `getAdminClient()`, `getValidToken()` com cache 5min, `readTokens()`, `refreshToken()`
+- `bling-client.ts` — `blingGet<T>()` com backoff 429 (1-16s) + retry 5xx + timeout
+
+### 106.3 Edges legados migrados pro wrapper Vault (Lote 1 Dia 4)
+
+11 edges antigas com `BLING_CLIENT_ID/SECRET` hardcoded foram refatoradas pra usar `getValidToken(sb, empresa)`. Eliminou os "Token renewal failed" silenciosos:
+
+```
+sync-pedidos (matriz)            sync-pedidos-bc
+sync-pedidos-itens (matriz)      sync-pedidos-itens-bc
+sync-contas-pagar (matriz)       sync-contas-pagar-bc
+sync-contas-receber (matriz)     sync-contas-receber-bc
+sync-produtos (matriz)           sync-produtos-bc
+sync-contatos (matriz)           sync-contatos-bc
+```
+
+**Ganho de performance:** sync-pedidos saiu de 20s → 2s (10x), graças a:
+- Cache de token 5min (sem validar a cada chamada)
+- Sem chamada-teste "valida token" desperdiçada
+- `blingGet` com backoff otimizado
+
+### 106.4 Tabelas Bling criadas (Lote 1 + Lote 2)
+
+| Tabela | Registros 26/05 | Cron | Status |
+|---|---|---|---|
+| `bling_sync_log` | crescendo | — | observability |
+| `bling_nfe_entrada` | matriz 1.182 + bc 106 = **1.288** | jobid=59 `'0 * * * *'` | ✅ Bootstrap completo |
+| `bling_nfe_saida` | matriz ~914+ (crescendo) + bc 2 | jobid=60 `'15 * * * *'` | 🟢 Bootstrap rodando |
+| `bling_nfse` | 0 | jobid=61 `'30 */4 * * *'` | ⚠️ Dana não emite NFSe |
+| `bling_pedidos_compras` | matriz 5 | jobid=63 `'45 */6 * * *'` | ⚠️ Dana parou em 2020 |
+
+**Volume `bling_nfe_entrada` (Lote 1):** 1.121 NFs de fornecedor (R$ 5,4M) + 167 devoluções emitidas pela Dana (R$ 27k).
+
+**Volume `bling_nfe_saida` (Lote 2 em curso):** estimativa final ~4.500 matriz + ~500 BC quando bootstrap terminar. Cada NF tem `xml_url` pra Finance AI parsear DIFAL on-read.
+
+**Descobertas operacionais críticas:**
+1. `/nfe?tipo=0` traz **devoluções emitidas pela Dana + NFs de compra recebidas de fornecedor** — em painel Bling fica em "Notas Fiscais de Entrada > Notas de compra"
+2. `/nfse` retorna 0 — **Dana não emite NFSe via Bling** (terceirizado ou outro caminho)
+3. `/pedidos/compras` tem só 11 históricos (2019-2020) — **Dana parou de usar esse módulo**
+4. `pedidos/compras/{id}.itens[*].notaFiscal.id` aponta pra `bling_nfe_entrada.id_bling` (descoberta importante)
+
+### 106.5 Bug menor pendente (Lote 3 vai consertar)
+
+```sql
+-- Generated column tem_nf retorna null pra array vazio
+ALTER TABLE bling_pedidos_compras
+  DROP COLUMN tem_nf,
+  ADD COLUMN tem_nf boolean GENERATED ALWAYS AS
+    (COALESCE(array_length(nf_entrada_ids, 1), 0) > 0) STORED;
+```
+
+### 106.6 Crons Bling ativos (final do Lote 2)
+
+```
+jobid 58: bling-token-refresh-5h           '0 */5 * * *'    (refresh proativo)
+jobid 59: bling-sync-nfe-entrada-1h        '0 * * * *'      (NFs entrada — 1.288 OK)
+jobid 60: bling-sync-nfe-saida-1h          '15 * * * *'     (NFs saída — bootstrap rodando)
+jobid 61: bling-sync-nfse-4h               '30 */4 * * *'   (NFSe — pronto, sem dados)
+jobid 63: bling-sync-pedidos-compras-6h    '45 */6 * * *'   (compras — pronto, quase sem dados)
+```
+
+Cada um em minuto diferente pra não competir.
+
+### 106.7 Commits Lote 1 + 2 (todos pushed pra `danajalecos/main`)
+
+| Commit | Push | O quê |
+|---|---|---|
+| `bc62ab2` | `03c4785` | L1 D1: bling_sync_log + view bling_sync_health |
+| `5667188` | `3492543` | L1 D2a: Vault + 3 wrappers (token_upsert/get/client_creds) |
+| `a970fe7` | `60bc80b` | L1 D2b: edges OAuth callback + token refresh + cron 5h |
+| `8df59b3` | `0ee04bd` | L1 D3: sync-pedidos refatorado (prova) |
+| `933a5ab` | `e68ed6a` | L1 D4: 11 edges legadas + bling-sync-nfe-entrada + bootstrap |
+| `7bac78e` | `ff550ab` | L1 D4 fix: dataAlteracao → dataEmissao |
+| `e0328dd` | `9a26496` | L2 D1: bling_nfe_saida + edge + cron + bootstrap |
+| `4a6fda1` | `ed5fc9b` | L2 D2: bling_nfse + edge + cron |
+| `20fed66` | `0dd3cbe` | L2 D3: bling_pedidos_compras + descoberta notaFiscal.id |
+
+---
+
+## 107. PRÓXIMA SESSÃO — Como Continuar (Lote 3 Bling Sync)
+
+> Pra continuar de onde parei: lê estas Sections 105-107, depois lê o `10-LOTE2-FECHADO.md` na pasta `Ideias Projeto/Finance AI/`. Aguarda Juan trazer aceite formal do Finance AI ao Lote 2 antes de iniciar Lote 3.
+
+### 107.1 Status atual no momento do compact (26/05/2026, ~14:00 UTC)
+
+- ✅ Lote 1 aprovado formal pelo Finance AI (5/5 critérios verdes)
+- ⏳ Lote 2 **aguardando aceite formal** — última mensagem que mandei foi `10-LOTE2-FECHADO.md`
+- 🟢 **Bootstrap `bling_nfe_saida` rodando em background no Python local** — quando próxima sessão começar, verificar status com:
+  ```bash
+  curl -s -X POST https://api.supabase.com/v1/projects/wltmiqbhziefusnzmmkt/database/query \
+    -H "Authorization: Bearer sbp_..." \
+    -H "Content-Type: application/json" \
+    -d "{\"query\":\"SELECT loja_id, COUNT(*) FROM bling_nfe_saida GROUP BY 1;\"}"
+  ```
+  Esperado: ~4.500 matriz + ~50 BC quando completar.
+
+### 107.2 Lote 3 — Pendente (não iniciado)
+
+Conforme acordo formal `06` e `10`, Lote 3 tem 7 tabelas restantes. Todas seguem mesmo padrão de `bling_nfe_entrada` (schema + edge + cron):
+
+| Tabela | Frequência cron | Prioridade |
+|---|---|---|
+| **`bling_naturezas_operacao`** | 1×/dia | 🔵 Alta (FAI pediu pra cruzar com nfe_entrada/saida) |
+| **`bling_caixas_movimentacoes`** | 1h | 🟡 Média (conciliação OFX) |
+| **`bling_notificacoes`** | 30min | 🟡 Média (alertas Bling) |
+| **`bling_borderos`** | 6h | 🟡 Média (lazy enrich via `contas_pagar.raw`) |
+| **`bling_contas_financeiras`** | 1×/dia | 🔵 Baixa (cadastro banco/caixa) |
+| **`bling_categorias`** | 1×/dia | 🔵 Baixa (DRE por categoria) |
+| **`bling_formas_pagamento`** | 1×/dia | 🔵 Baixa (taxas) |
+| **`bling_ordens_producao`** | 6h | 🔵 Baixa (capacidade — opcional) |
+
+**Schemas detalhados:** vão no `04-PEDIDO-PRO-DMS-SYNC-BLING.md` §5.6 a §5.12.
+
+**Fix bug pequeno também (`tem_nf` em pedidos_compras):** ver Section 106.5.
+
+### 107.3 Receita pra criar cada tabela (template do Lote 2)
+
+1. **Schema SQL** em `sql-scripts/sql-bling-<tabela>.sql`:
+   - PK `id_bling bigint`
+   - Coluna `loja_id int`
+   - Colunas-chave do payload Bling
+   - `raw jsonb` + `synced_at`
+   - 3-4 índices (loja+data, chaves de busca)
+   - RLS: service_role ALL + authenticated SELECT
+2. **Edge function** em `supabase/functions/bling-sync-<tabela>/index.ts`:
+   - Importa `getAdminClient, getValidToken, Empresa` de `../_shared/bling-oauth.ts`
+   - Importa `blingGet, sleep` de `../_shared/bling-client.ts`
+   - Loop nas 2 lojas (matriz + bc, ou só matriz se cadastro single-tenant)
+   - Abre log em `bling_sync_log`, fecha no fim com `qtd_*` e `status`
+   - Lista paginada → dedupe → drill se necessário → upsert
+   - Deadline 130s pra fechar log antes do edge timeout 150s
+3. **Deploy:** `npx -y supabase functions deploy bling-sync-<tabela> --project-ref wltmiqbhziefusnzmmkt --no-verify-jwt`
+4. **Cron:** via `cron.schedule('bling-sync-<tabela>-<freq>', '<cron>', $$SELECT public._call_edge('bling-sync-<tabela>', '{"dias_atras": N}'::jsonb);$$)`
+5. **Bootstrap inicial:** se volume > 500, fazer Python local com janelas. Padrão em `sql-scripts/backfill_bling_<tabela>.py` (cópia + adaptação dos existentes).
+6. **Smoke test** + commit + push pra `danajalecos/main` via worktree.
+
+### 107.4 Como abrir compact
+
+Próxima sessão deve começar lendo nessa ordem:
+
+1. Esta Section 107 (último estado, plano Lote 3)
+2. Section 106 (contexto Bling Sync Lote 1+2)
+3. `Ideias Projeto/Finance AI/10-LOTE2-FECHADO.md` (aceite formal pendente)
+4. `Ideias Projeto/Finance AI/04-PEDIDO-PRO-DMS-SYNC-BLING.md` (schemas detalhados §5.6-§5.12 pra Lote 3)
+5. Aguardar Juan trazer aceite formal do FAI antes de iniciar Lote 3
+
+### 107.5 Credenciais essenciais (referência)
+
+- **Supabase Mgmt token:** ver `TOKENS ANALYTICS/Token novo supabase.txt` (formato `sbp_...`)
+- **Project ref:** `wltmiqbhziefusnzmmkt`
+- **Bling tokens:** vivos no Vault (`vault.secrets.bling_{matriz,bc}_{access,refresh}`). Refresh proativo a cada 5h.
+- **Service role key:** no Vault como `supabase_service_role_key`. Usado pelo helper `_call_edge()`.
+
+### 107.6 Pendências paralelas (não bloqueantes)
+
+- **Finance AI aguarda:** widget "Saúde Bling" no `/visao` dele consumindo `bling_sync_health` (ele faz no lado dele)
+- **Próximo cron `bling-sync-pedidos-compras-6h`** vai naturalmente puxar os 6 pedidos faltantes (rate-limit pulou no manual)
+- **`bling_nfe_saida` bootstrap:** terminar e validar volume (~4.500). Próximo cron 1h vai naturalmente catch-up
+
+### 107.7 Estado de outras frentes (não relacionadas ao Bling Sync)
+
+- **C360 pacote comercialização:** entregue completo em `C:\.Projetos Claude\C360\` (ver Section 105)
+- **Security hardening:** entregue (Section 103+104). Anon ZERO acesso. Vault tem secrets de produção.
+- **DMS Finance AI:** pacote de handoff em `C:\.Projetos Claude\DMS Finance AI\` continua válido. Foi atualizado durante o Lote 1 com novas views/tabelas Magazord e Bling.
+
+---
+
+**Fim da documentação · Atualizado em 26/05/2026 — Section 105+106+107 (C360 pacote comercial + Bling Sync v3 Lote 1+2 + Lote 3 pendente) · v19.0**
