@@ -94,11 +94,12 @@ Deno.serve(async (req) => {
   const sb = getAdminClient();
 
   let dias_atras = 7;
+  let dias_atras_explicit = false;  // FAI msg 15 fix: respeitar param mesmo se ja tem dados
   let full = false;
   let drillExisting = false;  // se true, drilla TUDO (não só novos) — pra catch-up
   try {
     const b = await req.json();
-    if (b?.dias_atras) dias_atras = Math.min(Number(b.dias_atras), 365);
+    if (b?.dias_atras) { dias_atras = Math.min(Number(b.dias_atras), 365); dias_atras_explicit = true; }
     if (b?.full) full = true;
     if (b?.drillExisting) drillExisting = true;
   } catch { /* sem body */ }
@@ -127,6 +128,9 @@ Deno.serve(async (req) => {
       let desde: Date;
       if (full) {
         desde = new Date('2025-01-01T00:00:00Z');
+      } else if (dias_atras_explicit) {
+        // FAI msg 15 fix: respeita dias_atras mesmo se tabela ja tem dados
+        desde = new Date(Date.now() - dias_atras * 86400000);
       } else {
         const { data: maxRow } = await sb.from('bling_caixas_movimentacoes')
           .select('synced_at').eq('loja_id', loja_id)
