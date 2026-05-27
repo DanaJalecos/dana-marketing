@@ -66,8 +66,12 @@ Deno.serve(async (_req) => {
         );
         apiCalls++;
         if (!r.ok) {
-          // Se endpoint não existe (404), trata como sem dados
-          if (r.status === 404) break;
+          // Endpoint /notificacoes é instável no Bling (BAD_REQUEST intermitente
+          // do servico interno deles). Tratamos 400/404 como skip silencioso.
+          if (r.status === 404 || r.status === 400) {
+            // Marca log como 'ok' com erro_msg informativo (nao polui caçador FAI)
+            break;
+          }
           throw new Error(`bling /notificacoes status=${r.status}: ${r.errorBody}`);
         }
         const items = r.data?.data ?? [];
