@@ -6,6 +6,7 @@
 
 import { getAdminClient, getValidToken } from '../_shared/bling-oauth.ts';
 import { blingGet, sleep } from '../_shared/bling-client.ts';
+import { drillContas } from '../_shared/contas-drill.ts';
 
 const EMPRESA = 'matriz' as const;
 const LOJA_ID = 203536978;
@@ -70,12 +71,30 @@ Deno.serve(async (req) => {
       pageStart += pageBatch;
     }
 
+    // Drill /contas/pagar/{id} pra preencher forma_pagamento_id, conta_financeira_id, categoria_id
+    // (LIST nao traz). Pega IDs novos/sem drill da empresa.
+    const drillDeadline = t0 + 130_000;
+    let drillResult = { drilled: 0, deadline_hit: false, api_calls: 0 };
+    if (Date.now() < drillDeadline) {
+      const { data: pendentes } = await sb.from('contas_pagar')
+        .select('id').eq('empresa', EMPRESA).is('forma_pagamento_id', null)
+        .in('situacao', [1, 3, 5]).limit(200);
+      const ids = (pendentes ?? []).map(r => Number(r.id));
+      if (ids.length > 0) {
+        drillResult = await drillContas({
+          sb, token, tipo: 'pagar', tabela: 'contas_pagar',
+          ids, deadline_ms: drillDeadline, empresa: EMPRESA,
+        });
+        apiCalls += drillResult.api_calls;
+      }
+    }
+
     const duracao = Date.now() - t0;
     const duracaoSeg = Math.round(duracao / 1000);
 
     await sb.from('sync_log').insert({
       tabela: 'contas_pagar', registros: totalUpserted, status: 'ok',
-      detalhes: 'sit=' + situacao + ', ' + duracaoSeg + 's',
+      detalhes: 'sit=' + situacao + ', drill=' + drillResult.drilled + ', ' + duracaoSeg + 's',
     });
     if (logId) {
       await sb.from('bling_sync_log').update({
