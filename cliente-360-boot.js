@@ -5903,10 +5903,12 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
   }
 
   // ══════════════════════════════════════════════════════════
-  // 📥 POOL "Clientes sem vendedor" (Matriz)
-  // Visível pra vendedores da Matriz + admin/gerentes. O cliente
-  // vira do vendedor automaticamente quando ele mexe no status ou
-  // registra um contato (triggers no banco). Aqui é só a vitrine.
+  // 📥 POOL "Clientes sem vendedor" (respeita empresa do seletor)
+  // Visível pra vendedores + admin/gerentes. O cliente vira do
+  // vendedor automaticamente quando ele mexe no status ou registra
+  // um contato (triggers no banco). Aqui é só a vitrine.
+  // FIX (29/05): empresa dinamica (state.empresa) - antes era hardcode 'matriz'
+  // e vendedora BC (Camilli) via clientes da matriz.
   // ══════════════════════════════════════════════════════════
   let _mcPoolPag = 0, _mcPoolBusca = '', _mcPoolBuscaTimer = null;
   const _MC_POOL_PP = 25;
@@ -5916,6 +5918,15 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     return ['vendedor','vendedor_b2b','admin','gerente_comercial','gerente_marketing','gerente_financeiro'].includes(c);
   }
 
+  function _mcPoolEmpresa() {
+    // Empresa atual do seletor C360. Default: matriz.
+    return state.empresa === 'bc' ? 'bc' : 'matriz';
+  }
+
+  function _mcPoolEmpresaLabel() {
+    return _mcPoolEmpresa() === 'bc' ? 'Balneário' : 'Matriz';
+  }
+
   function mcRenderPoolWidget(defaultOpen) {
     if (!_mcPoolPodeVer()) return '';
     const aberto = defaultOpen ? '' : ' style="display:none"';
@@ -5923,7 +5934,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       <div id="mc-pool-widget" style="margin-top:6px;margin-bottom:14px;background:rgba(96,165,250,0.04);border:1px solid rgba(96,165,250,0.22);border-radius:10px;padding:12px 14px">
         <div onclick="window.c360PoolToggle()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
           <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:13.5px;font-weight:700;color:#93c5fd">📥 Clientes sem vendedor · Matriz</span>
+            <span style="font-size:13.5px;font-weight:700;color:#93c5fd">📥 Clientes sem vendedor · <span id="mc-pool-empresa-label">${_mcPoolEmpresaLabel()}</span></span>
             <span id="mc-pool-resumo" style="font-size:11px;color:#64748b">…</span>
           </div>
           <span id="mc-pool-toggle-icon" style="font-size:11px;color:#94a3b8">${defaultOpen ? '▼' : '▶'}</span>
@@ -5958,15 +5969,10 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     _mcPoolBuscaTimer = setTimeout(() => { _mcPoolPag = 0; mcLoadPoolWidget(); }, 280);
   };
 
-  // Abre cliente do pool. O pool é EXCLUSIVAMENTE Matriz (RPC chamado com
-  // p_empresa:'matriz' fixo), mas showClientDetail usa state.empresa. Se o
-  // usuário está com o seletor em BC, dava "não encontrado na empresa atual".
-  // Aqui forçamos o contexto Matriz antes de abrir.
+  // Abre cliente do pool. Pool segue a empresa atual (state.empresa) — não
+  // força mais matriz (fix 29/05 pra vendedora BC ver clientes BC).
   window.c360PoolAbrirCliente = async function(nome) {
     if (!nome) return;
-    if (state.empresa !== 'matriz' && typeof window.c360SetEmpresa === 'function') {
-      await window.c360SetEmpresa('matriz');
-    }
     if (typeof window.showClientDetail === 'function') {
       await window.showClientDetail(encodeURIComponent(nome));
     }
@@ -5977,12 +5983,16 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     const resumoEl = document.getElementById('mc-pool-resumo');
     if (!cont) return;
     try {
+      const empPool = _mcPoolEmpresa();
       const { data, error } = await state.sb.rpc('clientes_sem_vendedor', {
-        p_empresa: 'matriz',
+        p_empresa: empPool,
         p_busca: _mcPoolBusca || null,
         p_offset: _mcPoolPag * _MC_POOL_PP,
         p_limit: _MC_POOL_PP,
       });
+      // Atualiza label da empresa caso usuário tenha trocado o seletor
+      const labelEl = document.getElementById('mc-pool-empresa-label');
+      if (labelEl) labelEl.textContent = _mcPoolEmpresaLabel();
       if (error) throw error;
       const linhas = Array.isArray(data) ? data : [];
       const total = linhas.length ? Number(linhas[0].total_count || 0) : 0;
@@ -6020,7 +6030,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
       cont.innerHTML = `
         <div style="padding-top:8px;font-size:10.5px;color:#64748b;font-style:italic;margin-bottom:8px">
-          💡 Clientes da Matriz sem nenhum vendedor. Abra um e <strong style="color:#93c5fd">mude o status</strong> ou <strong style="color:#93c5fd">registre um contato</strong> — ele vira <strong>automaticamente seu</strong> (e todas as compras dele passam a contar pra sua carteira). Primeiro que pega, leva.
+          💡 Clientes de <strong>${_mcPoolEmpresaLabel()}</strong> sem nenhum vendedor. Abra um e <strong style="color:#93c5fd">mude o status</strong> ou <strong style="color:#93c5fd">registre um contato</strong> — ele vira <strong>automaticamente seu</strong> (e todas as compras dele passam a contar pra sua carteira). Primeiro que pega, leva.
         </div>
         <input id="mc-pool-busca" type="text" placeholder="🔍 Buscar cliente sem vendedor por nome…" value="${escapeHtml(_mcPoolBusca)}" oninput="window.c360PoolBusca(this.value)" style="width:100%;box-sizing:border-box;padding:7px 10px;margin-bottom:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#e2e8f0;font-size:12px;outline:none">
         <div>${total===0 ? '<div style="padding:18px;text-align:center;color:#64748b;font-size:12px">🎉 Nenhum cliente sem vendedor'+(_mcPoolBusca?' com esse nome':'')+'</div>' : rows}</div>
