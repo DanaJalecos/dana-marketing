@@ -25,11 +25,13 @@ Deno.serve(async (req) => {
   }).select('id').single();
   const logId = logRow?.id ?? null;
 
-  let totalUpserted = 0, apiCalls = 0;
+  let totalLidos = 0, totalInseridos = 0, totalAtualizados = 0, apiCalls = 0;
   try {
     const token = await getValidToken(sb, EMPRESA);
     let pageStart = 1;
-    while (pageStart <= 20) {
+    // FIX msg 19: cap antigo 21 paginas. Subiu pra 300 + deadline.
+    const listDeadline = t0 + 110_000;
+    while (pageStart <= 300 && Date.now() < listDeadline) {
       const pages = [pageStart, pageStart + 1, pageStart + 2];
       const results = await Promise.all(pages.map(p => blingGet<{ data?: BlingContaPagar[] }>(
         token, '/contas/pagar', { pagina: p, limite: 100, situacao })));
@@ -45,13 +47,20 @@ Deno.serve(async (req) => {
         }
       }
       if (todasLinhas.length) {
+        totalLidos += todasLinhas.length;
+        const ids = todasLinhas.map(c => c.id);
+        const { data: existentes } = await sb.from('contas_pagar').select('id').in('id', ids);
+        const existSet = new Set((existentes ?? []).map(e => Number(e.id)));
+        const novosCount = todasLinhas.filter(c => !existSet.has(Number(c.id))).length;
+        totalInseridos += novosCount;
+        totalAtualizados += todasLinhas.length - novosCount;
         const { error } = await sb.from('contas_pagar').upsert(todasLinhas, { onConflict: 'id' });
         if (error) throw new Error(`upsert: ${error.message}`);
-        totalUpserted += todasLinhas.length;
       }
       if (!(results[results.length - 1].data?.data?.length)) break;
       pageStart += 3;
     }
+    const totalUpserted = totalLidos;
     // Drill /contas/pagar/{id} pra preencher forma_pagamento_id/conta_financeira_id/categoria_id
     const drillDeadline = t0 + 130_000;
     let drillResult = { drilled: 0, deadline_hit: false, api_calls: 0 };
@@ -76,7 +85,8 @@ Deno.serve(async (req) => {
     });
     if (logId) await sb.from('bling_sync_log').update({
       finalizado_em: new Date().toISOString(), duracao_ms: dur,
-      qtd_lidos: totalUpserted, qtd_atualizados: totalUpserted, status: 'ok', api_calls: apiCalls,
+      qtd_lidos: totalLidos, qtd_inseridos: totalInseridos, qtd_atualizados: totalAtualizados,
+      status: 'ok', api_calls: apiCalls,
       erro_msg: 'situacao=' + situacao,
     }).eq('id', logId);
     return new Response(JSON.stringify({ ok: true, empresa: EMPRESA, situacao, registros: totalUpserted, duracao_seg: Math.round(dur / 1000) }),

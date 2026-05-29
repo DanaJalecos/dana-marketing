@@ -29,15 +29,17 @@ Deno.serve(async (req) => {
   }).select('id').single();
   const logId = logRow?.id ?? null;
 
-  let totalUpserted = 0;
-  let apiCalls = 0;
+  let totalLidos = 0, totalInseridos = 0, totalAtualizados = 0, apiCalls = 0;
 
   try {
     const token = await getValidToken(sb, EMPRESA);
     let pageStart = 1;
     const pageBatch = 3;
 
-    while (pageStart <= 20) {
+    // FIX bug msg 19: cap antigo pageStart<=20 com +=3 = 21 paginas (2100 itens).
+    // Bling tem 30-100 paginas em sit=1. Subi cap pra 300 + deadline 110s.
+    const listDeadline = t0 + 110_000;
+    while (pageStart <= 300 && Date.now() < listDeadline) {
       const pages = Array.from({ length: pageBatch }, (_, i) => pageStart + i);
       const results = await Promise.all(
         pages.map(p => blingGet<{ data?: BlingContaPagar[] }>(
@@ -61,15 +63,22 @@ Deno.serve(async (req) => {
       }
 
       if (todasLinhas.length > 0) {
+        totalLidos += todasLinhas.length;
+        const ids = todasLinhas.map(c => c.id);
+        const { data: existentes } = await sb.from('contas_pagar').select('id').in('id', ids);
+        const existSet = new Set((existentes ?? []).map(e => Number(e.id)));
+        const novosCount = todasLinhas.filter(c => !existSet.has(Number(c.id))).length;
+        totalInseridos += novosCount;
+        totalAtualizados += todasLinhas.length - novosCount;
         const { error } = await sb.from('contas_pagar').upsert(todasLinhas, { onConflict: 'id' });
         if (error) throw new Error(`upsert contas_pagar: ${error.message}`);
-        totalUpserted += todasLinhas.length;
       }
 
       // Última página retornou vazio? para
       if (!(results[results.length - 1].data?.data?.length)) break;
       pageStart += pageBatch;
     }
+    const totalUpserted = totalLidos;
 
     // Drill /contas/pagar/{id} pra preencher forma_pagamento_id, conta_financeira_id, categoria_id
     // (LIST nao traz). Pega IDs novos/sem drill da empresa.
@@ -99,7 +108,7 @@ Deno.serve(async (req) => {
     if (logId) {
       await sb.from('bling_sync_log').update({
         finalizado_em: new Date().toISOString(), duracao_ms: duracao,
-        qtd_lidos: totalUpserted, qtd_atualizados: totalUpserted,
+        qtd_lidos: totalLidos, qtd_inseridos: totalInseridos, qtd_atualizados: totalAtualizados,
         status: 'ok', api_calls: apiCalls,
         erro_msg: 'situacao=' + situacao,  // metadata informativa
       }).eq('id', logId);
