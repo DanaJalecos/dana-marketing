@@ -73,15 +73,25 @@ def bling_get_conta(tipo, conta_id, bling_token, retry=0):
         print(f"  [bling err {e.code}] {tipo}/{conta_id}")
         return None
 
-def backfill(empresa, tipo, tabela, sr_key):
-    print(f"\n[{empresa}/{tipo}] === ===")
+def backfill(empresa, tipo, tabela, sr_key, prioridade='abertos'):
+    """prioridade: 'abertos' | 'pagos_60d' | 'pagos_resto'"""
+    print(f"\n[{empresa}/{tipo}/{prioridade}] === ===")
+    if prioridade == 'abertos':
+        where = "situacao IN (1, 3, 5)"
+        order = "vencimento DESC"
+    elif prioridade == 'pagos_60d':
+        where = "situacao = 2 AND vencimento >= CURRENT_DATE - 60"
+        order = "vencimento DESC"
+    else:
+        where = "situacao NOT IN (1, 3, 5) AND (situacao <> 2 OR vencimento < CURRENT_DATE - 60)"
+        order = "vencimento DESC"
     rows = mgmt_query(
         f"SELECT id FROM {tabela} WHERE empresa='{empresa}' "
-        f"AND forma_pagamento_id IS NULL AND situacao IN (1, 3, 5) "
-        f"ORDER BY vencimento DESC;"
+        f"AND forma_pagamento_id IS NULL AND {where} "
+        f"ORDER BY {order};"
     )
     ids = [int(r["id"]) for r in rows]
-    print(f"[{empresa}/{tipo}] {len(ids)} abertas pra drillar")
+    print(f"[{empresa}/{tipo}/{prioridade}] {len(ids)} pra drillar")
     if not ids: return
 
     token = get_bling_token(empresa)
@@ -125,14 +135,16 @@ def backfill(empresa, tipo, tabela, sr_key):
 def main():
     sr_key = get_service_role_key()
     print(f"service_role OK ({sr_key[:30]}...)")
-    # Ordem: receber primeiro (mais critico p/ caçador FAI), pagar depois
-    for (empresa, tipo, tabela) in [
+    # FAI msg 20: priorizar abertos -> pagos 60d -> resto
+    combinacoes = [
         ('matriz', 'receber', 'contas_receber'),
         ('bc',     'receber', 'contas_receber'),
         ('matriz', 'pagar',   'contas_pagar'),
-        # bc/pagar: 0 registros (Dana consolida em matriz)
-    ]:
-        backfill(empresa, tipo, tabela, sr_key)
+    ]
+    for prio in ['abertos', 'pagos_60d', 'pagos_resto']:
+        print(f"\n{'='*60}\nPRIORIDADE: {prio}\n{'='*60}")
+        for (empresa, tipo, tabela) in combinacoes:
+            backfill(empresa, tipo, tabela, sr_key, prioridade=prio)
     print("\n[ALL DONE]")
 
 if __name__ == "__main__":

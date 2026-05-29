@@ -28,14 +28,15 @@ Deno.serve(async (req) => {
   }).select('id').single();
   const logId = logRow?.id ?? null;
 
-  let totalLidos = 0, totalInseridos = 0, totalAtualizados = 0, apiCalls = 0;
+  let totalLidos = 0, totalInseridos = 0, totalAtualizados = 0, drillsInline = 0, apiCalls = 0;
   try {
     const token = await getValidToken(sb, EMPRESA);
-    // FIX bug msg 19: cap antigo era pageStart<=20 com +=3 = 21 páginas (2.100 itens).
-    // Bling tem ate 70-100 páginas em situação=1. Subi cap pra 300 (30k itens) + deadline.
-    const listDeadline = t0 + 110_000;
+    // FIX msg 20: drill INLINE dos novos no batch (nao depende de tempo sobrando no fim).
+    // Cada batch de 3 paginas: LIST -> upsert -> drill imediato dos novos -> proxima
+    // pagina. Deadline 130s pro edge inteiro.
+    const edgeDeadline = t0 + 130_000;
     let pageStart = 1;
-    while (pageStart <= 300 && Date.now() < listDeadline) {
+    while (pageStart <= 300 && Date.now() < edgeDeadline) {
       const pages = [pageStart, pageStart + 1, pageStart + 2];
       const results = await Promise.all(pages.map(p => blingGet<{ data?: BlingContaReceber[] }>(
         token, '/contas/receber', { pagina: p, limite: 100, situacao })));
@@ -53,38 +54,41 @@ Deno.serve(async (req) => {
           });
         }
       }
+      let idsParaDrill: number[] = [];
       if (todasLinhas.length) {
         totalLidos += todasLinhas.length;
-        // qtd_inseridos: conta quantos ids ainda não existem no banco antes do upsert
+        // Identifica novos + ja-existentes-sem-forma (drill defensivo)
         const ids = todasLinhas.map(c => c.id);
-        const { data: existentes } = await sb.from('contas_receber').select('id').in('id', ids);
-        const existSet = new Set((existentes ?? []).map(e => Number(e.id)));
-        const novosCount = todasLinhas.filter(c => !existSet.has(Number(c.id))).length;
+        const { data: existentes } = await sb.from('contas_receber')
+          .select('id, forma_pagamento_id').in('id', ids);
+        const existMap = new Map<number, number | null>();
+        for (const e of (existentes ?? [])) existMap.set(Number(e.id), e.forma_pagamento_id as number | null);
+        const novosCount = ids.filter(id => !existMap.has(Number(id))).length;
         totalInseridos += novosCount;
         totalAtualizados += todasLinhas.length - novosCount;
+        // drillar: novos OU existentes sem forma_pagamento_id
+        idsParaDrill = ids.filter(id => {
+          const fp = existMap.get(Number(id));
+          return fp === undefined || fp === null;
+        });
         const { error } = await sb.from('contas_receber').upsert(todasLinhas, { onConflict: 'id' });
         if (error) throw new Error(`upsert: ${error.message}`);
+      }
+      // Drill INLINE no batch atual
+      if (idsParaDrill.length > 0 && Date.now() < edgeDeadline) {
+        const drillR = await drillContas({
+          sb, token, tipo: 'receber', tabela: 'contas_receber',
+          ids: idsParaDrill, deadline_ms: edgeDeadline, empresa: EMPRESA,
+        });
+        drillsInline += drillR.drilled;
+        apiCalls += drillR.api_calls;
+        if (drillR.deadline_hit) break;
       }
       if (!(results[results.length - 1].data?.data?.length)) break;
       pageStart += 3;
     }
     const totalUpserted = totalLidos;
-    // Drill /contas/receber/{id} pra preencher forma_pagamento_id/conta_financeira_id/categoria_id
-    const drillDeadline = t0 + 130_000;
-    let drillResult = { drilled: 0, deadline_hit: false, api_calls: 0 };
-    if (Date.now() < drillDeadline) {
-      const { data: pendentes } = await sb.from('contas_receber')
-        .select('id').eq('empresa', EMPRESA).is('forma_pagamento_id', null)
-        .in('situacao', [1, 3, 5]).limit(200);
-      const ids = (pendentes ?? []).map(r => Number(r.id));
-      if (ids.length > 0) {
-        drillResult = await drillContas({
-          sb, token, tipo: 'receber', tabela: 'contas_receber',
-          ids, deadline_ms: drillDeadline, empresa: EMPRESA,
-        });
-        apiCalls += drillResult.api_calls;
-      }
-    }
+    const drillResult = { drilled: drillsInline, deadline_hit: false };
 
     const dur = Date.now() - t0;
     await sb.from('sync_log').insert({
