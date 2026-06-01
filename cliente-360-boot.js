@@ -124,12 +124,28 @@
         b.style.color = 'rgba(255,255,255,0.7)';
         b.style.borderColor = 'rgba(255,255,255,0.1)';
       }
+      // FIX 29/05: vendedor restrito a 1 empresa nao pode clicar na outra
+      if (state.empresaUnica && emp !== state.empresaUnica) {
+        b.style.opacity = '0.35';
+        b.style.cursor = 'not-allowed';
+        b.title = 'Você está vinculado apenas a ' + (state.empresaUnica === 'bc' ? 'Balneário' : 'Matriz');
+      } else {
+        b.style.opacity = '';
+        b.style.cursor = '';
+        b.title = '';
+      }
     });
   }
 
   window.c360SetEmpresa = async function(emp) {
     if (emp !== 'matriz' && emp !== 'bc') return;
     if (emp === state.empresa) return;
+    // FIX 29/05: vendedor vinculado a UMA empresa nao pode trocar (Camilli BC nao
+    // ve dados de matriz). Admin/gerente nao tem essa restricao.
+    if (state.empresaUnica && state.empresaUnica !== emp) {
+      console.warn('[c360] vendedor restrito a empresa', state.empresaUnica, '- ignorando troca pra', emp);
+      return;
+    }
     state.empresa = emp;
     localStorage.setItem('c360_empresa', emp);
     updateEmpresaToggleUI();
@@ -5355,6 +5371,22 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     if (!profile) { console.warn('[mc] mcLoadPerms: sem profile (nao cacheia)'); return { meus_clientes: false, c360Tabs: {}, _degradado: true }; }
     // Expõe profile no state pra funções de UI usarem (rankings, modal meta, etc)
     state.profile = profile;
+    // FIX 29/05: vendedor (cargo='vendedor' ou 'vendedor_b2b') é vinculado a UMA
+    // empresa via vendedor_mapping. Default deve seguir essa empresa (não 'matriz').
+    // Pra Camilli BC: força BC mesmo se localStorage estava em matriz.
+    if (profile.cargo === 'vendedor' || profile.cargo === 'vendedor_b2b') {
+      const { data: vmaps } = await state.sb.from('vendedor_mapping')
+        .select('empresa').eq('profile_id', profile.id).eq('ativo', true);
+      const empresas = [...new Set((vmaps || []).map(m => m.empresa))];
+      if (empresas.length === 1) {
+        state.empresaUnica = empresas[0];  // bloqueia troca no toggle
+        if (state.empresa !== empresas[0]) {
+          state.empresa = empresas[0];
+          localStorage.setItem('c360_empresa', empresas[0]);
+          if (typeof updateEmpresaToggleUI === 'function') updateEmpresaToggleUI();
+        }
+      }
+    }
     // Busca TODAS permissoes relevantes do cargo de uma vez
     const { data: perms } = await state.sb.from('cargo_permissoes')
       .select('secao, permitido').eq('cargo', profile.cargo)
