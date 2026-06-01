@@ -150,6 +150,7 @@
     localStorage.setItem('c360_empresa', emp);
     updateEmpresaToggleUI();
     state.page = 0;
+    state.linhas = null; // linhas dependem da empresa — recarrega na próxima leitura
     await Promise.all([loadClientes(), loadDashboardResumo()]);
     // Re-renderiza segmentos se for a aba ativa (a funcao é definida adiante)
     if (typeof window.c360ReRenderSegmentosIfActive === 'function') {
@@ -158,6 +159,10 @@
     // Re-renderiza campanhas se for a aba ativa
     if (typeof window.c360ReRenderCampanhasIfActive === 'function') {
       await window.c360ReRenderCampanhasIfActive();
+    }
+    // Re-renderiza linhas se for a aba ativa
+    if (typeof window.c360ReRenderLinhasIfActive === 'function') {
+      await window.c360ReRenderLinhasIfActive();
     }
     // Re-renderiza meus clientes se for a aba ativa
     if (typeof window.c360McReRenderIfActive === 'function') {
@@ -3934,6 +3939,7 @@
       origShowPage(id);
       if (id === 'segmentos') renderSegmentosPage();
       if (id === 'campanhas') renderCampanhasPage();
+      if (id === 'linhas') renderLinhasPage();
       if (id === 'sincronizacao') renderSincronizacaoPage();
       if (id === 'configuracoes') renderConfiguracoesPage();
       if (id === 'logs') renderLogsPage();
@@ -4067,6 +4073,320 @@
     return state.campanhas;
   }
 
+  // ══════════════════════════════════════════════════════════
+  // LINHAS DE PRODUTO · campanhas por linha (palavra no nome + overrides)
+  // ══════════════════════════════════════════════════════════
+  state.linhas = null;
+
+  async function loadLinhas() {
+    const { data, error } = await state.sb
+      .from('produto_linhas').select('*')
+      .in('empresa', [state.empresa, 'ambas'])
+      .order('created_at', { ascending: false });
+    if (error) { console.warn('[c360 linha] load:', error); state.linhas = state.linhas || []; return state.linhas; }
+    state.linhas = data || [];
+    return state.linhas;
+  }
+
+  // Resolve clientes que compraram a linha. RPC casa por descricao/codigo e devolve
+  // contato_nome; intersetamos com state.clientes pra recuperar contato_id/telefone/uf.
+  async function clientesDaLinha(linha, cruzarNome) {
+    if (!linha) return [];
+    const emp = linha.empresa === 'ambas' ? state.empresa : linha.empresa;
+    const { data, error } = await state.sb.rpc('clientes_por_linha', {
+      p_termos: linha.termos || [],
+      p_excluir_termos: linha.excluir_termos || [],
+      p_incluir_codigos: linha.incluir_codigos || [],
+      p_excluir_codigos: linha.excluir_codigos || [],
+      p_empresa: emp,
+      p_limite: 5000,
+    });
+    if (error) { console.warn('[c360 linha] clientes:', error); return []; }
+    const nomes = new Set((data || []).map(r => r.contato_nome));
+    let alvo = (state.clientes || []).filter(c => nomes.has(c.contato_nome));
+    if (cruzarNome) alvo = alvo.filter(c => c.segmento === cruzarNome);
+    return alvo;
+  }
+
+  async function renderLinhasPage() {
+    const page = document.getElementById('page-linhas');
+    if (!page) return;
+    page.innerHTML = '<div style="padding:40px;text-align:center;color:rgba(255,255,255,0.5)">⏳ Carregando linhas...</div>';
+    await loadLinhas();
+
+    const card = (l) => {
+      const termos = (l.termos || []).map(t => `<span style="font-size:10.5px;padding:2px 8px;border-radius:10px;background:rgba(167,139,250,0.15);color:#c4b5fd">${escapeHtml(t)}</span>`).join('');
+      const over = ((l.incluir_codigos||[]).length + (l.excluir_codigos||[]).length);
+      return `
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(167,139,250,0.25);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:10px;font-family:inherit">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div style="min-width:0;flex:1">
+            <div style="font-size:15px;font-weight:700;color:#f1f5f9">${escapeHtml(l.nome)}</div>
+            ${l.descricao ? `<div style="font-size:11.5px;color:#94a3b8;margin-top:3px">${escapeHtml(l.descricao)}</div>` : ''}
+            <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px">${termos || '<span style="font-size:10.5px;color:#64748b">sem palavras</span>'}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:20px;font-weight:700;color:#f1f5f9;line-height:1">${fmtNum(l.total_clientes_cache || 0)}</div>
+            <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px">clientes</div>
+          </div>
+        </div>
+        <div style="font-size:10.5px;color:#64748b;display:flex;justify-content:space-between;gap:6px">
+          <span>${fmtNum(l.total_produtos_cache || 0)} produtos${over ? ' · '+over+' ajuste(s)' : ''}</span>
+          <span>${EMPRESA_LABELS[l.empresa] || l.empresa}</span>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:2px">
+          <button onclick="c360EditLinha('${l.id}')" style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);color:#e2e8f0;cursor:pointer;font-size:11.5px">✏ Editar</button>
+          <button onclick="c360DeleteLinha('${l.id}')" style="padding:6px 10px;border-radius:6px;border:1px solid rgba(239,68,68,0.25);background:transparent;color:#ef4444;cursor:pointer;font-size:11.5px">🗑</button>
+        </div>
+      </div>`;
+    };
+
+    page.innerHTML = `
+<div style="padding:24px;max-width:1400px;margin:0 auto">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;flex-wrap:wrap;gap:12px">
+    <div>
+      <h1 style="margin:0 0 6px;font-size:28px;font-weight:700;color:#f1f5f9;font-family:'Playfair Display',serif">Linhas de Produto</h1>
+      <div style="font-size:13px;color:#94a3b8">Defina linhas por palavra no nome e use em campanhas · ${EMPRESA_LABELS[state.empresa] || state.empresa}</div>
+    </div>
+    <button onclick="c360NovaLinha()" style="padding:10px 18px;border-radius:8px;border:1px solid oklch(88% 0.018 80 / 0.5);background:oklch(88% 0.018 80 / 0.12);color:oklch(88% 0.018 80);cursor:pointer;font-size:13px;font-weight:600">+ Nova Linha</button>
+  </div>
+  <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:12px 16px;margin-bottom:20px;display:flex;align-items:flex-start;gap:10px;font-size:12px;color:#cbd5e1">
+    <div style="font-size:18px">💡</div>
+    <div><strong style="color:#f1f5f9">Como funciona.</strong> Escreva uma palavra (ex: <code>tec easy</code>) e o sistema acha os produtos e quem comprou. Confira a prévia e ajuste produtos avulsos se precisar. Depois é só mirar a linha numa <strong>Campanha</strong>.</div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px">
+    ${(state.linhas||[]).length === 0
+      ? '<div style="grid-column:1/-1;padding:40px;text-align:center;color:#64748b;background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.1);border-radius:12px"><div style="font-size:24px;margin-bottom:8px">🏷️</div><div style="font-size:13px;color:#e2e8f0">Nenhuma linha cadastrada</div><div style="font-size:11.5px;margin-top:4px">Clique em "+ Nova Linha" pra começar.</div></div>'
+      : (state.linhas||[]).map(card).join('')}
+  </div>
+</div>`;
+  }
+
+  window.c360ReRenderLinhasIfActive = async function() {
+    const active = document.querySelector('.page-section.active');
+    if (active?.id === 'page-linhas') await renderLinhasPage();
+  };
+
+  window.c360NovaLinha = function() { openLinhaModal(null); };
+  window.c360EditLinha = function(id) {
+    const l = (state.linhas || []).find(x => String(x.id) === String(id));
+    if (l) openLinhaModal(l);
+  };
+
+  let _LM = null; // estado do modal de linha
+
+  function openLinhaModal(linha) {
+    ensureCampanhasCSS();
+    document.getElementById('c360-linha-modal')?.remove();
+    const isEdit = !!linha;
+    _LM = {
+      id: isEdit ? linha.id : null,
+      empresa: isEdit ? linha.empresa : state.empresa,
+      termos: [...((linha && linha.termos) || [])],
+      excluir_termos: [...((linha && linha.excluir_termos) || [])],
+      incluir_codigos: [...((linha && linha.incluir_codigos) || [])],
+      excluir_codigos: [...((linha && linha.excluir_codigos) || [])],
+      produtos: [], _catalogo: null, _clientes: null,
+    };
+    const html = `
+    <div id="c360-linha-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;font-family:Inter,sans-serif">
+      <div style="background:#0b0f17;border:1px solid rgba(255,255,255,0.12);border-radius:14px;width:100%;max-width:680px;max-height:90vh;overflow-y:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);position:sticky;top:0;background:#0b0f17;z-index:2">
+          <h3 style="margin:0;font-size:16px;font-weight:700;color:#f1f5f9">${isEdit ? 'Editar' : 'Nova'} Linha de Produto</h3>
+          <button onclick="document.getElementById('c360-linha-modal').remove()" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:22px;line-height:1">&times;</button>
+        </div>
+        <div style="padding:18px 20px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px">
+            <div>
+              <label style="display:block;font-size:11px;color:#94a3b8;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px">Nome da linha *</label>
+              <input id="linha-nome" type="text" value="${escapeHtml((linha && linha.nome) || '')}" placeholder="Ex: Tec Easy" style="width:100%;padding:9px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#f1f5f9;font-size:13px;font-family:inherit">
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;color:#94a3b8;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px">Empresa</label>
+              <select id="linha-empresa" onchange="window._linhaPreview()" style="width:100%;padding:9px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#f1f5f9;font-size:13px;font-family:inherit">
+                <option value="matriz" ${_LM.empresa==='matriz'?'selected':''}>Matriz</option>
+                <option value="bc" ${_LM.empresa==='bc'?'selected':''}>BC</option>
+                <option value="ambas" ${_LM.empresa==='ambas'?'selected':''}>Ambas</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;color:#94a3b8;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px">Descrição</label>
+            <input id="linha-desc" type="text" value="${escapeHtml((linha && linha.descricao) || '')}" placeholder="(opcional)" style="width:100%;padding:9px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#f1f5f9;font-size:13px;font-family:inherit">
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;color:#94a3b8;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px">Palavras da linha * <span style="color:#64748b;font-size:10px;text-transform:none">(Enter pra adicionar)</span></label>
+            <div id="linha-termos-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+            <input id="linha-termo-input" type="text" placeholder="Ex: tec easy" onkeydown="if(event.key==='Enter'){event.preventDefault();window._linhaAddTermo('termos');}" style="width:100%;padding:9px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#f1f5f9;font-size:13px;font-family:inherit">
+          </div>
+          <details style="border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:8px 12px">
+            <summary style="cursor:pointer;font-size:11.5px;color:#94a3b8">Avançado · excluir palavras (falso-positivo)</summary>
+            <div style="margin-top:8px">
+              <div id="linha-exc-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+              <input id="linha-exc-input" type="text" placeholder="Ex: kit" onkeydown="if(event.key==='Enter'){event.preventDefault();window._linhaAddTermo('excluir_termos');}" style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#f1f5f9;font-size:12.5px;font-family:inherit">
+            </div>
+          </details>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button onclick="window._linhaPreview()" style="padding:9px 16px;border-radius:6px;border:1px solid rgba(167,139,250,0.4);background:rgba(167,139,250,0.12);color:#c4b5fd;cursor:pointer;font-size:12.5px;font-weight:600">🔍 Atualizar prévia</button>
+            <button onclick="window._linhaAddProdutoManual()" style="padding:9px 14px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.03);color:#e2e8f0;cursor:pointer;font-size:12.5px">+ Produto avulso</button>
+            <div id="linha-preview-count" style="font-size:12px;color:#94a3b8"></div>
+          </div>
+          <div id="linha-preview-list" style="max-height:240px;overflow-y:auto;border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:6px;display:none"></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid rgba(255,255,255,0.08);position:sticky;bottom:0;background:#0b0f17">
+          <button onclick="document.getElementById('c360-linha-modal').remove()" style="padding:9px 18px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:#e2e8f0;cursor:pointer;font-size:13px;font-family:inherit">Cancelar</button>
+          <button onclick="c360SaveLinha()" style="padding:9px 22px;border-radius:6px;border:none;background:oklch(88% 0.018 80);color:oklch(9% 0.008 260);cursor:pointer;font-size:13px;font-weight:600;font-family:inherit">${isEdit ? 'Atualizar' : 'Criar'}</button>
+        </div>
+      </div>
+    </div>`;
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    document.body.appendChild(div.firstElementChild);
+    window._linhaRenderChips();
+    if (isEdit && (_LM.termos.length || _LM.incluir_codigos.length)) window._linhaPreview();
+  }
+
+  window._linhaRenderChips = function() {
+    const mk = (arr, tipo) => arr.map((t,i) => `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:3px 9px;border-radius:12px;background:rgba(167,139,250,0.15);color:#c4b5fd">${escapeHtml(t)} <span onclick="window._linhaDelTermo('${tipo}',${i})" style="cursor:pointer;font-weight:700">×</span></span>`).join('');
+    const t = document.getElementById('linha-termos-chips'); if (t) t.innerHTML = mk(_LM.termos,'termos') || '<span style="font-size:11px;color:#64748b">nenhuma palavra ainda</span>';
+    const e = document.getElementById('linha-exc-chips'); if (e) e.innerHTML = mk(_LM.excluir_termos,'excluir_termos');
+  };
+
+  window._linhaAddTermo = function(tipo) {
+    const inpId = tipo === 'termos' ? 'linha-termo-input' : 'linha-exc-input';
+    const inp = document.getElementById(inpId);
+    const v = (inp && inp.value || '').trim().toLowerCase();
+    if (v && !_LM[tipo].includes(v)) _LM[tipo].push(v);
+    if (inp) inp.value = '';
+    window._linhaRenderChips();
+  };
+
+  window._linhaDelTermo = function(tipo, idx) {
+    _LM[tipo].splice(idx, 1);
+    window._linhaRenderChips();
+  };
+
+  window._linhaAddProdutoManual = function() {
+    window._modalFiltroSelecionarHandler = (produto) => {
+      const cod = produto && produto.sku_ref;
+      if (cod && !_LM.incluir_codigos.includes(cod)) _LM.incluir_codigos.push(cod);
+      _LM.excluir_codigos = _LM.excluir_codigos.filter(c => c !== cod);
+      window._linhaPreview();
+    };
+    window.abrirModalFiltroProduto();
+  };
+
+  window._linhaToggleExcluirProduto = function(codigo) {
+    if (!codigo) return;
+    if (_LM.excluir_codigos.includes(codigo)) {
+      _LM.excluir_codigos = _LM.excluir_codigos.filter(c => c !== codigo);
+    } else {
+      _LM.excluir_codigos.push(codigo);
+      _LM.incluir_codigos = _LM.incluir_codigos.filter(c => c !== codigo);
+    }
+    window._linhaPreview();
+  };
+
+  window._linhaPreview = async function() {
+    const empresa = document.getElementById('linha-empresa')?.value || _LM.empresa;
+    _LM.empresa = empresa;
+    const emp = empresa === 'ambas' ? state.empresa : empresa;
+    const countEl = document.getElementById('linha-preview-count');
+    const listEl = document.getElementById('linha-preview-list');
+    if (_LM.termos.length === 0 && _LM.incluir_codigos.length === 0) {
+      if (countEl) countEl.textContent = 'adicione ao menos 1 palavra';
+      if (listEl) listEl.style.display = 'none';
+      return;
+    }
+    if (countEl) countEl.textContent = '⏳ calculando…';
+    const args = {
+      p_termos: _LM.termos, p_excluir_termos: _LM.excluir_termos,
+      p_incluir_codigos: _LM.incluir_codigos, p_excluir_codigos: _LM.excluir_codigos,
+      p_empresa: emp,
+    };
+    const [prodRes, cliRes] = await Promise.all([
+      state.sb.rpc('produtos_da_linha', args),
+      state.sb.rpc('clientes_por_linha', { ...args, p_limite: 5000 }),
+    ]);
+    if (prodRes.error) console.warn('[c360 linha] produtos:', prodRes.error);
+    if (cliRes.error) console.warn('[c360 linha] clientes:', cliRes.error);
+    const produtos = prodRes.data || [];
+    const nomes = new Set((cliRes.data || []).map(r => r.contato_nome));
+    const clientes = (state.clientes || []).filter(c => nomes.has(c.contato_nome)).length;
+    _LM.produtos = produtos; _LM._catalogo = produtos.length; _LM._clientes = clientes;
+    if (countEl) countEl.innerHTML = `<strong style="color:#f1f5f9">${fmtNum(produtos.length)}</strong> produtos · <strong style="color:#f1f5f9">${fmtNum(clientes)}</strong> clientes`;
+    if (listEl) {
+      listEl.style.display = 'block';
+      listEl.innerHTML = produtos.slice(0, 300).map(p => {
+        const excl = _LM.excluir_codigos.includes(p.codigo);
+        const manual = _LM.incluir_codigos.includes(p.codigo);
+        const codSafe = (p.codigo||'').replace(/'/g, "\\'");
+        return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;${excl?'opacity:0.4':''}">
+          <input type="checkbox" ${excl?'':'checked'} onchange="window._linhaToggleExcluirProduto('${codSafe}')" style="cursor:pointer">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:11.5px;color:#e2e8f0">${escapeHtml(p.nome||'')} ${manual?'<span style=\"font-size:9.5px;color:#a78bfa\">(avulso)</span>':''}</div>
+            <div style="font-size:9.5px;color:#64748b">${escapeHtml(p.codigo||'sem código')}</div>
+          </div>
+        </div>`;
+      }).join('') + (produtos.length > 300 ? `<div style="text-align:center;font-size:10.5px;color:#64748b;padding:6px">+${produtos.length-300} produtos…</div>` : '');
+    }
+  };
+
+  window.c360SaveLinha = async function() {
+    if (state.savingLinha) return;
+    const nome = (document.getElementById('linha-nome')?.value || '').trim();
+    if (!nome) { if (typeof showToast === 'function') showToast('Nome é obrigatório', 'error'); return; }
+    if (_LM.termos.length === 0 && _LM.incluir_codigos.length === 0) { if (typeof showToast==='function') showToast('Adicione ao menos 1 palavra', 'error'); return; }
+    state.savingLinha = true;
+    const btn = document.querySelector('#c360-linha-modal button[onclick^="c360SaveLinha"]');
+    const lbl = btn?.textContent || '';
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.textContent = 'Salvando...'; }
+    const payload = {
+      empresa: document.getElementById('linha-empresa')?.value || state.empresa,
+      nome,
+      descricao: (document.getElementById('linha-desc')?.value || '').trim() || null,
+      termos: _LM.termos,
+      excluir_termos: _LM.excluir_termos,
+      incluir_codigos: _LM.incluir_codigos,
+      excluir_codigos: _LM.excluir_codigos,
+      total_produtos_cache: (_LM._catalogo != null) ? _LM._catalogo : null,
+      total_clientes_cache: (_LM._clientes != null) ? _LM._clientes : null,
+      cache_atualizado_em: (_LM._catalogo != null) ? new Date().toISOString() : null,
+    };
+    try {
+      if (_LM.id) {
+        const { error } = await state.sb.from('produto_linhas').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', _LM.id);
+        if (error) throw error;
+      } else {
+        const { data: { user } } = await state.sb.auth.getUser();
+        const { data: profile } = await state.sb.from('profiles').select('nome').eq('id', user.id).single();
+        const { error } = await state.sb.from('produto_linhas').insert({ ...payload, criado_por: user.id, criado_por_nome: profile?.nome || user.email });
+        if (error) throw error;
+      }
+      document.getElementById('c360-linha-modal')?.remove();
+      if (typeof showToast === 'function') showToast('Linha ' + (_LM.id ? 'atualizada' : 'criada'), 'success');
+      await loadLinhas();
+      await renderLinhasPage();
+    } catch (e) {
+      if (typeof showToast === 'function') showToast('Erro: ' + e.message, 'error');
+      if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.textContent = lbl; }
+    } finally {
+      state.savingLinha = false;
+    }
+  };
+
+  window.c360DeleteLinha = async function(id) {
+    const l = (state.linhas || []).find(x => String(x.id) === String(id));
+    if (!l) return;
+    const ok = await c360Confirm(`Apagar a linha "${l.nome}"?\n\nCampanhas que miram essa linha ficam sem alvo (precisam ser reeditadas).`, { danger: true, okLabel: 'Apagar linha' });
+    if (!ok) return;
+    const { error } = await state.sb.from('produto_linhas').delete().eq('id', id);
+    if (error) { if (typeof showToast === 'function') showToast('Erro: ' + error.message, 'error'); return; }
+    if (typeof showToast === 'function') showToast('Linha apagada', 'success');
+    await loadLinhas();
+    await renderLinhasPage();
+  };
+
   function renderMensagemComPlaceholders(template, cliente, campanha) {
     const nome = String(cliente?.contato_nome || '').trim();
     const primeiro = nome.split(/\s+/)[0] || nome;
@@ -4128,8 +4448,13 @@
     }
   }
 
-  function getClientesAlvoCampanha(campanha) {
+  async function getClientesAlvoCampanha(campanha) {
     if (!campanha) return [];
+    if (campanha.segmento_tipo === 'linha' && campanha.linha_id) {
+      if (!state.linhas) await loadLinhas();
+      const linha = (state.linhas || []).find(l => String(l.id) === String(campanha.linha_id));
+      return await clientesDaLinha(linha, campanha.segmento_cruzado_nome || null);
+    }
     if (campanha.segmento_tipo === 'custom' && campanha.segmento_id) {
       const seg = (state.segmentosCustom || []).find(s => String(s.id) === String(campanha.segmento_id));
       if (!seg) return [];
@@ -4244,6 +4569,7 @@
     ensureCampanhasCSS();
     if (!state.segmentosCustom) state.segmentosCustom = await loadSegmentosCustom();
     if (!state.canaisAquisicao || state.canaisAquisicao.length === 0) await loadCanaisAquisicao();
+    if (!state.linhas) await loadLinhas();
 
     document.getElementById('c360-camp-modal')?.remove();
 
@@ -4261,6 +4587,11 @@
     const segCustomOpts = (state.segmentosCustom || [])
       .filter(s => s.empresa === state.empresa || s.empresa === 'ambas')
       .map(s => `<option value="custom::${s.id}" ${c.segmento_tipo==='custom' && String(c.segmento_id)===String(s.id) ? 'selected':''}>Custom · ${escapeHtml(s.nome)}</option>`).join('');
+    const segLinhaOpts = (state.linhas || [])
+      .filter(l => l.empresa === state.empresa || l.empresa === 'ambas')
+      .map(l => `<option value="linha::${l.id}" ${c.segmento_tipo==='linha' && String(c.linha_id)===String(l.id) ? 'selected':''}>Linha · ${escapeHtml(l.nome)}</option>`).join('');
+    const cruzarSegs = ['VIP','Frequente','Ocasional','Em Risco','Inativo'];
+    const cruzarOpts = cruzarSegs.map(s => `<option value="${s}" ${c.segmento_cruzado_nome===s?'selected':''}>${s}</option>`).join('');
 
     const canalOpts = ['<option value="">— Sem canal vinculado —</option>']
       .concat((state.canaisAquisicao || []).map(ca => `<option value="${ca.id}" ${c.canal_aquisicao_id===ca.id ? 'selected':''}>${escapeHtml(ca.nome)} (${ca.tipo})</option>`)).join('');
@@ -4289,8 +4620,17 @@
               <select id="camp-segmento" style="width:100%;padding:9px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#f1f5f9;font-size:13px;font-family:inherit">
                 <optgroup label="Automáticos (RFM)">${segAutoOpts}</optgroup>
                 ${segCustomOpts ? `<optgroup label="Customizados">${segCustomOpts}</optgroup>` : ''}
+                ${segLinhaOpts ? `<optgroup label="Linhas de Produto">${segLinhaOpts}</optgroup>` : ''}
               </select>
               <div id="camp-seg-preview" style="font-size:11px;color:#64748b;margin-top:4px"></div>
+              <div id="camp-cruzar-box" style="display:none;margin-top:8px;padding:8px 10px;background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.2);border-radius:6px">
+                <label style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:#cbd5e1;cursor:pointer">
+                  <input type="checkbox" id="camp-cruzar-chk" ${c.segmento_cruzado_nome ? 'checked':''} style="cursor:pointer">
+                  Cruzar com segmento RFM
+                </label>
+                <select id="camp-cruzar-seg" style="width:100%;margin-top:6px;padding:7px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#f1f5f9;font-size:12.5px;font-family:inherit;display:${c.segmento_cruzado_nome?'block':'none'}">${cruzarOpts}</select>
+                <div style="font-size:10px;color:#64748b;margin-top:4px">Ex: só os VIPs que compraram essa linha</div>
+              </div>
             </div>
             <div>
               <label style="display:block;font-size:11px;color:#94a3b8;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px">Canal de Envio</label>
@@ -4364,21 +4704,35 @@
     div.innerHTML = html;
     document.body.appendChild(div.firstElementChild);
 
-    const updateSegPreview = () => {
+    const updateSegPreview = async () => {
       const val = document.getElementById('camp-segmento')?.value || '';
       const [tipo, ident] = val.split('::');
-      let count = 0;
+      const cruzarBox = document.getElementById('camp-cruzar-box');
+      if (cruzarBox) cruzarBox.style.display = tipo === 'linha' ? 'block' : 'none';
+      const el = document.getElementById('camp-seg-preview');
       if (tipo === 'auto') {
-        if (ident === 'todos') count = state.clientes.length;
-        else count = state.clientes.filter(c => c.segmento === ident).length;
+        const count = ident === 'todos' ? state.clientes.length : state.clientes.filter(c => c.segmento === ident).length;
+        if (el) el.textContent = `≈ ${fmtNum(count)} clientes (empresa atual)`;
       } else if (tipo === 'custom') {
         const seg = (state.segmentosCustom || []).find(s => String(s.id) === ident);
-        if (seg) count = aplicarFiltrosSegmento(state.clientes, seg.filtros || {}).length;
+        const count = seg ? aplicarFiltrosSegmento(state.clientes, seg.filtros || {}).length : 0;
+        if (el) el.textContent = `≈ ${fmtNum(count)} clientes (empresa atual)`;
+      } else if (tipo === 'linha') {
+        const linha = (state.linhas || []).find(l => String(l.id) === ident);
+        const cruzarChk = document.getElementById('camp-cruzar-chk')?.checked;
+        const cruzarNome = cruzarChk ? (document.getElementById('camp-cruzar-seg')?.value || null) : null;
+        if (el) el.textContent = '⏳ calculando…';
+        const alvo = await clientesDaLinha(linha, cruzarNome);
+        if (el) el.textContent = `≈ ${fmtNum(alvo.length)} clientes que compraram${cruzarNome ? ' · '+cruzarNome : ''} (empresa atual)`;
       }
-      const el = document.getElementById('camp-seg-preview');
-      if (el) el.textContent = `≈ ${fmtNum(count)} clientes (empresa atual)`;
     };
     document.getElementById('camp-segmento')?.addEventListener('change', updateSegPreview);
+    document.getElementById('camp-cruzar-chk')?.addEventListener('change', (e) => {
+      const seg = document.getElementById('camp-cruzar-seg');
+      if (seg) seg.style.display = e.target.checked ? 'block' : 'none';
+      updateSegPreview();
+    });
+    document.getElementById('camp-cruzar-seg')?.addEventListener('change', updateSegPreview);
     updateSegPreview();
   }
 
@@ -4401,12 +4755,18 @@
     if (saveBtn) { saveBtn.disabled = true; saveBtn.style.opacity = '0.6'; saveBtn.textContent = 'Salvando...'; }
     const segVal = document.getElementById('camp-segmento')?.value || 'auto::VIP';
     const [segTipo, segIdent] = segVal.split('::');
-    let segmento_id = null; let segmento_nome_cache = '';
+    let segmento_id = null; let segmento_nome_cache = ''; let linha_id = null; let segmento_cruzado_nome = null;
     if (segTipo === 'auto') {
       segmento_nome_cache = segIdent;
     } else if (segTipo === 'custom') {
       const seg = (state.segmentosCustom || []).find(s => String(s.id) === segIdent);
       if (seg) { segmento_id = seg.id; segmento_nome_cache = seg.nome; }
+    } else if (segTipo === 'linha') {
+      const linha = (state.linhas || []).find(l => String(l.id) === segIdent);
+      if (linha) { linha_id = linha.id; segmento_nome_cache = 'Linha · ' + linha.nome; }
+      if (document.getElementById('camp-cruzar-chk')?.checked) {
+        segmento_cruzado_nome = document.getElementById('camp-cruzar-seg')?.value || null;
+      }
     }
     const canalAqVal = document.getElementById('camp-canalaq')?.value || '';
     const dataVal = document.getElementById('camp-data')?.value || '';
@@ -4414,7 +4774,7 @@
       empresa: document.getElementById('camp-empresa')?.value || state.empresa,
       nome,
       descricao: (document.getElementById('camp-desc')?.value || '').trim() || null,
-      segmento_tipo: segTipo, segmento_id, segmento_nome_cache,
+      segmento_tipo: segTipo, segmento_id, segmento_nome_cache, linha_id, segmento_cruzado_nome,
       canal: document.getElementById('camp-canal')?.value || 'whatsapp',
       canal_aquisicao_id: canalAqVal || null,
       mensagem: (document.getElementById('camp-msg')?.value || '').trim() || null,
@@ -4483,7 +4843,7 @@
     if (!c) return;
     if (!state.segmentosCustom) state.segmentosCustom = await loadSegmentosCustom();
 
-    const alvos = getClientesAlvoCampanha(c);
+    const alvos = await getClientesAlvoCampanha(c);
     if (alvos.length === 0) {
       if (typeof showToast === 'function') showToast('Segmento vazio — nenhum cliente corresponde', 'warn');
       return;
@@ -5399,6 +5759,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       'clientes': permMap.c360_clientes !== false,
       'segmentos': permMap.c360_segmentacao !== false,
       'campanhas': permMap.c360_campanhas !== false,
+      'linhas': permMap.c360_campanhas !== false,
       'sincronizacao': permMap.c360_sincronizacao !== false,
       'configuracoes': permMap.c360_configuracoes !== false,
       'logs': permMap.c360_logs !== false,
@@ -5679,7 +6040,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     }
     const tabs = perms.c360Tabs || {};
     // Determina primeira aba permitida (pra redirect se usuario cair numa bloqueada)
-    const ordem = ['dashboard','clientes','meus-clientes','segmentos','campanhas','sincronizacao','configuracoes','logs'];
+    const ordem = ['dashboard','clientes','meus-clientes','segmentos','campanhas','linhas','sincronizacao','configuracoes','logs'];
     const primeiraPermitida = ordem.find(id => tabs[id]) || 'dashboard';
     state.mcPrimeiraAbaPermitida = primeiraPermitida;
 
