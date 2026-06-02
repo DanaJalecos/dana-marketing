@@ -3845,8 +3845,17 @@ select.input { cursor: pointer; }
 <!-- ════════ CAMPANHAS INTERNAS ════════ -->
 <div class="view" id="view-campanhas-internas">
 <div style="padding:24px 28px">
-  <div id="ci-container">
-    <div style="padding:40px;text-align:center;color:var(--text3)">⏳ Carregando...</div>
+  <div class="tabs mb20" id="ci-tabs">
+    <div class="tab active" onclick="ciSwitchTab(this,'campanhas')">📋 Campanhas</div>
+    <div class="tab" onclick="ciSwitchTab(this,'kit')">✨ Kit IA</div>
+  </div>
+  <div id="ci-tab-campanhas">
+    <div id="ci-container">
+      <div style="padding:40px;text-align:center;color:var(--text3)">⏳ Carregando...</div>
+    </div>
+  </div>
+  <div id="ci-tab-kit" style="display:none">
+    <div id="ci-kit-host"></div>
   </div>
 </div>
 </div>
@@ -10731,6 +10740,7 @@ const SUBTAB_SWITCHERS = {
   briefingvisual:  (btn, tab) => (typeof switchBriefingTab === 'function') && switchBriefingTab(btn, tab),
   criativos:       (btn, tab) => (typeof switchCri === 'function') && switchCri(btn, tab),
   mercado:         (btn, tab) => (typeof switchMkt === 'function') && switchMkt(btn, tab),
+  'campanhas-internas': (btn, tab) => (typeof ciSwitchTab === 'function') && ciSwitchTab(btn, tab),
   // C360 vive num iframe — manda postMessage pra trocar de page lá dentro.
   // Como o iframe carrega async, espera o JS interno (showPage) ficar disponível.
   cliente360:      (btn, tab) => {
@@ -10754,6 +10764,7 @@ const VALID_SUBTABS = {
   briefingvisual:  ['salvos','materiais','brandkit'],
   criativos:       ['aguardando','aprovados','reprovados','todo','publicados'],
   mercado:         ['noticias','tendencias','concorrentes','oportunidades'],
+  'campanhas-internas': ['campanhas','kit'],
   cliente360:      ['dashboard','clientes','meus-clientes','segmentos','campanhas','sincronizacao','configuracoes','logs'],
 };
 const DEFAULT_SUBTAB = {
@@ -32296,60 +32307,34 @@ const aiChatInterval = setInterval(() => {
   // ══════════════════════════════════
   // KIT DE CONTEÚDO IA (pedido Manu) — gera email/LinkedIn/Insta/branding/blog
   // ══════════════════════════════════
+  // Modal de ver-campanha: só um ATALHO pro Kit IA (o conteúdo vive na aba dedicada).
   function ciRenderKitSecao(c, podeEditar) {
     const k = c.kit_conteudo;
-    const podeGerar = currentProfile?.cargo === 'admin' || ['gerente_marketing','gerente_comercial'].includes(currentProfile?.cargo || '');
-    const header = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:15px">✨ Kit de conteúdo IA</div>
-        ${podeGerar ? `<button class="btn btn-primary btn-sm" onclick="ciGerarKit('${c.id}')">${k ? '🔄 Regenerar' : '✨ Gerar kit'}</button>` : ''}
-      </div>`;
-    if (!k) {
-      return `<div style="border-top:1px solid var(--border);padding-top:14px;margin-top:10px">${header}
-        <div style="padding:16px;text-align:center;color:var(--text3);font-size:12.5px;background:var(--surface);border-radius:8px">
-          Gera automaticamente <strong>e-mail, post de LinkedIn, carrossel + Reels de Instagram, ações de branding e post de blog</strong> — tudo na voz da Dana, a partir do briefing acima. Imagens reais saem no botão 🖼️.
+    const ger = c.kit_gerado_em ? ` · gerado ${new Date(c.kit_gerado_em).toLocaleDateString('pt-BR')}` : '';
+    return `<div style="border-top:1px solid var(--border);padding-top:14px;margin-top:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div>
+            <div style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:15px">✨ Kit de conteúdo IA</div>
+            <div style="font-size:11.5px;color:var(--text3);margin-top:2px">${k ? 'Kit gerado' + ger : 'Ainda sem kit'} · e-mail, LinkedIn, Instagram, Pinterest, Facebook, blog e branding na voz da Dana.</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="ciAbrirKitNaAba('${c.id}')">✨ Abrir no Kit IA →</button>
         </div></div>`;
-    }
-    // expõe prompts de imagem pro botão (evita escapar string no onclick)
-    window._ciKitPrompts = { campId: c.id, linkedin: (k.linkedin && k.linkedin.imagem_prompt) || '', insta: (k.instagram && k.instagram.imagem_prompt) || '' };
-    const bloco = (titulo, idCopy, inner, extraBtns) => `
-      <div style="background:var(--surface);border-radius:8px;padding:12px;margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px">
-          <div style="font-weight:600;font-size:13px">${titulo}</div>
-          <div style="display:flex;gap:6px;flex-shrink:0">${extraBtns || ''}<button class="btn btn-ghost btn-sm" onclick="ciKitCopiar('${idCopy}')">📋 Copiar</button></div>
-        </div>
-        <div id="${idCopy}" style="font-size:12.5px;white-space:pre-wrap;line-height:1.55;color:var(--text2)">${inner}</div>
-      </div>`;
-    let html = '';
-    if (k.email) html += bloco('📧 E-mail marketing', 'kit-email', `Assunto: ${esc(k.email.assunto || '')}\n\n${esc(k.email.corpo || '')}`);
-    if (k.linkedin) {
-      const b = k.linkedin.imagem_prompt ? `<button class="btn btn-ghost btn-sm" onclick="ciKitGerarImagem('linkedin')">🖼️ Gerar imagem</button>` : '';
-      html += bloco('💼 LinkedIn', 'kit-linkedin', esc(k.linkedin.copy || ''), b);
-    }
-    if (k.instagram) {
-      const ig = k.instagram;
-      const carr = (ig.carrossel || []).map(s => `Slide ${s.slide || ''}: ${esc(s.titulo || '')}${s.texto ? ' — ' + esc(s.texto) : ''}`).join('\n');
-      const inner = `${carr}\n\nLegenda: ${esc(ig.legenda || '')}\n${esc(ig.hashtags || '')}\n\nReels: ${esc(ig.reels_roteiro || '')}`;
-      const b = ig.imagem_prompt ? `<button class="btn btn-ghost btn-sm" onclick="ciKitGerarImagem('insta')">🖼️ Gerar imagem</button>` : '';
-      html += bloco('📸 Instagram', 'kit-insta', inner, b);
-    }
-    if (Array.isArray(k.branding) && k.branding.length) html += bloco('✨ Ações de branding', 'kit-branding', k.branding.map(x => '• ' + esc(x)).join('\n'));
-    if (k.blog) html += bloco('📝 Blog', 'kit-blog', `${esc(k.blog.titulo || '')}\n\n${esc(k.blog.artigo || '')}`);
-    const ger = c.kit_gerado_em ? `<div style="font-size:10.5px;color:var(--text3);margin-top:2px">Gerado ${new Date(c.kit_gerado_em).toLocaleString('pt-BR')}${c.kit_gerado_por ? ' · ' + esc(c.kit_gerado_por) : ''}</div>` : '';
-    return `<div style="border-top:1px solid var(--border);padding-top:14px;margin-top:10px">${header}${html}${ger}</div>`;
   }
 
   window.ciGerarKit = async function(id) {
-    showToast('✨ Gerando kit de conteúdo... (pode levar ~20s)');
+    showToast('✨ Gerando kit de conteúdo... (pode levar ~30s)');
+    document.querySelectorAll('[data-ci-gerakit]').forEach(b => { b.disabled = true; b.textContent = '⏳ Gerando...'; });
     try {
       const { data, error } = await sb.functions.invoke('gerar-kit-campanha', { body: { campanha_id: id } });
       if (error) throw error;
       if (data?.error) throw new Error(data.detalhe || data.error);
       showToast('✅ Kit gerado!');
       if (typeof ciLoad === 'function') await ciLoad();
-      document.getElementById('modal-ci-view')?.remove();
-      abrirVerCampanhaInterna(id);
+      if (typeof ciKitState !== 'undefined' && ciKitState.campId === id) ciKitRenderHost();
+      if (typeof ciRefrescarViewAberta === 'function') ciRefrescarViewAberta();
     } catch (e) {
       showToast('Erro ao gerar kit: ' + (e.message || e));
+      if (typeof ciKitState !== 'undefined' && ciKitState.campId === id) ciKitRenderHost();
     }
   };
 
@@ -32359,31 +32344,231 @@ const aiChatInterval = setInterval(() => {
     navigator.clipboard.writeText(el.innerText).then(() => showToast('📋 Copiado!')).catch(() => showToast('Não consegui copiar'));
   };
 
-  window.ciKitGerarImagem = function(canal) {
-    const p = window._ciKitPrompts || {};
-    const prompt = p[canal];
-    const id = p.campId;
-    if (!prompt) { showToast('Sem prompt de imagem nesse bloco'); return; }
-    if (typeof window.gerarImagemIA !== 'function') { showToast('Gerador de imagem indisponível'); return; }
-    window.gerarImagemIA({
-      titulo: 'Imagem do kit · ' + canal,
-      subtitulo: 'Nano Banana Pro · máxima qualidade',
-      prompt,
-      contexto: 'campanha_interna',
-      contextoRefId: id,
-      modelo_pro: true,
-      onSave: async (url) => {
-        try {
-          await sb.from('campanha_interna_materiais').insert({
-            campanha_id: id, tipo: 'link', url,
-            nome: '🖼️ Imagem kit · ' + canal, descricao: 'Gerada via Kit IA',
-            mime_type: 'image/png', adicionado_por: currentUser?.id, adicionado_por_nome: currentProfile?.nome,
-          });
-          if (typeof ciLoadMateriais === 'function') await ciLoadMateriais(id);
-          if (typeof ciRefrescarViewAberta === 'function') ciRefrescarViewAberta();
-        } catch (e) { console.warn('[kit img save]', e); }
-      },
+  // ══════════════════════════════════════════════════════════
+  // ✨ ABA KIT IA (Campanhas Internas) — render por canal (kit v2 + retrocompat)
+  // ══════════════════════════════════════════════════════════
+  const CI_KIT_CANAIS = [
+    { k: 'email',     emoji: '📧', label: 'Email' },
+    { k: 'linkedin',  emoji: '💼', label: 'LinkedIn' },
+    { k: 'instagram', emoji: '📸', label: 'Instagram' },
+    { k: 'pinterest', emoji: '📌', label: 'Pinterest' },
+    { k: 'facebook',  emoji: '👍', label: 'Facebook' },
+    { k: 'blog',      emoji: '✍️', label: 'Blog' },
+    { k: 'branding',  emoji: '🎨', label: 'Branding' },
+  ];
+  const ciKitState = { campId: null, canal: null };
+
+  window.ciSwitchTab = function(btn, tab) {
+    document.querySelectorAll('#ci-tabs .tab').forEach(t => t.classList.remove('active'));
+    if (btn && btn.classList) btn.classList.add('active');
+    else { const b = document.querySelector(`#ci-tabs .tab[onclick*="'${tab}'"]`); if (b) b.classList.add('active'); }
+    const camp = document.getElementById('ci-tab-campanhas');
+    const kit = document.getElementById('ci-tab-kit');
+    if (camp) camp.style.display = (tab === 'kit') ? 'none' : '';
+    if (kit) kit.style.display = (tab === 'kit') ? '' : 'none';
+    if (tab === 'kit') ciKitRenderHost();
+  };
+
+  window.ciAbrirKitNaAba = function(id) {
+    ciKitState.campId = id; ciKitState.canal = null;
+    document.getElementById('modal-ci-view')?.remove();
+    const doSwitch = () => { const b = document.querySelector('#ci-tabs .tab[onclick*="\'kit\'"]'); if (typeof ciSwitchTab === 'function') ciSwitchTab(b, 'kit'); };
+    const visivel = document.getElementById('view-campanhas-internas')?.offsetParent !== null;
+    if (document.getElementById('ci-tabs') && visivel) doSwitch();
+    else {
+      const nav = document.querySelector(`[onclick*="go(this,'campanhas-internas')"]`);
+      if (nav && typeof go === 'function') go(nav, 'campanhas-internas');
+      setTimeout(doSwitch, 180);
+    }
+  };
+
+  window.ciKitSelCampanha = function(id) { ciKitState.campId = id || null; ciKitState.canal = null; ciKitRenderHost(); };
+  window.ciKitSwitchCanal = function(canal) { ciKitState.canal = canal; ciKitRenderHost(); };
+
+  function ciKitCanaisPresentes(k) {
+    if (!k) return [];
+    return CI_KIT_CANAIS.filter(cc => {
+      const v = k[cc.k];
+      if (cc.k === 'branding') return Array.isArray(v) && v.length;
+      return v && (typeof v === 'object' ? Object.keys(v).length : !!v);
     });
+  }
+
+  window.ciKitCopiarTexto = function(elOrTxt) {
+    const t = typeof elOrTxt === 'string' ? elOrTxt : (elOrTxt && elOrTxt.textContent) || '';
+    navigator.clipboard.writeText(t).then(() => showToast('📋 Copiado!')).catch(() => showToast('Não consegui copiar'));
+  };
+
+  function ciKitCtasChips(ctas) {
+    const arr = Array.isArray(ctas) ? ctas : (ctas ? [ctas] : []);
+    if (!arr.length) return '';
+    return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center">
+      <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.3px">CTAs (clique p/ copiar):</span>
+      ${arr.map(x => `<span onclick="ciKitCopiarTexto(this)" title="Copiar CTA" style="cursor:pointer;font-size:11.5px;background:rgba(167,139,250,0.12);color:#7c3aed;border:1px solid rgba(167,139,250,0.35);border-radius:14px;padding:3px 11px">${esc(x)}</span>`).join('')}
+    </div>`;
+  }
+
+  // bloco copiável (conteúdo em div com id; CTAs ficam fora da área copiada)
+  function ciKitBloco(idCopy, titulo, contentHtml, ctasHtml, extraBtns) {
+    return `<div style="background:var(--surface);border-radius:8px;padding:13px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;gap:8px">
+        <div style="font-weight:600;font-size:13px">${titulo}</div>
+        <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">${extraBtns || ''}<button class="btn btn-ghost btn-sm" onclick="ciKitCopiar('${idCopy}')">📋 Copiar</button></div>
+      </div>
+      <div id="${idCopy}" style="font-size:12.5px;white-space:pre-wrap;line-height:1.55;color:var(--text2)">${contentHtml}</div>
+      ${ctasHtml || ''}
+    </div>`;
+  }
+
+  window.ciKitRenderHost = function() {
+    const host = document.getElementById('ci-kit-host');
+    if (!host) return;
+    const camps = ciState.campanhas || [];
+    const podeGerar = currentProfile?.cargo === 'admin' || ['gerente_marketing','gerente_comercial'].includes(currentProfile?.cargo || '');
+    const sel = `<select onchange="ciKitSelCampanha(this.value)" style="padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--white);font-size:13px;min-width:240px;max-width:100%">
+        <option value="">— Selecione a campanha —</option>
+        ${camps.map(c => `<option value="${c.id}" ${ciKitState.campId===c.id?'selected':''}>${esc(c.nome)}${c.kit_conteudo?' ✓':''}</option>`).join('')}
+      </select>`;
+    const c = camps.find(x => x.id === ciKitState.campId);
+    if (!c) {
+      host.innerHTML = `<div style="margin-bottom:16px">${sel}</div>
+        <div style="padding:48px 24px;text-align:center;background:var(--surface);border:1px dashed var(--border);border-radius:12px">
+          <div style="font-size:32px;margin-bottom:8px;opacity:0.5">✨</div>
+          <div style="font-size:14px;color:var(--text2)">Selecione uma campanha pra gerar ou ver o Kit de conteúdo IA.</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:6px">E-mail (régua de 3) · LinkedIn · Instagram · Pinterest · Facebook · Blog · Branding — na voz da Dana.</div>
+        </div>`;
+      return;
+    }
+    if (ciMateriais[c.id] === undefined && typeof ciLoadMateriais === 'function') {
+      ciLoadMateriais(c.id).then(() => { if (ciKitState.campId === c.id) ciKitRenderHost(); });
+    }
+    const k = c.kit_conteudo;
+    const ger = c.kit_gerado_em ? `Gerado ${new Date(c.kit_gerado_em).toLocaleString('pt-BR')}${c.kit_gerado_por ? ' · ' + esc(c.kit_gerado_por) : ''}` : 'Sem kit ainda';
+    const btnGerar = podeGerar ? `<button class="btn btn-primary btn-sm" data-ci-gerakit onclick="ciGerarKit('${c.id}')">${k ? '🔄 Regenerar kit' : '✨ Gerar kit'}</button>` : '';
+    const header = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">${sel}<span style="font-size:11.5px;color:var(--text3)">${ger}</span></div>
+        ${btnGerar}
+      </div>`;
+    if (!k) {
+      host.innerHTML = header + `<div style="padding:40px 24px;text-align:center;background:var(--surface);border:1px dashed var(--border);border-radius:12px">
+          <div style="font-size:28px;margin-bottom:8px;opacity:0.5">✨</div>
+          <div style="font-size:13px;color:var(--text2)">Essa campanha ainda não tem kit. Clique em <strong>Gerar kit</strong> — a IA cria tudo a partir do briefing.</div>
+        </div>`;
+      return;
+    }
+    const canais = ciKitCanaisPresentes(k);
+    let canal = ciKitState.canal;
+    if (!canal || !canais.some(cc => cc.k === canal)) canal = canais[0]?.k || null;
+    ciKitState.canal = canal;
+    const subtabs = `<div style="display:flex;gap:6px;overflow-x:auto;white-space:nowrap;border-bottom:1px solid var(--border);margin-bottom:14px;padding-bottom:4px">
+        ${canais.map(cc => `<button class="btn btn-sm ${cc.k===canal?'btn-primary':'btn-ghost'}" style="flex-shrink:0" onclick="ciKitSwitchCanal('${cc.k}')">${cc.emoji} ${cc.label}</button>`).join('')}
+      </div>`;
+    host.innerHTML = header + subtabs + `<div id="ci-kit-canal-panel">${ciKitRenderCanal(c, canal)}</div>`;
+  };
+
+  function ciKitRenderCanal(c, canal) {
+    const k = c.kit_conteudo || {};
+    const estudioBtn = (canalKey) => {
+      const v = k[canalKey];
+      return (v && v.imagem_prompt) ? `<button class="btn btn-ghost btn-sm" onclick="ciKitAbrirEstudio('${canalKey}')">🖼️ Abrir no Estúdio IA</button>` : '';
+    };
+    let html = '';
+    if (canal === 'email') {
+      const em = k.email || {};
+      if (em.lancamento || em.aquecimento || em.urgencia) {
+        const fases = [
+          { kk: 'aquecimento', t: '1️⃣ Aquecimento', sub: '5-7 dias antes' },
+          { kk: 'lancamento',  t: '2️⃣ Lançamento',  sub: 'no dia · principal' },
+          { kk: 'urgencia',    t: '3️⃣ Urgência final', sub: '24-48h antes do fim' },
+        ];
+        html = fases.filter(f => em[f.kk]).map(f => {
+          const e = em[f.kk];
+          const content = `Assunto: ${esc(e.assunto || '')}\n\n${esc(e.corpo || '')}`;
+          return ciKitBloco('kit-email-' + f.kk, `${f.t} <span style="font-weight:400;color:var(--text3);font-size:11px">· ${f.sub}</span>`, content, ciKitCtasChips(e.ctas));
+        }).join('');
+      } else {
+        html = ciKitBloco('kit-email', '📧 E-mail', `Assunto: ${esc(em.assunto || '')}\n\n${esc(em.corpo || '')}`, '');
+      }
+    } else if (canal === 'linkedin') {
+      const v = k.linkedin || {};
+      html = ciKitBloco('kit-linkedin', '💼 LinkedIn', esc(v.copy || ''), ciKitCtasChips(v.ctas), estudioBtn('linkedin'));
+    } else if (canal === 'instagram') {
+      const ig = k.instagram || {};
+      const carr = (ig.carrossel || []).map(s => `Slide ${s.slide || ''}: ${esc(s.titulo || '')}${s.texto ? ' — ' + esc(s.texto) : ''}`).join('\n');
+      const content = `${carr}\n\nLegenda: ${esc(ig.legenda || '')}\n${esc(ig.hashtags || '')}\n\nReels: ${esc(ig.reels_roteiro || '')}`;
+      const extra = `<button class="btn btn-ghost btn-sm" onclick="ciKitCopiarBriefingDesign()">📋 Briefing p/ Claude Design</button>${estudioBtn('instagram')}`;
+      html = ciKitBloco('kit-insta', '📸 Instagram', content, ciKitCtasChips(ig.ctas), extra);
+    } else if (canal === 'pinterest') {
+      const v = k.pinterest || {};
+      html = ciKitBloco('kit-pinterest', '📌 Pinterest', `Título do Pin: ${esc(v.titulo_pin || '')}\n\n${esc(v.descricao || '')}`, ciKitCtasChips(v.ctas), estudioBtn('pinterest'));
+    } else if (canal === 'facebook') {
+      const v = k.facebook || {};
+      html = ciKitBloco('kit-facebook', '👍 Facebook', esc(v.copy || ''), ciKitCtasChips(v.ctas), estudioBtn('facebook'));
+    } else if (canal === 'blog') {
+      const v = k.blog || {};
+      html = ciKitBloco('kit-blog', '✍️ Blog', `${esc(v.titulo || '')}\n\n${esc(v.artigo || '')}`, '');
+    } else if (canal === 'branding') {
+      const arr = Array.isArray(k.branding) ? k.branding : [];
+      html = ciKitBloco('kit-branding', '🎨 Ações de branding', arr.map(x => '• ' + esc(x)).join('\n'), '');
+    }
+    // galeria de fotos vinculadas a esse canal
+    const mats = (ciMateriais[c.id] || []).filter(m => m.canal === canal && /image|png|jpg|jpeg|webp/i.test((m.mime_type || '') + ' ' + (m.url || '')));
+    let galeria = '';
+    if (mats.length) {
+      galeria = `<div style="margin-top:6px"><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:8px">🖼️ Fotos vinculadas (${mats.length})</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px">
+          ${mats.map(m => `<a href="${esc(m.url)}" target="_blank" style="display:block"><img src="${esc(m.url)}" style="width:100%;height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--border)"></a>`).join('')}
+        </div></div>`;
+    }
+    return html + galeria;
+  }
+
+  // Leva o prompt de imagem do canal pro Estúdio IA (escolha do produto real garante cor/pin).
+  window.ciKitAbrirEstudio = function(canal) {
+    const c = ciState.campanhas.find(x => x.id === ciKitState.campId);
+    const k = c && c.kit_conteudo;
+    const prompt = k && k[canal] && k[canal].imagem_prompt;
+    if (!prompt) { showToast('Sem prompt de imagem nesse canal'); return; }
+    window._kitEstudioPending = { campId: ciKitState.campId, canal, prompt };
+    navigator.clipboard.writeText(prompt).catch(() => {});
+    showToast('🖼️ Prompt copiado. No Estúdio IA: escolha o PRODUTO real e cole em "mensagem a inspirar".');
+    const nav = document.querySelector(`[onclick*="go(this,'estudio')"]`);
+    if (nav && typeof go === 'function') go(nav, 'estudio');
+    else showToast('Abra a seção Estúdio IA no menu pra gerar a imagem.');
+  };
+
+  // Monta o briefing do carrossel preenchido + padrões fixos pra colar no Claude Design.
+  window.ciKitCopiarBriefingDesign = function() {
+    const c = ciState.campanhas.find(x => x.id === ciKitState.campId);
+    const k = c && c.kit_conteudo;
+    if (!k || !k.instagram) { showToast('Gere o kit primeiro'); return; }
+    const ig = k.instagram;
+    const tipo = (typeof CI_TIPOS !== 'undefined' && CI_TIPOS.find(t => t.v === c.tipo)?.l) || c.tipo || '';
+    const slides = (ig.carrossel || []).map(s => `- Slide ${s.slide || ''}: ${s.titulo || ''} — ${s.texto || ''}`).join('\n');
+    const cta = (Array.isArray(ig.ctas) && ig.ctas[0]) || ig.legenda || '';
+    const txt = `## Briefing — Carrossel Instagram (Dana Jalecos)
+
+**Marca / cabeçalho:** DANA JALECOS / [linha, se houver]
+**Produto(s) / linha:** ${c.produtos_foco || c.oferta_principal || '[preencher]'}
+**Pasta das fotos:** [deixar o Claude Design perguntar]
+**Objetivo do post:** ${c.objetivo || tipo || '[preencher]'}
+**Público:** ${c.publico_alvo || '[preencher]'}
+**Tom:** [sofisticado / acolhedor / moderno-clean]
+**Cor de destaque:** [papel claro / tom do produto / Amarelo Manteiga]
+**Direções (variações):** [A / A e B]
+**Mostrar preço?** [sim R$… / não]
+**CTA final:** ${cta || '[preencher]'}
+**Conteúdo dos slides:**
+${slides || '[preencher 5 slides]'}
+**Hashtags:** ${ig.hashtags || ''}
+**Observações:** [palavra-fantasma / não cortar rosto / etiquetas de atributo / @danajalecos]
+
+## 🎨 Padrões já aprovados (fixos)
+- Formato: retrato 4:5 (1080x1350), 5 slides. Fonte: Poppins bold. Fundo: papel claro quente (#efedea); tinta quase preta.
+- Direção A (Editorial): fotos full-bleed, headline grande com itálico sublinhado, eyebrow, palavra-fantasma gigante ao fundo, etiquetas de atributo, bolinhas, layout variado por slide.
+- Direção B (Minimal): foto lateral, tipografia em escala, índices 01-05, fios dourados, palavra-fantasma.
+- Regras de ouro: nunca cortar/lavar o rosto da modelo; cabeçalho sobre área clara; sem preço salvo se pedido. Fotos: pastas locais dana_jalecos_*.`;
+    navigator.clipboard.writeText(txt).then(() => showToast('📋 Briefing copiado! Cole no Claude Design.')).catch(() => showToast('Não consegui copiar'));
   };
 
   // ══════════════════════════════════
