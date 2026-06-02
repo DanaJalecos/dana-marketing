@@ -30125,7 +30125,7 @@ const aiChatInterval = setInterval(() => {
           </div>
           <div class="modal-body">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding:8px 12px;background:var(--surface);border-radius:6px;font-size:11.5px">
-              <span><strong>💰 ~R$ 0,20</strong> por imagem</span>
+              <span><strong>${opts.modelo_pro ? '💰 ~R$ 0,65 · Nano Banana Pro (máx. qualidade)' : '💰 ~R$ 0,20'}</strong> por imagem</span>
               ${aiaQuotaTexto()}
               ${q.ehAdmin ? `<span style="color:var(--text3);font-size:11px">Gasto mês: R$ ${q.gastoMes.toFixed(2)} / ${q.gastoLimite.toFixed(2)}</span>` : ''}
             </div>
@@ -30202,6 +30202,9 @@ const aiChatInterval = setInterval(() => {
           // pra IA gerar avatar usando produto REAL da Dana. Edge anexa como
           // inlineData parts[0] e Gemini espelha cor/corte/tecido.
           image_produto_url: (window._aiaCurrentOpts && window._aiaCurrentOpts.image_produto_url) || undefined,
+          // Nano Banana Pro (gemini-3-pro-image-preview): muito mais fiel, ~R$0,65.
+          // Usado quando o caller pede modelo_pro:true (ex: Kit de conteúdo da campanha).
+          modelo_pro: (window._aiaCurrentOpts && window._aiaCurrentOpts.modelo_pro === true) || undefined,
         })
       });
       const j = await r.json();
@@ -32354,10 +32357,11 @@ const aiChatInterval = setInterval(() => {
     if (typeof window.gerarImagemIA !== 'function') { showToast('Gerador de imagem indisponível'); return; }
     window.gerarImagemIA({
       titulo: 'Imagem do kit · ' + canal,
-      subtitulo: 'Gerada a partir do prompt do kit de conteúdo',
+      subtitulo: 'Nano Banana Pro · máxima qualidade',
       prompt,
       contexto: 'campanha_interna',
       contextoRefId: id,
+      modelo_pro: true,
       onSave: async (url) => {
         try {
           await sb.from('campanha_interna_materiais').insert({
