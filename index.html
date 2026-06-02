@@ -31408,6 +31408,8 @@ const aiChatInterval = setInterval(() => {
             ${c.risco ? `<div style="background:rgba(239,68,68,0.08);padding:10px 12px;border-radius:8px;margin-bottom:10px;border-left:3px solid #ef4444"><div style="font-size:10.5px;color:#ef4444;text-transform:uppercase;letter-spacing:0.3px;margin-bottom:4px">⚠️ Risco / gargalo</div><div style="font-size:13px">${esc(c.risco)}</div></div>` : ''}
             ${c.briefing_link ? `<div style="margin-bottom:14px"><a href="${esc(c.briefing_link)}" target="_blank" class="btn btn-ghost btn-sm">📎 Ver briefing</a></div>` : ''}
 
+            ${ciRenderKitSecao(c, podeEditarC)}
+
             <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:10px">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
                 <div style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:15px">👥 Equipe atribuída (${membros.length})</div>
@@ -32274,6 +32276,98 @@ const aiChatInterval = setInterval(() => {
         await ciRegistrarHistorico(campanhaId, 'add_material', 'Visual IA gerado e vinculado', null, { url });
         await ciLoadMateriais(campanhaId);
         ciRefrescarViewAberta();
+      },
+    });
+  };
+
+  // ══════════════════════════════════
+  // KIT DE CONTEÚDO IA (pedido Manu) — gera email/LinkedIn/Insta/branding/blog
+  // ══════════════════════════════════
+  function ciRenderKitSecao(c, podeEditar) {
+    const k = c.kit_conteudo;
+    const podeGerar = currentProfile?.cargo === 'admin' || ['gerente_marketing','gerente_comercial'].includes(currentProfile?.cargo || '');
+    const header = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:15px">✨ Kit de conteúdo IA</div>
+        ${podeGerar ? `<button class="btn btn-primary btn-sm" onclick="ciGerarKit('${c.id}')">${k ? '🔄 Regenerar' : '✨ Gerar kit'}</button>` : ''}
+      </div>`;
+    if (!k) {
+      return `<div style="border-top:1px solid var(--border);padding-top:14px;margin-top:10px">${header}
+        <div style="padding:16px;text-align:center;color:var(--text3);font-size:12.5px;background:var(--surface);border-radius:8px">
+          Gera automaticamente <strong>e-mail, post de LinkedIn, carrossel + Reels de Instagram, ações de branding e post de blog</strong> — tudo na voz da Dana, a partir do briefing acima. Imagens reais saem no botão 🖼️.
+        </div></div>`;
+    }
+    // expõe prompts de imagem pro botão (evita escapar string no onclick)
+    window._ciKitPrompts = { campId: c.id, linkedin: (k.linkedin && k.linkedin.imagem_prompt) || '', insta: (k.instagram && k.instagram.imagem_prompt) || '' };
+    const bloco = (titulo, idCopy, inner, extraBtns) => `
+      <div style="background:var(--surface);border-radius:8px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px">
+          <div style="font-weight:600;font-size:13px">${titulo}</div>
+          <div style="display:flex;gap:6px;flex-shrink:0">${extraBtns || ''}<button class="btn btn-ghost btn-sm" onclick="ciKitCopiar('${idCopy}')">📋 Copiar</button></div>
+        </div>
+        <div id="${idCopy}" style="font-size:12.5px;white-space:pre-wrap;line-height:1.55;color:var(--text2)">${inner}</div>
+      </div>`;
+    let html = '';
+    if (k.email) html += bloco('📧 E-mail marketing', 'kit-email', `Assunto: ${esc(k.email.assunto || '')}\n\n${esc(k.email.corpo || '')}`);
+    if (k.linkedin) {
+      const b = k.linkedin.imagem_prompt ? `<button class="btn btn-ghost btn-sm" onclick="ciKitGerarImagem('linkedin')">🖼️ Gerar imagem</button>` : '';
+      html += bloco('💼 LinkedIn', 'kit-linkedin', esc(k.linkedin.copy || ''), b);
+    }
+    if (k.instagram) {
+      const ig = k.instagram;
+      const carr = (ig.carrossel || []).map(s => `Slide ${s.slide || ''}: ${esc(s.titulo || '')}${s.texto ? ' — ' + esc(s.texto) : ''}`).join('\n');
+      const inner = `${carr}\n\nLegenda: ${esc(ig.legenda || '')}\n${esc(ig.hashtags || '')}\n\nReels: ${esc(ig.reels_roteiro || '')}`;
+      const b = ig.imagem_prompt ? `<button class="btn btn-ghost btn-sm" onclick="ciKitGerarImagem('insta')">🖼️ Gerar imagem</button>` : '';
+      html += bloco('📸 Instagram', 'kit-insta', inner, b);
+    }
+    if (Array.isArray(k.branding) && k.branding.length) html += bloco('✨ Ações de branding', 'kit-branding', k.branding.map(x => '• ' + esc(x)).join('\n'));
+    if (k.blog) html += bloco('📝 Blog', 'kit-blog', `${esc(k.blog.titulo || '')}\n\n${esc(k.blog.artigo || '')}`);
+    const ger = c.kit_gerado_em ? `<div style="font-size:10.5px;color:var(--text3);margin-top:2px">Gerado ${new Date(c.kit_gerado_em).toLocaleString('pt-BR')}${c.kit_gerado_por ? ' · ' + esc(c.kit_gerado_por) : ''}</div>` : '';
+    return `<div style="border-top:1px solid var(--border);padding-top:14px;margin-top:10px">${header}${html}${ger}</div>`;
+  }
+
+  window.ciGerarKit = async function(id) {
+    showToast('✨ Gerando kit de conteúdo... (pode levar ~20s)');
+    try {
+      const { data, error } = await sb.functions.invoke('gerar-kit-campanha', { body: { campanha_id: id } });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.detalhe || data.error);
+      showToast('✅ Kit gerado!');
+      if (typeof ciLoad === 'function') await ciLoad();
+      document.getElementById('modal-ci-view')?.remove();
+      abrirVerCampanhaInterna(id);
+    } catch (e) {
+      showToast('Erro ao gerar kit: ' + (e.message || e));
+    }
+  };
+
+  window.ciKitCopiar = function(elId) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    navigator.clipboard.writeText(el.innerText).then(() => showToast('📋 Copiado!')).catch(() => showToast('Não consegui copiar'));
+  };
+
+  window.ciKitGerarImagem = function(canal) {
+    const p = window._ciKitPrompts || {};
+    const prompt = p[canal];
+    const id = p.campId;
+    if (!prompt) { showToast('Sem prompt de imagem nesse bloco'); return; }
+    if (typeof window.gerarImagemIA !== 'function') { showToast('Gerador de imagem indisponível'); return; }
+    window.gerarImagemIA({
+      titulo: 'Imagem do kit · ' + canal,
+      subtitulo: 'Gerada a partir do prompt do kit de conteúdo',
+      prompt,
+      contexto: 'campanha_interna',
+      contextoRefId: id,
+      onSave: async (url) => {
+        try {
+          await sb.from('campanha_interna_materiais').insert({
+            campanha_id: id, tipo: 'link', url,
+            nome: '🖼️ Imagem kit · ' + canal, descricao: 'Gerada via Kit IA',
+            mime_type: 'image/png', adicionado_por: currentUser?.id, adicionado_por_nome: currentProfile?.nome,
+          });
+          if (typeof ciLoadMateriais === 'function') await ciLoadMateriais(id);
+          if (typeof ciRefrescarViewAberta === 'function') ciRefrescarViewAberta();
+        } catch (e) { console.warn('[kit img save]', e); }
       },
     });
   };
