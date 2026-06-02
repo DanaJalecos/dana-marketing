@@ -25446,7 +25446,9 @@ window.estGerar = async function() {
         produto_descricao: estState.produto._site_descricao || undefined,
         produto_imagem_url: estState.produto.imagem_url,
         // Ciclo 55: campos estruturados do catálogo do site
-        produto_cor_hex: estState.produto._site_cor_hex || undefined,        // "FFFFFF"
+        // NÃO enviar cor_hex: o catálogo tem esse campo quebrado (tudo "FFFFFF"/null).
+        // A cor real vem do NOME do produto + da foto de referência (image_produto_url).
+        produto_cor_hex: undefined,
         produto_tecido: estState.produto._site_tecido || undefined,           // "Gabardine"
         produto_composicao: estState.produto._site_composicao || undefined,   // "100% Poliéster"
         produto_sexo: estState.produto._site_sexo || undefined,                // "Feminino"
@@ -25475,6 +25477,12 @@ window.estGerar = async function() {
       _tecidoInfo = ` · 🧵 tecido: ${_fam.replace('_',' ')}`;
     } else {
       _tecidoInfo = ' · 🧵 tecido: não identificado (sem injeção)';
+    }
+
+    // ── Cor autoritativa: o catálogo tem cor_hex quebrado, então a cor REAL é a da
+    // foto de referência + a do nome do produto. Isso sobrepõe qualquer cor no prompt. ──
+    if (estState.produto._persistente && estState.produto.imagem_url) {
+      promptVisual += `\n\nGARMENT COLOR (authoritative — overrides any other color in this prompt): match the EXACT color of the garment in the product reference image and the product name "${estState.produto.nome}". If any hex code or color word in this prompt contradicts the reference image, IGNORE it and follow the reference image's real color.`;
     }
 
     // ── Configuração de cena (reforço determinístico no prompt) ──
@@ -25554,7 +25562,9 @@ window.estGerar = async function() {
                 contexto: 'outro',
                 contexto_ref_id: String(estState.produto.id),
                 aspect_ratio: aspectRatio,
-                incluir_logo: estState.produto._persistente, // só ativa logo se temos imagem real do produto (vem do site)
+                // Produto real já mostra o pin verdadeiro na foto de referência → NÃO forçar
+                // o pin genérico (brand block). O modelo copia o pin real da imagem (image_produto_url).
+                incluir_logo: false,
                 image_produto_url: estState.produto._persistente ? estState.produto.imagem_url : undefined, // URL do CDN site (ciclo 54)
                 modelo_pro: usarPro, // receita #1: Nano Banana Pro (muito mais fiel, ~R$0,65)
               }),
