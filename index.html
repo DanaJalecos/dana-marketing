@@ -25598,6 +25598,21 @@ window.estGerar = async function() {
               criado_por: currentUser?.id,
               criado_por_nome: currentProfile?.nome,
             });
+            // Veio do Kit IA? auto-vincula a foto à campanha + canal (galeria do kit)
+            if (window._kitEstudioPending && window._kitEstudioPending.campId) {
+              try {
+                await sb.from('campanha_interna_materiais').insert({
+                  campanha_id: window._kitEstudioPending.campId,
+                  canal: window._kitEstudioPending.canal || null,
+                  tipo: 'imagem_estudio_ia',
+                  url: j.url,
+                  nome: '🖼️ ' + (estState.produto?.nome || 'Imagem') + ' · ' + (window._kitEstudioPending.canal || ''),
+                  descricao: 'Gerada no Estúdio IA para a campanha ' + (window._kitEstudioPending.campanhaNome || ''),
+                  mime_type: 'image/png',
+                  adicionado_por: currentUser?.id, adicionado_por_nome: currentProfile?.nome,
+                });
+              } catch (e) { console.warn('[kit estudio vinculo]', e); }
+            }
             return { ok: true, url: j.url, idx: i + 1 };
           } catch (e) {
             console.warn(`[estudio] variante ${i+1} falhou:`, e);
@@ -25618,6 +25633,12 @@ window.estGerar = async function() {
     const sucessos = resultados.filter(r => r.ok).length;
     const falhas = resultados.filter(r => !r.ok);
     estCarregarGaleria();
+    // Se veio do Kit IA e gerou ao menos 1, encerra o contexto de vínculo (já linkado acima).
+    if (window._kitEstudioPending && resultados.some(r => r.ok)) {
+      const _cn = window._kitEstudioPending.canal || '';
+      window._kitEstudioPending = null;
+      showToast('🔗 Foto vinculada à campanha (canal ' + _cn + ') — veja na aba Kit IA.');
+    }
     if (sucessos === numVariacoes) {
       showToast(`✓ ${sucessos} ${sucessos>1?'variações geradas':'peça gerada'} — veja na galeria abaixo`);
     } else if (sucessos > 0) {
@@ -31015,7 +31036,11 @@ const aiChatInterval = setInterval(() => {
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'campanha_interna_materiais' }, async (p) => {
           const campId = p.new?.campanha_id || p.old?.campanha_id;
-          if (campId) { await ciLoadMateriais(campId); ciRefrescarViewAberta(); }
+          if (campId) {
+            await ciLoadMateriais(campId);
+            ciRefrescarViewAberta();
+            if (typeof ciKitState !== 'undefined' && ciKitState.campId === campId && typeof ciKitRenderHost === 'function') ciKitRenderHost();
+          }
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'campanha_interna_historico' }, async (p) => {
           const campId = p.new?.campanha_id || p.old?.campanha_id;
@@ -32523,18 +32548,89 @@ const aiChatInterval = setInterval(() => {
     return html + galeria;
   }
 
-  // Leva o prompt de imagem do canal pro Estúdio IA (escolha do produto real garante cor/pin).
+  // Extrai um termo de busca de produto do briefing da campanha (best-effort).
+  function ciKitTermoProduto(c) {
+    let s = (c.produtos_foco || c.oferta_principal || '').toString().trim();
+    if (!s) return '';
+    s = s.split('\n')[0].trim().replace(/^[•\-\d.\)\s]+/, '');
+    return s.split(/\s+/).filter(w => w.length > 2).slice(0, 2).join(' ').slice(0, 40);
+  }
+
+  function ciKitEstudioBanner(nome, canal) {
+    const p1 = document.getElementById('est-panel-1');
+    if (!p1) return;
+    document.getElementById('ci-kit-est-banner')?.remove();
+    const div = document.createElement('div');
+    div.id = 'ci-kit-est-banner';
+    div.style.cssText = 'background:linear-gradient(135deg,rgba(124,58,237,0.12),transparent);border:1px solid rgba(124,58,237,0.35);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12.5px;color:var(--text2)';
+    div.innerHTML = `🎯 Pré-preenchido pela campanha <strong>${esc(nome)}</strong> · canal <strong>${esc(canal)}</strong>. Revise produto / tamanho / cena e gere — a foto se vincula sozinha à campanha. Pode voltar etapas pra ajustar.`;
+    p1.insertBefore(div, p1.firstChild);
+  }
+
+  // Abre o Estúdio IA com TODAS as etapas pré-preenchidas pela campanha + estratégia.
+  // O usuário só revisa (e volta etapas se quiser). A foto gerada se auto-vincula à campanha.
   window.ciKitAbrirEstudio = function(canal) {
     const c = ciState.campanhas.find(x => x.id === ciKitState.campId);
-    const k = c && c.kit_conteudo;
-    const prompt = k && k[canal] && k[canal].imagem_prompt;
-    if (!prompt) { showToast('Sem prompt de imagem nesse canal'); return; }
-    window._kitEstudioPending = { campId: ciKitState.campId, canal, prompt };
-    navigator.clipboard.writeText(prompt).catch(() => {});
-    showToast('🖼️ Prompt copiado. No Estúdio IA: escolha o PRODUTO real e cole em "mensagem a inspirar".');
+    if (!c) { showToast('Selecione a campanha'); return; }
     const nav = document.querySelector(`[onclick*="go(this,'estudio')"]`);
-    if (nav && typeof go === 'function') go(nav, 'estudio');
-    else showToast('Abra a seção Estúdio IA no menu pra gerar a imagem.');
+    if (!nav || typeof go !== 'function') { showToast('Abra a seção Estúdio IA no menu'); return; }
+    const k = c.kit_conteudo || {};
+    const ch = k[canal] || {};
+
+    // contexto lido pelo estGerar (auto-vínculo da foto à campanha/canal)
+    window._kitEstudioPending = { campId: c.id, canal, campanhaNome: c.nome };
+    go(nav, 'estudio');
+
+    // canal → tamanho (tipo de peça do Estúdio)
+    const CANAL_TIPO = { instagram: 'post_feed', facebook: 'post_feed', linkedin: 'post_feed', pinterest: 'story_reel' };
+    const tipo = CANAL_TIPO[canal] || 'post_feed';
+    // ambiente conforme o público
+    const pub = (c.publico_alvo || '').toLowerCase();
+    let ambiente = 'clinica';
+    if (/dentist|odonto/.test(pub)) ambiente = 'consultorio';
+    else if (/estetic|estét|spa|beleza/.test(pub)) ambiente = 'estetica';
+    else if (/vet/.test(pub)) ambiente = 'veterinaria';
+    else if (/lab|biomed|farm/.test(pub)) ambiente = 'laboratorio';
+    else if (/hospital|enferm/.test(pub)) ambiente = 'hospital';
+    const cena = 'lifestyle', acao = 'sorrindo', estilo = 'editorial';
+    const tema = c.nome || '';
+    const copy = (Array.isArray(ch.ctas) && ch.ctas[0]) || c.argumento_central || c.oferta_principal || '';
+    const termo = ciKitTermoProduto(c);
+
+    let tentativas = 0;
+    const aplicar = () => {
+      tentativas++;
+      const inp = document.getElementById('est-busca-produto');
+      const tcard = document.querySelector(`.est-tipo-card[data-tipo="${tipo}"]`);
+      const ccard = document.querySelector(`.est-cena-card[data-cena="${cena}"]`);
+      if ((!inp || !tcard || !ccard) && tentativas < 25) { setTimeout(aplicar, 120); return; }
+      if (!inp) { showToast('Não consegui abrir o Estúdio'); return; }
+      // tamanho + cena (estSelCena popula os selects) + valores + tema/copy
+      if (tcard && typeof estSelTipo === 'function') estSelTipo(tcard, tipo);
+      if (ccard && typeof estSelCena === 'function') estSelCena(ccard, cena);
+      const sv = (id, v) => { const e = document.getElementById(id); if (e != null) e.value = v; };
+      sv('est-ambiente', ambiente); sv('est-acao', acao); sv('est-estilo', estilo);
+      sv('est-tema', tema); sv('est-copy-extra', copy);
+      ciKitEstudioBanner(c.nome, canal);
+      // produto: busca + auto-seleciona o 1º resultado (clica no card → estSelProduto)
+      const finalize = (temProduto) => {
+        if (typeof estProx === 'function') estProx(temProduto ? 4 : 1);
+        showToast(temProduto ? '✨ Estúdio pré-preenchido — revise e gere (ou volte etapas)' : '✨ Pré-preenchido — escolha o produto certo e avance');
+      };
+      if (termo) {
+        inp.value = termo;
+        if (typeof estBuscarProduto === 'function') estBuscarProduto();
+        let polls = 0;
+        const pick = () => {
+          polls++;
+          const first = document.querySelector('#est-resultados [onclick^="estSelProduto"]');
+          if (first) { first.click(); finalize(true); return; }
+          if (polls < 16) setTimeout(pick, 180); else finalize(false);
+        };
+        setTimeout(pick, 380);
+      } else finalize(false);
+    };
+    setTimeout(aplicar, 220);
   };
 
   // Monta o briefing do carrossel preenchido + padrões fixos pra colar no Claude Design.
