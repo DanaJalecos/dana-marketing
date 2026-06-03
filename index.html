@@ -32548,12 +32548,18 @@ const aiChatInterval = setInterval(() => {
     return html + galeria;
   }
 
-  // Extrai um termo de busca de produto do briefing da campanha (best-effort).
+  // Extrai o melhor termo de busca de produto do briefing.
+  // Prioriza MODELO específico (auto-seleciona); senão CATEGORIA (usuário escolhe).
   function ciKitTermoProduto(c) {
-    let s = (c.produtos_foco || c.oferta_principal || '').toString().trim();
-    if (!s) return '';
-    s = s.split('\n')[0].trim().replace(/^[•\-\d.\)\s]+/, '');
-    return s.split(/\s+/).filter(w => w.length > 2).slice(0, 2).join(' ').slice(0, 40);
+    const txt = ((c.produtos_foco || '') + ' ' + (c.oferta_principal || '') + ' ' + (c.nome || ''))
+      .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const ESPECIFICOS = ['manuela','isabel','heloisa','clara','benicio','chloe','samuel','manoel','comfy','glamour','tradicional','princess','tec easy','maite','mariah','marta','ayla','ester','kate','laila','diana','noah','heitor','bernardo','dani','rute','isac','loren','lorenzo','orli'];
+    for (const w of ESPECIFICOS) { if (txt.includes(w)) return { termo: w, especifico: true }; }
+    const CATEGORIAS = ['scrub','jaleco','avental','dolma','conjunto','colete','gorro','vestido','camisa','calca','turbante'];
+    for (const w of CATEGORIAS) { if (txt.includes(w)) return { termo: w, especifico: false }; }
+    const stop = new Set(['todos','todas','toda','todo','linha','os','as','de','da','do','com','cor','para','pra','novo','nova']);
+    const w = (c.produtos_foco || c.oferta_principal || '').toLowerCase().split(/[\s,;]+/).find(x => x.length > 3 && !stop.has(x));
+    return { termo: w || '', especifico: false };
   }
 
   function ciKitEstudioBanner(nome, canal) {
@@ -32595,7 +32601,8 @@ const aiChatInterval = setInterval(() => {
     const cena = 'lifestyle', acao = 'sorrindo', estilo = 'editorial';
     const tema = c.nome || '';
     const copy = (Array.isArray(ch.ctas) && ch.ctas[0]) || c.argumento_central || c.oferta_principal || '';
-    const termo = ciKitTermoProduto(c);
+    const _prod = ciKitTermoProduto(c);
+    const termo = _prod.termo, especifico = _prod.especifico;
 
     let tentativas = 0;
     const aplicar = () => {
@@ -32612,23 +32619,28 @@ const aiChatInterval = setInterval(() => {
       sv('est-ambiente', ambiente); sv('est-acao', acao); sv('est-estilo', estilo);
       sv('est-tema', tema); sv('est-copy-extra', copy);
       ciKitEstudioBanner(c.nome, canal);
-      // produto: busca + auto-seleciona o 1º resultado (clica no card → estSelProduto)
-      const finalize = (temProduto) => {
-        if (typeof estProx === 'function') estProx(temProduto ? 4 : 1);
-        showToast(temProduto ? '✨ Estúdio pré-preenchido — revise e gere (ou volte etapas)' : '✨ Pré-preenchido — escolha o produto certo e avance');
-      };
+      // produto: modelo específico → auto-seleciona + vai pra revisão; categoria → mostra e deixa escolher
       if (termo) {
         inp.value = termo;
         if (typeof estBuscarProduto === 'function') estBuscarProduto();
-        let polls = 0;
-        const pick = () => {
-          polls++;
-          const first = document.querySelector('#est-resultados [onclick^="estSelProduto"]');
-          if (first) { first.click(); finalize(true); return; }
-          if (polls < 16) setTimeout(pick, 180); else finalize(false);
-        };
-        setTimeout(pick, 380);
-      } else finalize(false);
+        if (especifico) {
+          let polls = 0;
+          const pick = () => {
+            polls++;
+            const first = document.querySelector('#est-resultados [onclick^="estSelProduto"]');
+            if (first) { first.click(); if (typeof estProx === 'function') estProx(4); showToast('✨ Estúdio pré-preenchido — revise e gere (ou volte etapas)'); return; }
+            if (polls < 16) setTimeout(pick, 180);
+            else { if (typeof estProx === 'function') estProx(1); showToast('✨ Pré-preenchido — escolha o produto e avance'); }
+          };
+          setTimeout(pick, 380);
+        } else {
+          if (typeof estProx === 'function') estProx(1);
+          showToast('✨ Pré-preenchido (tamanho/cena/tema) — escolha o ' + termo + ' da campanha e avance');
+        }
+      } else {
+        if (typeof estProx === 'function') estProx(1);
+        showToast('✨ Pré-preenchido (tamanho/cena/tema) — escolha o produto e avance');
+      }
     };
     setTimeout(aplicar, 220);
   };
