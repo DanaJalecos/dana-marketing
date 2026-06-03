@@ -25842,19 +25842,14 @@ window.estAbrirVincularCampanha = async function(pecaId) {
   // Pega a peça
   const { data: peca, error: errPeca } = await sb.from('estudio_pecas').select('*').eq('id', pecaId).maybeSingle();
   if (errPeca || !peca) { showToast('Erro ao carregar peça'); return; }
-  // Lista campanhas internas (ativas, planejadas, em execução)
+  // Lista TODAS as campanhas internas (qualquer status — antes filtrava e escondia 'producao')
   const { data: campanhas, error: errC } = await sb.from('campanhas_internas')
     .select('id, nome, status, data_inicio, data_fim')
-    .in('status', ['planejamento', 'em_execucao', 'planejada', 'ativa'])
-    .order('data_inicio', { ascending: false })
-    .limit(50);
+    .order('data_inicio', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+    .limit(200);
   if (errC) { showToast('Erro: ' + errC.message); return; }
-  if (!campanhas?.length) {
-    // Se não encontrar com status filtrados, pega todas
-    const { data: todas } = await sb.from('campanhas_internas').select('id, nome, status, data_inicio, data_fim').order('data_inicio', { ascending: false }).limit(50);
-    if (!todas?.length) { showToast('Nenhuma campanha interna cadastrada. Crie uma na seção Campanhas Internas primeiro.'); return; }
-    campanhas.push(...todas);
-  }
+  if (!campanhas?.length) { showToast('Nenhuma campanha interna cadastrada. Crie uma na seção Campanhas Internas primeiro.'); return; }
 
   // Modal
   const modalHtml = `
@@ -25870,12 +25865,12 @@ window.estAbrirVincularCampanha = async function(pecaId) {
         <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:14px">
           <img src="${esc(peca.imagem_url)}" style="width:90px;height:90px;object-fit:cover;border-radius:8px;flex-shrink:0" onerror="this.style.display='none'">
           <div style="flex:1;font-size:12px;color:var(--text3);line-height:1.5">
-            Selecione a campanha onde essa peça vai aparecer como anexo. Ela vai ficar disponível na seção <strong>Anexos & Links</strong> da campanha escolhida.
+            Escolha a campanha. No próximo passo você escolhe o <strong>canal</strong> (Instagram, LinkedIn…) — a foto vai pra galeria daquele canal na aba <strong>Kit IA</strong>.
           </div>
         </div>
         <div style="flex:1;overflow-y:auto;max-height:50vh;display:flex;flex-direction:column;gap:6px">
           ${campanhas.map(c => `
-            <button onclick="estVincularPecaCampanha('${peca.id}','${c.id}','${esc(c.nome).replace(/'/g, '&apos;')}')"
+            <button onclick="estVincCanalStep('${peca.id}','${c.id}','${esc(c.nome).replace(/'/g, '&apos;')}')"
               style="display:flex;align-items:center;justify-content:space-between;text-align:left;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;transition:all .15s"
               onmouseover="this.style.borderColor='#7c3aed';this.style.background='var(--surface2)'"
               onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--surface)'">
@@ -25897,18 +25892,45 @@ window.estAbrirVincularCampanha = async function(pecaId) {
   document.body.appendChild(div.firstElementChild);
 };
 
-window.estVincularPecaCampanha = async function(pecaId, campanhaId, campanhaNome) {
+// Passo 2: escolher o CANAL onde a foto vai aparecer (galeria do Kit IA)
+window.estVincCanalStep = function(pecaId, campId, nome) {
+  const overlay = document.getElementById('est-vincular-modal');
+  const box = overlay && overlay.querySelector('.modal');
+  if (!box) return;
+  const canais = [
+    ['instagram', '📸 Instagram'], ['linkedin', '💼 LinkedIn'], ['pinterest', '📌 Pinterest'],
+    ['facebook', '👍 Facebook'], ['email', '📧 Email'], ['blog', '✍️ Blog'],
+    ['branding', '🎨 Branding'], ['', '📎 Sem canal específico'],
+  ];
+  box.innerHTML = `
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">🔗 Em qual canal?</div>
+        <div class="card-sub">${esc(nome.replace(/&apos;/g, "'"))}</div>
+      </div>
+      <button class="modal-close" onclick="document.getElementById('est-vincular-modal').remove()">×</button>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">A foto vai aparecer na galeria desse canal na aba <strong>Kit IA</strong> dessa campanha.</div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+      ${canais.map(([k, l]) => `<button onclick="estVincularPecaCampanha('${pecaId}','${campId}','${esc(nome)}','${k}')" style="padding:11px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-size:12.5px;font-weight:600;text-align:left;transition:all .15s" onmouseover="this.style.borderColor='#7c3aed'" onmouseout="this.style.borderColor='var(--border)'">${l}</button>`).join('')}
+    </div>
+    <div style="margin-top:14px"><button class="btn btn-ghost btn-sm" onclick="estAbrirVincularCampanha('${pecaId}')">← Trocar campanha</button></div>
+  `;
+};
+
+window.estVincularPecaCampanha = async function(pecaId, campanhaId, campanhaNome, canal) {
   try {
     // Pega dados da peça pra preencher os metadados do material
     const { data: peca, error: errP } = await sb.from('estudio_pecas').select('*').eq('id', pecaId).maybeSingle();
     if (errP || !peca) throw new Error('Peça não encontrada');
 
-    // Insere em campanha_interna_materiais
+    // Insere em campanha_interna_materiais (com canal → galeria do Kit IA)
     const { error: errInsert } = await sb.from('campanha_interna_materiais').insert({
       campanha_id: campanhaId,
+      canal: canal || null,
       tipo: 'imagem_estudio_ia',
       url: peca.imagem_url,
-      nome: `${peca.produto_nome || 'Peça IA'}${peca.tema ? ' · ' + peca.tema : ''} (${peca.tipo_peca})`,
+      nome: `${peca.produto_nome || 'Peça IA'}${peca.tema ? ' · ' + peca.tema : ''}${canal ? ' · ' + canal : ''}`,
       descricao: `Gerado pelo Estúdio IA. Tipo: ${peca.tipo_peca}${peca.tema ? '. Tema: ' + peca.tema : ''}${peca.copy_extra ? '. Copy: ' + peca.copy_extra : ''}.`,
       mime_type: 'image/png',
       adicionado_por: currentUser?.id || null,
@@ -25917,7 +25939,7 @@ window.estVincularPecaCampanha = async function(pecaId, campanhaId, campanhaNome
     if (errInsert) throw errInsert;
 
     document.getElementById('est-vincular-modal')?.remove();
-    showToast(`✓ Peça vinculada a "${campanhaNome.replace(/&apos;/g, "'")}"`);
+    showToast(`✓ Peça vinculada a "${campanhaNome.replace(/&apos;/g, "'")}"${canal ? ' (canal ' + canal + ')' : ''}`);
   } catch (e) {
     console.error('[estudio] vincular:', e);
     showToast('Erro: ' + (e.message || e));
