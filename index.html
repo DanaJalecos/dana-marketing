@@ -5382,8 +5382,10 @@ function renderGridCriativos(list, status) {
       </div>`;
     } else if (status === 'aprovado') {
       const canPublish = podePublicarCriativo();
+      const canPin = tipo === 'imagem' && c.arquivo_url && window.podePublicarZernio && window.podePublicarZernio();
       actions = `<div class="arte-actions" style="margin-top:10px">
         ${canPublish ? `<button class="btn-aprovar" onclick="abrirModalPublicar('${c.id}')" style="background:var(--green);flex:1">🚀 Publicar</button>` : `<button class="btn-ver" onclick="window.open('${urlEsc}','_blank')" style="flex:1">👁 Abrir</button>`}
+        ${canPin ? `<button class="btn btn-sm" style="flex:none;padding:6px 10px;background:#e60023;color:#fff;border:none" onclick="criPublicarPinterest('${c.id}')" title="Publicar no Pinterest">📌</button>` : ''}
         ${canApprove ? `<button class="btn btn-ghost btn-sm" style="flex:none;padding:6px 10px" onclick="desfazerAprovacao('${c.id}')" title="Voltar pra aguardando">↩</button>` : ''}
         ${canDelete ? `<button class="btn btn-ghost btn-sm" style="flex:none;padding:6px 10px;color:var(--red)" onclick="abrirModalExcluirCriativo('${c.id}')" title="Excluir">🗑</button>` : ''}
       </div>`;
@@ -5430,6 +5432,21 @@ function renderGridCriativos(list, status) {
     </div>`;
   }).join('');
 }
+
+// Publica um criativo aprovado (imagem) no Pinterest via modal reutilizável.
+window.criPublicarPinterest = function(id) {
+  const c = (_criativosCache || []).find(x => x.id === id);
+  if (!c || !c.arquivo_url) { showToast('Criativo sem imagem'); return; }
+  window.zernioPublicar({
+    imageUrl: c.arquivo_url,
+    title: (c.titulo || '').slice(0, 100),
+    description: c.observacoes || '',
+    link: 'https://danajalecos.com.br',
+    contexto: 'criativo',
+    refId: c.id,
+    subtitulo: c.briefing_titulo ? ('Campanha: ' + c.briefing_titulo) : 'Criativo aprovado'
+  });
+};
 
 function switchCri(tab, id) {
   document.querySelectorAll('.cri-tab').forEach(t => t.classList.remove('active'));
@@ -30718,6 +30735,164 @@ const aiChatInterval = setInterval(() => {
 })();
 
 // ══════════════════════════════════════════════════════
+// ZERNIO — Publicar no Pinterest (reutilizável: Kit IA + Criativos)
+// Uso: window.zernioPublicar({ imageUrl, title, description, link, contexto, refId, canal, boardId?, subtitulo?, onDone? })
+// A key fica no edge `zernio-publicar` (secret ZERNIO_API_KEY). Front nunca vê a key.
+// ══════════════════════════════════════════════════════
+(function() {
+  const ZERNIO_CARGOS = ['admin','gerente_marketing','gerente_comercial','producao_conteudo','trafego_pago'];
+  window._zernioBoards = null; // cache da lista de boards
+
+  window.podePublicarZernio = function() {
+    return ZERNIO_CARGOS.includes(currentProfile?.cargo || '');
+  };
+
+  async function zernioCarregarBoards() {
+    if (window._zernioBoards) return window._zernioBoards;
+    const { data: { session } } = await sb.auth.getSession();
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/zernio-publicar`, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${session?.access_token}` },
+      body: JSON.stringify({ action:'boards' })
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'falha ao listar boards');
+    window._zernioBoards = j;
+    return j;
+  }
+
+  window.zernioPublicar = function(opts) {
+    opts = opts || {};
+    if (!window.podePublicarZernio()) { showToast('🚫 Seu cargo não pode publicar no Pinterest'); return; }
+    if (!opts.imageUrl) { showToast('Imagem não encontrada'); return; }
+    window._zernioOpts = opts;
+    document.getElementById('modal-zernio')?.remove();
+    const title = (opts.title || '').slice(0,100);
+    const desc = (opts.description || '');
+    const link = (opts.link || 'https://danajalecos.com.br');
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal-overlay open" id="modal-zernio">
+        <div class="modal" style="max-width:560px">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">📌 Publicar no Pinterest</div>
+              ${opts.subtitulo ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">${esc(opts.subtitulo)}</div>` : ''}
+            </div>
+            <button class="modal-close" onclick="document.getElementById('modal-zernio').remove()">×</button>
+          </div>
+          <div class="modal-body">
+            <div style="display:flex;gap:12px;margin-bottom:12px">
+              <img src="${esc(opts.imageUrl)}" style="width:110px;height:110px;object-fit:cover;border-radius:8px;border:1px solid var(--border);flex-shrink:0">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.3px">Conta Pinterest</div>
+                <div style="font-weight:600;font-size:13px;margin-bottom:8px">danajalecosexclusivos</div>
+                <div class="form-field" style="margin:0">
+                  <label style="font-size:11px">Board *</label>
+                  <select id="zr-board" class="input"><option>Carregando boards…</option></select>
+                </div>
+              </div>
+            </div>
+            <div class="form-field">
+              <label>Título do Pin <span id="zr-title-c" style="float:right;color:var(--text3);font-weight:400">0/100</span></label>
+              <input id="zr-title" class="input" maxlength="100" value="${esc(title)}" oninput="document.getElementById('zr-title-c').textContent=this.value.length+'/100'">
+            </div>
+            <div class="form-field">
+              <label>Descrição <span id="zr-desc-c" style="float:right;color:var(--text3);font-weight:400">0/500</span></label>
+              <textarea id="zr-desc" class="input" rows="4" maxlength="500" style="resize:vertical" oninput="document.getElementById('zr-desc-c').textContent=this.value.length+'/500'">${esc(desc)}</textarea>
+            </div>
+            <div class="form-field">
+              <label>Link de destino (clique no pin leva pro site)</label>
+              <input id="zr-link" class="input" value="${esc(link)}" placeholder="https://danajalecos.com.br">
+            </div>
+            <div class="form-field">
+              <label>Quando publicar</label>
+              <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+                <label style="display:flex;gap:5px;align-items:center;font-weight:400;cursor:pointer"><input type="radio" name="zr-when" value="now" checked onchange="window.zernioToggleAgendar()"> Agora</label>
+                <label style="display:flex;gap:5px;align-items:center;font-weight:400;cursor:pointer"><input type="radio" name="zr-when" value="schedule" onchange="window.zernioToggleAgendar()"> Agendar</label>
+                <input type="datetime-local" id="zr-when-dt" class="input" style="display:none;flex:1;min-width:180px">
+              </div>
+            </div>
+            <div id="zr-result" style="display:none"></div>
+            <div id="zr-erro" style="display:none;margin-top:8px;padding:10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:8px;color:#ef4444;font-size:12px"></div>
+          </div>
+          <div class="modal-footer" style="display:flex;justify-content:space-between;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+            <button class="btn btn-ghost" onclick="document.getElementById('modal-zernio').remove()">Fechar</button>
+            <button class="btn btn-primary" id="zr-go" onclick="window.zernioFazerPublicacao()">📌 Publicar</button>
+          </div>
+        </div>
+      </div>
+    `);
+    // popula boards (async, com cache)
+    zernioCarregarBoards().then(j => {
+      const sel = document.getElementById('zr-board'); if (!sel) return;
+      const boards = j.boards || [];
+      const def = opts.boardId || j.defaultBoardId;
+      sel.innerHTML = boards.length
+        ? boards.map(b => `<option value="${esc(b.id)}" data-name="${esc(b.name)}" ${b.id===def?'selected':''}>${esc(b.name)}${b.privacy && b.privacy!=='PUBLIC' ? ' 🔒' : ''}</option>`).join('')
+        : '<option value="">(nenhum board)</option>';
+    }).catch(e => {
+      const sel = document.getElementById('zr-board'); if (sel) sel.innerHTML = '<option value="">erro ao carregar</option>';
+      const er = document.getElementById('zr-erro'); if (er){ er.style.display='block'; er.textContent='Não consegui listar os boards: '+e.message; }
+    });
+    setTimeout(()=>{ document.getElementById('zr-title')?.dispatchEvent(new Event('input')); document.getElementById('zr-desc')?.dispatchEvent(new Event('input')); }, 0);
+  };
+
+  window.zernioToggleAgendar = function() {
+    const sched = document.querySelector('input[name="zr-when"]:checked')?.value === 'schedule';
+    const dt = document.getElementById('zr-when-dt'); if (dt) dt.style.display = sched ? '' : 'none';
+    const go = document.getElementById('zr-go'); if (go) go.textContent = sched ? '📅 Agendar' : '📌 Publicar';
+  };
+
+  window.zernioFazerPublicacao = async function() {
+    const opts = window._zernioOpts || {};
+    const board = document.getElementById('zr-board');
+    const boardId = board?.value || '';
+    const boardName = board?.selectedOptions?.[0]?.getAttribute('data-name') || '';
+    const title = (document.getElementById('zr-title')?.value || '').trim();
+    const desc = (document.getElementById('zr-desc')?.value || '').trim();
+    const link = (document.getElementById('zr-link')?.value || '').trim();
+    const when = document.querySelector('input[name="zr-when"]:checked')?.value || 'now';
+    let schedule_at = null;
+    if (when === 'schedule') {
+      const v = document.getElementById('zr-when-dt')?.value || '';
+      if (!v) { showToast('Escolha a data/hora do agendamento'); return; }
+      if (new Date(v).getTime() <= Date.now()) { showToast('A data precisa ser no futuro'); return; }
+      schedule_at = v.length === 16 ? v + ':00' : v;
+    }
+    if (!boardId) { showToast('Selecione um board'); return; }
+    const btn = document.getElementById('zr-go');
+    const er = document.getElementById('zr-erro');
+    const res = document.getElementById('zr-result');
+    if (er) er.style.display='none';
+    if (btn) { btn.disabled = true; btn.textContent = when==='schedule' ? 'Agendando…' : 'Publicando…'; }
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/zernio-publicar`, {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${session?.access_token}` },
+        body: JSON.stringify({ action:'publish', image_url: opts.imageUrl, title, description: desc, link, board_id: boardId, board_name: boardName, schedule_at, contexto: opts.contexto||'avulso', ref_id: opts.refId||null, canal: opts.canal||null })
+      });
+      const j = await r.json();
+      if (!r.ok || j.error) throw new Error(j.error || 'falha ao publicar');
+      if (res) {
+        res.style.display='block';
+        const agendado = j.status === 'scheduled';
+        res.innerHTML = `<div style="margin-top:8px;padding:12px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.35);border-radius:8px;color:var(--text2);font-size:12.5px">
+          ${agendado ? '📅 <strong>Pin agendado!</strong> Vai publicar no horário escolhido.' : '✅ <strong>Pin publicado!</strong>'}
+          ${j.pin_url ? `<div style="margin-top:6px"><a href="${esc(j.pin_url)}" target="_blank" style="color:#3b82f6;font-weight:600">🔗 Ver pin no Pinterest →</a></div>` : ''}
+        </div>`;
+      }
+      showToast(j.status === 'scheduled' ? '📅 Pin agendado!' : '✅ Pin publicado no Pinterest!');
+      if (btn) btn.style.display='none';
+      if (typeof opts.onDone === 'function') { try { opts.onDone(j); } catch(_){} }
+    } catch(e) {
+      if (er) { er.style.display='block'; er.textContent = '❌ ' + e.message; }
+      if (btn) { btn.disabled=false; btn.textContent = when==='schedule' ? '📅 Agendar' : '📌 Publicar'; }
+    }
+  };
+})();
+
+// ══════════════════════════════════════════════════════
 // CAMPANHAS INTERNAS (Feature 1) — organizacao da equipe
 // ══════════════════════════════════════════════════════
 (function() {
@@ -32614,13 +32789,43 @@ const aiChatInterval = setInterval(() => {
     const mats = (ciMateriais[c.id] || []).filter(m => m.canal === canal && /image|png|jpg|jpeg|webp/i.test((m.mime_type || '') + ' ' + (m.url || '')));
     let galeria = '';
     if (mats.length) {
+      const podePin = window.podePublicarZernio && window.podePublicarZernio();
       galeria = `<div style="margin-top:6px"><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:8px">🖼️ Fotos vinculadas (${mats.length})</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px">
-          ${mats.map(m => `<a href="${esc(m.url)}" target="_blank" style="display:block"><img src="${esc(m.url)}" style="width:100%;height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--border)"></a>`).join('')}
+          ${mats.map(m => `<div style="display:flex;flex-direction:column;gap:4px">
+            <a href="${esc(m.url)}" target="_blank" style="display:block"><img src="${esc(m.url)}" style="width:100%;height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--border)"></a>
+            ${podePin ? `<button class="btn btn-sm" style="background:#e60023;color:#fff;border:none;font-size:11px;padding:4px 6px;border-radius:6px" onclick="ciKitPublicarPinterest('${canal}','${encodeURIComponent(m.url)}')">📌 Pinterest</button>` : ''}
+          </div>`).join('')}
         </div></div>`;
     }
     return html + galeria;
   }
+
+  // Publica uma foto da galeria do Kit IA no Pinterest (via modal reutilizável).
+  // Pré-preenche título/descrição com a copy do kit (prioriza a do Pinterest).
+  window.ciKitPublicarPinterest = function(canal, urlEnc) {
+    const url = decodeURIComponent(urlEnc);
+    const c = ciState.campanhas.find(x => x.id === ciKitState.campId);
+    const k = (c && c.kit_conteudo) || {};
+    const pin = k.pinterest || {};
+    let title = pin.titulo_pin || (c ? c.nome : '') || '';
+    let desc = pin.descricao || '';
+    if (!desc) {
+      if (canal === 'instagram') desc = (k.instagram && k.instagram.legenda) || '';
+      else if (canal === 'linkedin') desc = (k.linkedin && k.linkedin.copy) || '';
+      else if (canal === 'facebook') desc = (k.facebook && k.facebook.copy) || '';
+    }
+    window.zernioPublicar({
+      imageUrl: url,
+      title: title,
+      description: desc,
+      link: 'https://danajalecos.com.br',
+      contexto: 'kit',
+      refId: c ? c.id : null,
+      canal: canal,
+      subtitulo: c ? ('Campanha: ' + c.nome) : ''
+    });
+  };
 
   // Extrai o melhor termo de busca de produto do briefing.
   // Prioriza MODELO específico (auto-seleciona); senão CATEGORIA (usuário escolhe).
