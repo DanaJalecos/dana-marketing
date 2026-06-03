@@ -21354,7 +21354,8 @@ async function loadProjecoes() {
   const map25 = {}; meses25.forEach(([k,d]) => { map25[parseInt(k.split('-')[1])] = d; });
   const map26 = {}; meses26.forEach(([k,d]) => { map26[parseInt(k.split('-')[1])] = d; });
 
-  // ───── METAS (planilha oficial) ─────
+  // ───── METAS (planilha oficial) ───── (isolado: erro aqui não bloqueia as tabelas Bling/DMS)
+  try {
   const { metaByMes, realPlanByMes } = await loadMetas2026();
   const metaAnual = Object.values(metaByMes).reduce((a,b)=>a+b,0);
   const realPlanAnual = Object.values(realPlanByMes).reduce((a,b)=>a+b,0);
@@ -21414,6 +21415,7 @@ async function loadProjecoes() {
     }
     metasBarEl.innerHTML = html + '<div style="display:flex;gap:16px;margin-top:8px;font-size:10px;color:var(--text3);flex-wrap:wrap"><div><span style="display:inline-block;width:10px;height:10px;background:rgba(150,150,150,.35);border-radius:2px;margin-right:4px"></span>Meta</div><div><span style="display:inline-block;width:10px;height:10px;background:var(--black);border-radius:2px;margin-right:4px"></span>Realizado (planilha)</div><div><span style="display:inline-block;width:10px;height:10px;background:var(--green);border-radius:2px;margin-right:4px"></span>Bateu a meta</div></div>';
   }
+  } catch (e) { console.warn('[proj] metas render falhou (segue p/ Bling/DMS):', e); }
 
   const tabelaEl = el('proj-tabela');
   if(tabelaEl) {
