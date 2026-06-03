@@ -2833,6 +2833,9 @@ select.input { cursor: pointer; }
       <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 2l3 3M5 5l-3 3M5 5l3-3M8 2l3 3M11 5l3-3M11 5l3 3M14 8l-3 3M11 11l3 3M11 11l-3 3M8 14l-3-3M5 11l-3 3M5 11l-3-3M2 8l3-3"/><circle cx="8" cy="8" r="2"/></svg></div>Estúdio IA
       <span class="nav-badge" style="background:#7c3aed;color:white;font-size:9px">NOVO</span>
     </div>
+    <div class="nav-item" id="nav-provador" onclick="go(this,'provador')" style="display:none">
+      <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2.5a1.3 1.3 0 100 2.6 1.3 1.3 0 000-2.6z"/><path d="M8 5.1l-4.5 3a1 1 0 00.6 1.8H6v3.5h4V9.9h1.9a1 1 0 00.6-1.8L8 5.1z"/></svg></div>Provador Virtual
+    </div>
     <div class="nav-item" onclick="go(this,'influenciadores')">
       <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6" cy="5" r="3"/><path d="M1 14c0-3 2.2-5 5-5s5 2 5 5"/><path d="M12 7c1.1 0 2 .9 2 2s-.9 2-2 2M14.5 14H11"/></svg></div>Influenciadores
     </div>
@@ -7914,6 +7917,15 @@ updateDynamicField('foto');
           loading="lazy"></iframe>
 </div>
 
+<!-- ════════ PROVADOR VIRTUAL (painel admin via iframe Cloudflare Worker) ════════ -->
+<div class="view" id="view-provador" style="padding:0 !important">
+  <iframe id="provador-iframe"
+          src="about:blank"
+          style="width:100%;height:calc(100vh - 60px);border:0;display:block;background:#0a0a0a"
+          title="Provador Virtual — Configuração"
+          loading="lazy"></iframe>
+</div>
+
 <!-- ════════ GESTÃO INTELIGENTE DE ESTOQUE ════════ -->
 <div class="view" id="view-estoque"><div style="padding:24px 28px">
   <style>
@@ -10685,6 +10697,7 @@ const VIEW_META = {
   referencias:  { title: 'Referências', sub: 'Banco de inspiração de criativos e estratégias', action: '' },
   performance:  { title: 'Performance', sub: 'ROAS, canais, Meta Ads e GA4', action: 'Exportar PDF' },
   cliente360:   { title: 'Cliente 360', sub: 'Visão completa dos clientes · CRM avançado', action: '' },
+  provador:     { title: 'Provador Virtual', sub: 'Configuração do provador virtual da loja (tabelas de medidas, textos, cores)', action: '' },
   marketplaces: { title: 'Marketplaces', sub: 'Mercado Livre e Shopee', action: 'Exportar PDF' },
   provasocial:  { title: 'Prova Social', sub: 'UGC, depoimentos e aprovação', action: 'Novo Conteúdo' },
   apis:         { title: 'Conectar APIs', sub: 'Integrações externas', action: '' },
@@ -10847,6 +10860,8 @@ const ADMIN_ONLY_VIEWS = ['admin', 'anotacoes'];
 // Seções restritas a cargos específicos (admin + gerente_financeiro pra Gestão de Estoque).
 // Decisão da sessão: só quem decide reabastecer tem acesso ao painel.
 const ESTOQUE_VIEWS = ['admin','gerente_financeiro'];
+// Provador Virtual (painel de config da loja) — só esses cargos veem/acessam a aba
+const PROVADOR_VIEWS = ['admin','gerente_marketing'];
 
 // Views completamente ocultas do menu — ninguém vê (nem admin).
 // applyNavPermissions respeita isso (sobrescreve o reset de display); go() bloqueia
@@ -10970,6 +10985,16 @@ function go(el, viewId, opts) {
     }
     return;
   }
+  // 1c. Bloqueio: Provador Virtual é só pra admin + gerente_marketing
+  if (viewId === 'provador' && !PROVADOR_VIEWS.includes(currentProfile?.cargo)) {
+    if (typeof showToast === 'function') showToast('🚫 Acesso negado — Provador Virtual é restrito');
+    const fb = firstAllowedView();
+    if (fb && fb !== viewId) {
+      const navEl = document.querySelector('[onclick*="\''+fb+'\'"]');
+      return go(navEl, fb);
+    }
+    return;
+  }
   // 2. Bloqueio via cargo_permissoes (perfil sempre acessivel)
   if (viewId !== 'perfil' && userPermissoes[viewId] === false) {
     if (typeof showToast === 'function') showToast('Você não tem acesso a esta seção');
@@ -11026,7 +11051,7 @@ function go(el, viewId, opts) {
   }
   // Esconde o filtro global de empresa quando estiver em Cliente 360 (filtro proprio la dentro)
   const empSel = document.getElementById('empresa-selector');
-  if (empSel) empSel.style.display = (viewId === 'cliente360') ? 'none' : '';
+  if (empSel) empSel.style.display = (viewId === 'cliente360' || viewId === 'provador') ? 'none' : '';
   // Log navegacao
   logActivity('visualizou', meta.title || viewId, viewId);
   // Carregar dados especiais
@@ -11062,6 +11087,7 @@ function go(el, viewId, opts) {
   if (viewId === 'personas' || viewId === 'construtor') { if (typeof loadPersonasStats === 'function') loadPersonasStats(); }
   if (viewId === 'calendario') { if (typeof loadCalendario==='function') loadCalendario(); if (typeof loadTarefas==='function' && !_tarefasCache?.length) loadTarefas(); else if (typeof renderCalendario==='function') setTimeout(renderCalendario, 100); }
   if (viewId === 'cliente360') loadCliente360();
+  if (viewId === 'provador') { if (typeof loadProvador === 'function') loadProvador(); }
   if (viewId === 'home') { if (typeof loadMinhasTarefasSemana === 'function') loadMinhasTarefasSemana(); }
   if (viewId === 'campanhas-internas') { if (typeof loadCampanhasInternas === 'function') loadCampanhasInternas(); }
   if (viewId === 'campanhas') { if (typeof loadCampanhasFromBriefings === 'function') loadCampanhasFromBriefings(); }
@@ -11154,6 +11180,40 @@ function loadCliente360() {
     iframe.setAttribute('data-loaded', '1');
   }
 }
+
+// ════════ PROVADOR VIRTUAL — iframe cross-origin (Cloudflare Worker) + auth via postMessage ════════
+const PROVADOR_ORIGIN = 'https://provador-admin.danajalecos.workers.dev';
+function loadProvador() {
+  const iframe = document.getElementById('provador-iframe');
+  if (!iframe) return;
+  if (!iframe.getAttribute('data-loaded')) {
+    iframe.src = PROVADOR_ORIGIN + '/';
+    iframe.setAttribute('data-loaded', '1');
+  }
+}
+// Handshake: o painel manda {source:'dana-provador',type:'ready'}; respondemos com o token Supabase.
+(function setupProvadorHandshake(){
+  function postAuth(token) {
+    const iframe = document.getElementById('provador-iframe');
+    if (!iframe || !iframe.contentWindow || !token) return;
+    const cargo = (typeof currentProfile !== 'undefined' && currentProfile && currentProfile.cargo) || null;
+    try { iframe.contentWindow.postMessage({ source:'dana-dms', type:'auth', token, cargo }, PROVADOR_ORIGIN); } catch(e){}
+  }
+  window.addEventListener('message', async (e) => {
+    if (e.origin !== PROVADOR_ORIGIN) return;                 // só confia no painel do provador
+    if (e.data && e.data.source === 'dana-provador' && e.data.type === 'ready') {
+      let token = null;
+      try { if (typeof sb !== 'undefined') { const { data } = await sb.auth.getSession(); token = data && data.session ? data.session.access_token : null; } } catch(err){}
+      postAuth(token);
+    }
+  });
+  // Reenvia o token quando a sessão Supabase renovar (~1h)
+  try {
+    if (typeof sb !== 'undefined' && sb.auth && sb.auth.onAuthStateChange) {
+      sb.auth.onAuthStateChange((_evt, session) => { if (session) postAuth(session.access_token); });
+    }
+  } catch(e) { console.warn('[provador] onAuthStateChange:', e); }
+})();
 
 // Responde aos botões back/forward do browser (ciclo 59 — path-based).
 // fromHistory:true faz go() pular o pushState/replaceState (evita loop popstate↔pushState).
@@ -24421,6 +24481,11 @@ function applyNavPermissions() {
     if (!ehAdmin && ADMIN_ONLY_VIEWS.includes(secao)) { item.style.display = 'none'; return; }
     // Gestão de Estoque: só admin + gerente_financeiro
     if (secao === 'estoque' && !ESTOQUE_VIEWS.includes(currentProfile?.cargo)) {
+      item.style.display = 'none';
+      return;
+    }
+    // Provador Virtual: só admin + gerente_marketing
+    if (secao === 'provador' && !PROVADOR_VIEWS.includes(currentProfile?.cargo)) {
       item.style.display = 'none';
       return;
     }
