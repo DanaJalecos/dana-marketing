@@ -6195,6 +6195,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     } else {
       await renderMcVendedorView(content, perms);
     }
+    if (typeof window.mcRestoreSyncCooldown === 'function') window.mcRestoreSyncCooldown();
   }
 
   // ─── View VENDEDOR (só clientes dele + ranking entre vendedoras) ───
@@ -6256,7 +6257,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
             <h1 style="margin:0 0 6px;font-size:28px;font-weight:700;color:#f1f5f9;font-family:'Playfair Display',serif">Meus Clientes</h1>
             <div style="font-size:13px;color:#94a3b8">Olá ${escapeHtml(perms.nome)} — sua carteira · ${EMPRESA_LABELS[state.empresa]}</div>
           </div>
-          <button onclick="window.c360McReload()" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:13px;font-weight:600">🔄 Atualizar</button>
+          <button class="mc-sync-btn" onclick="window.c360McReload()" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:13px;font-weight:600" title="Busca pedidos novos no Bling (1x por minuto)">🔄 Atualizar</button>
         </div>
 
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px">
@@ -7252,7 +7253,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button onclick="window.c360McOpenMapear()" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(167,139,250,0.4);background:rgba(167,139,250,0.12);color:#c4b5fd;cursor:pointer;font-size:13px;font-weight:600">⚙ Mapear vendedores Bling</button>
-            <button onclick="window.c360McReload()" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:13px;font-weight:600">🔄 Atualizar</button>
+            <button class="mc-sync-btn" onclick="window.c360McReload()" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:13px;font-weight:600" title="Busca pedidos novos no Bling (1x por minuto)">🔄 Atualizar</button>
           </div>
         </div>
 
@@ -7968,9 +7969,53 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
   // (Filtros unificados: ver c360McVendedorFilter / c360McAdminFilter acima)
 
+  // ─── Força sync do Bling (pedidos matriz+BC) com cooldown de 60s ───
+  const MC_SYNC_COOLDOWN_MS = 60000;
+  let _mcCooldownTimer = null;
+
+  function mcSyncCooldownTick() {
+    const until = Number(localStorage.getItem('c360_force_sync_until') || 0);
+    const btns = document.querySelectorAll('.mc-sync-btn');
+    const rem = Math.ceil((until - Date.now()) / 1000);
+    if (rem <= 0) {
+      btns.forEach(b => { b.disabled = false; b.style.opacity = ''; b.style.cursor = 'pointer'; b.textContent = b.dataset.lbl || '🔄 Atualizar'; });
+      if (_mcCooldownTimer) { clearInterval(_mcCooldownTimer); _mcCooldownTimer = null; }
+      return;
+    }
+    btns.forEach(b => { if (!b.dataset.lbl) b.dataset.lbl = b.textContent; b.disabled = true; b.style.opacity = '0.5'; b.style.cursor = 'not-allowed'; b.textContent = `⏳ ${rem}s`; });
+  }
+  // Restaura o estado do botão em cooldown após re-render/reabertura da aba.
+  window.mcRestoreSyncCooldown = function() {
+    const until = Number(localStorage.getItem('c360_force_sync_until') || 0);
+    if (until > Date.now()) {
+      mcSyncCooldownTick();
+      if (!_mcCooldownTimer) _mcCooldownTimer = setInterval(mcSyncCooldownTick, 1000);
+    }
+  };
+
   window.c360McReload = async function() {
+    const until = Number(localStorage.getItem('c360_force_sync_until') || 0);
+    if (until > Date.now()) {
+      const rem = Math.ceil((until - Date.now()) / 1000);
+      if (typeof showToast === 'function') showToast(`Aguarde ${rem}s pra sincronizar de novo`, 'error');
+      return;
+    }
+    // Marca cooldown imediatamente (trava duplo-clique e protege o Bling)
+    localStorage.setItem('c360_force_sync_until', String(Date.now() + MC_SYNC_COOLDOWN_MS));
+    mcSyncCooldownTick();
+    if (!_mcCooldownTimer) _mcCooldownTimer = setInterval(mcSyncCooldownTick, 1000);
+    if (typeof showToast === 'function') showToast('🔄 Buscando pedidos novos no Bling...');
+    try {
+      // sync-pedidos = incremental dos últimos 7 dias (leve). matriz + BC em paralelo.
+      await Promise.allSettled([
+        state.sb.functions.invoke('sync-pedidos', { body: {} }),
+        state.sb.functions.invoke('sync-pedidos-bc', { body: {} }),
+      ]);
+    } catch (e) { console.warn('[mc] force sync erro:', e); }
     mcInvalidateCache();
     await renderMeusClientesPage();
+    window.mcRestoreSyncCooldown(); // re-render recria os botões → reaplica o cooldown
+    if (typeof showToast === 'function') showToast('✓ Atualizado');
   };
 
   // ─── Modal: Reatribuir cliente ───
