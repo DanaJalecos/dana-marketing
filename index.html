@@ -2781,6 +2781,9 @@ select.input { cursor: pointer; }
     <div class="nav-item" onclick="go(this,'cliente360')">
       <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6.5"/><circle cx="8" cy="6" r="2"/><path d="M3.5 13c1-2 2.7-3 4.5-3s3.5 1 4.5 3"/></svg></div>Cliente 360
     </div>
+    <div class="nav-item" id="nav-cliente360beta" onclick="go(this,'cliente360beta')" style="display:none">
+      <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6.5"/><circle cx="8" cy="6" r="2"/><path d="M3.5 13c1-2 2.7-3 4.5-3s3.5 1 4.5 3"/></svg></div>Cliente 360 (beta)
+    </div>
     <div class="nav-item" onclick="go(this,'prospeccao')" data-secao="prospeccao">
       <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5"/><path d="M11 11l3 3"/><path d="M5 7h4M7 5v4"/></svg></div>Prospecção
     </div>
@@ -7961,6 +7964,15 @@ updateDynamicField('foto');
           loading="lazy"></iframe>
 </div>
 
+<!-- Cliente 360 (beta) — fork c360-dms.vercel.app embutido via iframe + auth postMessage (admin-only, paralelo ao #cliente360 atual) -->
+<div class="view" id="view-cliente360beta" style="padding:0 !important">
+  <iframe id="cliente360beta-iframe"
+          src="about:blank"
+          style="width:100%;height:calc(100vh - 60px);border:0;display:block;background:#0a0a0a"
+          title="Cliente 360 (beta)"
+          loading="lazy"></iframe>
+</div>
+
 <!-- ════════ GESTÃO INTELIGENTE DE ESTOQUE ════════ -->
 <div class="view" id="view-estoque"><div style="padding:24px 28px">
   <style>
@@ -10733,6 +10745,7 @@ const VIEW_META = {
   performance:  { title: 'Performance', sub: 'ROAS, canais, Meta Ads e GA4', action: 'Exportar PDF' },
   cliente360:   { title: 'Cliente 360', sub: 'Visão completa dos clientes · CRM avançado', action: '' },
   provador:     { title: 'Provador Virtual', sub: 'Configuração do provador virtual da loja (tabelas de medidas, textos, cores)', action: '' },
+  cliente360beta: { title: 'Cliente 360 (beta)', sub: 'Novo C360 (c360-dms) em teste paralelo — não substitui o atual', action: '' },
   marketplaces: { title: 'Marketplaces', sub: 'Mercado Livre e Shopee', action: 'Exportar PDF' },
   provasocial:  { title: 'Prova Social', sub: 'UGC, depoimentos e aprovação', action: 'Novo Conteúdo' },
   apis:         { title: 'Conectar APIs', sub: 'Integrações externas', action: '' },
@@ -10897,6 +10910,9 @@ const ADMIN_ONLY_VIEWS = ['admin', 'anotacoes'];
 const ESTOQUE_VIEWS = ['admin','gerente_financeiro'];
 // Provador Virtual (painel de config da loja) — só esses cargos veem/acessam a aba
 const PROVADOR_VIEWS = ['admin','gerente_marketing','gerente_comercial'];
+// Cliente 360 (beta) — fork c360-dms em teste paralelo. Admin-only até passar a auditoria de paridade.
+const C360BETA_VIEWS = ['admin'];
+const C360V2_ORIGIN = 'https://c360-dms.vercel.app';
 
 // Views completamente ocultas do menu — ninguém vê (nem admin).
 // applyNavPermissions respeita isso (sobrescreve o reset de display); go() bloqueia
@@ -11030,6 +11046,16 @@ function go(el, viewId, opts) {
     }
     return;
   }
+  // 1d. Bloqueio: Cliente 360 (beta) é só admin (teste paralelo do c360-dms)
+  if (viewId === 'cliente360beta' && !C360BETA_VIEWS.includes(currentProfile?.cargo)) {
+    if (typeof showToast === 'function') showToast('🚫 Cliente 360 (beta) é restrito (em teste)');
+    const fb = firstAllowedView();
+    if (fb && fb !== viewId) {
+      const navEl = document.querySelector('[onclick*="\''+fb+'\'"]');
+      return go(navEl, fb);
+    }
+    return;
+  }
   // 2. Bloqueio via cargo_permissoes (perfil sempre acessivel)
   if (viewId !== 'perfil' && userPermissoes[viewId] === false) {
     if (typeof showToast === 'function') showToast('Você não tem acesso a esta seção');
@@ -11086,7 +11112,7 @@ function go(el, viewId, opts) {
   }
   // Esconde o filtro global de empresa quando estiver em Cliente 360 (filtro proprio la dentro)
   const empSel = document.getElementById('empresa-selector');
-  if (empSel) empSel.style.display = (viewId === 'cliente360' || viewId === 'provador') ? 'none' : '';
+  if (empSel) empSel.style.display = (viewId === 'cliente360' || viewId === 'cliente360beta' || viewId === 'provador') ? 'none' : '';
   // Log navegacao
   logActivity('visualizou', meta.title || viewId, viewId);
   // Carregar dados especiais
@@ -11123,6 +11149,7 @@ function go(el, viewId, opts) {
   if (viewId === 'calendario') { if (typeof loadCalendario==='function') loadCalendario(); if (typeof loadTarefas==='function' && !_tarefasCache?.length) loadTarefas(); else if (typeof renderCalendario==='function') setTimeout(renderCalendario, 100); }
   if (viewId === 'cliente360') loadCliente360();
   if (viewId === 'provador') { if (typeof loadProvador === 'function') loadProvador(); }
+  if (viewId === 'cliente360beta') { if (typeof loadCliente360Beta === 'function') loadCliente360Beta(); }
   if (viewId === 'home') { if (typeof loadMinhasTarefasSemana === 'function') loadMinhasTarefasSemana(); }
   if (viewId === 'campanhas-internas') { if (typeof loadCampanhasInternas === 'function') loadCampanhasInternas(); }
   if (viewId === 'campanhas') { if (typeof loadCampanhasFromBriefings === 'function') loadCampanhasFromBriefings(); }
@@ -11248,6 +11275,43 @@ function loadProvador() {
       sb.auth.onAuthStateChange((_evt, session) => { if (session) postAuth(session.access_token); });
     }
   } catch(e) { console.warn('[provador] onAuthStateChange:', e); }
+})();
+
+// ════════ CLIENTE 360 (beta) — iframe c360-dms.vercel.app + auth via postMessage (admin-only, paralelo ao #cliente360 atual) ════════
+function loadCliente360Beta() {
+  const iframe = document.getElementById('cliente360beta-iframe');
+  if (!iframe) return;
+  if (!iframe.getAttribute('data-loaded')) {
+    iframe.src = C360V2_ORIGIN + '/';
+    iframe.setAttribute('data-loaded', '1');
+  }
+}
+// Handshake: o app v2 manda {source:'dana-c360v2',type:'ready'}; respondemos com token+cargo+empresa.
+(function setupC360BetaHandshake(){
+  function empresaAtual() {
+    try { return (typeof getEmpresaFiltro === 'function' && getEmpresaFiltro()) || localStorage.getItem('empresa_filtro') || 'todas'; }
+    catch(e) { return 'todas'; }
+  }
+  function postAuth(token) {
+    const iframe = document.getElementById('cliente360beta-iframe');
+    if (!iframe || !iframe.contentWindow || !token) return;
+    const cargo = (typeof currentProfile !== 'undefined' && currentProfile && currentProfile.cargo) || null;
+    try { iframe.contentWindow.postMessage({ source:'dana-dms', type:'auth', token, cargo, empresa: empresaAtual() }, C360V2_ORIGIN); } catch(e){}
+  }
+  window.addEventListener('message', async (e) => {
+    if (e.origin !== C360V2_ORIGIN) return;                    // só confia no app c360-dms
+    if (e.data && e.data.source === 'dana-c360v2' && e.data.type === 'ready') {
+      let token = null;
+      try { if (typeof sb !== 'undefined') { const { data } = await sb.auth.getSession(); token = data && data.session ? data.session.access_token : null; } } catch(err){}
+      postAuth(token);
+    }
+  });
+  // Reenvia o token quando a sessão Supabase renovar (~1h)
+  try {
+    if (typeof sb !== 'undefined' && sb.auth && sb.auth.onAuthStateChange) {
+      sb.auth.onAuthStateChange((_evt, session) => { if (session) postAuth(session.access_token); });
+    }
+  } catch(e) { console.warn('[c360beta] onAuthStateChange:', e); }
 })();
 
 // Responde aos botões back/forward do browser (ciclo 59 — path-based).
@@ -24656,6 +24720,11 @@ function applyNavPermissions() {
     }
     // Provador Virtual: só admin + gerente_marketing
     if (secao === 'provador' && !PROVADOR_VIEWS.includes(currentProfile?.cargo)) {
+      item.style.display = 'none';
+      return;
+    }
+    // Cliente 360 (beta): só admin (teste paralelo do c360-dms)
+    if (secao === 'cliente360beta' && !C360BETA_VIEWS.includes(currentProfile?.cargo)) {
       item.style.display = 'none';
       return;
     }
