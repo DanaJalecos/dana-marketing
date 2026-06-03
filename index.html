@@ -22386,9 +22386,14 @@ async function loadFaturamentoPorCanal() {
           .gte('date_closed', inicioISO).lt('date_closed', fimISO)
           .limit(50000);
 
-    const [blingR, magazordR, mlRealR] = await Promise.all([blingQuery, magazordPromise, mlRealPromise]);
+    // vendedor_mapping: classificação por vendedor (igual à view faturamento_real_mensal · pedido FAI #25)
+    const mapPromise = sb.from('vendedor_mapping').select('bling_vendedor_id').eq('excluir_ranking', false).in('empresa', ['matriz','bc']);
+    const [blingR, magazordR, mlRealR, mapR] = await Promise.all([blingQuery, magazordPromise, mlRealPromise, mapPromise]);
 
     if (blingR.error) throw blingR.error;
+
+    const DIEGO_ID = 15596875225;  // único B2B real
+    const canaisVendSet = new Set((mapR && mapR.data ? mapR.data : []).map(r => Number(r.bling_vendedor_id)));
 
     // Bling: agrupa por canal
     const canais = {
@@ -22405,21 +22410,24 @@ async function loadFaturamentoPorCanal() {
     // Candidatos B2B (loja_id=0/null no Bling): separados pra cruzar com Magazord depois.
     // Os que NAO baterem em magazord_pedidos viram card B2B; os que baterem sao descartados
     // (ja foram contados no Site Magazord — evita double-count).
-    const b2bCandidatos = [];
+    // Classificação POR VENDEDOR (igual à view · pedido FAI #25):
+    // B2B = só Diego · vendedoras (mapping) = Loja Física/WhatsApp · pseudo Site/ML + não-mapeado = ignora.
+    let b2bTotal = 0, b2bPed = 0;
     (blingR.data || []).forEach(p => {
-      // exclui canceladas
-      if (p.situacao_id === 12) return;
+      if (p.situacao_id === 12) return;                                // canceladas
+      const valor = Number(p.total) || Number(p.total_produtos) || 0;  // COALESCE total→total_produtos
+      const vend = p.vendedor_id == null ? null : Number(p.vendedor_id);
+      // 1) vendedor decide primeiro (igual à view)
+      if (vend === DIEGO_ID) { b2bTotal += valor; b2bPed += 1; return; }
+      if (vend !== null && canaisVendSet.has(vend)) { canais.lojawhats.total += valor; canais.lojawhats.pedidos += 1; return; }
+      if (vend !== null) return;                                       // pseudo Site/ML + não-mapeado → ignora
+      // 2) sem vendedor: classifica por loja_id
       const lid = String(p.loja_id == null ? '0' : p.loja_id);
-      // COALESCE: recupera pedidos com total=0 via total_produtos
-      const valor = Number(p.total) || Number(p.total_produtos) || 0;
       if (lid === '203536978' || lid === '203550865') { canais.lojawhats.total += valor; canais.lojawhats.pedidos += 1; return; }
       if (lid === '205337834') { canais.ml.total += valor; canais.ml.pedidos += 1; return; }
       if (lid === '205522474') { canais.shopee.total += valor; canais.shopee.pedidos += 1; return; }
       if (lid === '205430008') { canais.tiktok.total += valor; canais.tiktok.pedidos += 1; return; }
-      if (lid === '0' || lid === 'null' || lid === 'undefined') {
-        b2bCandidatos.push({ valor, contato_nome: (p.contato_nome||'').toLowerCase().trim(), data: (p.data||'').slice(0,10) });
-        return;
-      }
+      if (lid === '0' || lid === 'null' || lid === 'undefined') return; // sem vendedor e sem loja → ignora (site vem do Magazord)
       canais.magalu.total += valor; canais.magalu.pedidos += 1;
     });
 
@@ -22443,22 +22451,11 @@ async function loadFaturamentoPorCanal() {
     // Magazord: usa SOMENTE pagos pra evitar contar carrinhos cancelados como receita.
     // Tambem indexa por (data, pessoa_nome) pra cruzar com Bling loja_id=0 (B2B vs site).
     let magazordPagos = 0, magazordPedPagos = 0, magazordTodos = 0, magazordPedTodos = 0;
-    const siteKeys = new Set(); // chave = "YYYY-MM-DD|nome_lower_trim"
     (magazordR.data || []).forEach(p => {
       const v = Number(p.valor_total || 0);
-      // pedido_situacao_tipo eh NUMERICO ('1','2','3'). Padrao Finance AI:
-      //   '1' = ativos (aprovado, em transporte, NF emitida, entregue) → pago
-      //   '2' = analise · '3' = cancelado
-      const tipoStr = String(p.pedido_situacao_tipo || '');
-      const isCancelado = tipoStr === '3';
-      const isPago = tipoStr === '1';
+      // pedido_situacao_tipo NUMÉRICO: '1' = pago/ativo · '2' = análise · '3' = cancelado
       magazordTodos += v; magazordPedTodos += 1;
-      if (isPago && !isCancelado) {
-        magazordPagos += v; magazordPedPagos += 1;
-        const dt = (p.data_hora || '').slice(0,10);
-        const nm = (p.pessoa_nome || '').toLowerCase().trim();
-        if (dt && nm) siteKeys.add(dt + '|' + nm);
-      }
+      if (String(p.pedido_situacao_tipo || '') === '1') { magazordPagos += v; magazordPedPagos += 1; }
     });
 
     const siteCard = {
@@ -22468,21 +22465,11 @@ async function loadFaturamentoPorCanal() {
       fonte: 'Magazord'
     };
 
-    // B2B real: candidatos Bling (loja_id=0) que NAO batem com Magazord por nome+data.
-    // Os que batem ja foram contados no Site (siteCard) — descarta pra evitar double-count.
-    // Pedido Finance AI (Section 5.3): R$144k em Maio era ~R$13k double-count + ~R$131k B2B real.
-    let b2bTotal = 0, b2bPed = 0, b2bDescartado = 0, b2bPedDescartado = 0;
-    b2bCandidatos.forEach(c => {
-      const k = c.data + '|' + c.contato_nome;
-      if (siteKeys.has(k)) { b2bDescartado += c.valor; b2bPedDescartado += 1; return; }
-      b2bTotal += c.valor; b2bPed += 1;
-    });
+    // B2B = só Diego (vendedor_id 15596875225), já somado no loop por vendedor acima.
     const b2bCard = (b2bPed > 0) ? {
-      nome: '🤝 B2B (manual no Bling)', cor: '#a855f7',
+      nome: '🤝 B2B (Diego)', cor: '#a855f7',
       total: b2bTotal, pedidos: b2bPed,
-      totalBruto: b2bTotal + b2bDescartado, pedidosBruto: b2bPed + b2bPedDescartado,
       fonte: 'Bling',
-      b2bDouble: b2bDescartado, b2bDoubleQtd: b2bPedDescartado, // pra tooltip
     } : null;
 
     // Constrói lista ordenada por total (inclui B2B real se houver)
