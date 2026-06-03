@@ -31580,8 +31580,18 @@ const aiChatInterval = setInterval(() => {
     const c = ciState.campanhas.find(x => x.id === id);
     if (!c) { showToast('Campanha não encontrada'); return; }
     if (!ciPodeExcluir()) { showToast('🚫 Sem permissão pra apagar campanhas'); return; }
-    if (!confirm(`Apagar a campanha "${c.nome}"?\n\nIsso remove também todas as atribuições de membros e o evento no calendário.`)) return;
+    if (!confirm(`Apagar a campanha "${c.nome}"?\n\nIsso remove também todas as atribuições de membros, os anexos/imagens e o evento no calendário.`)) return;
     console.log('[ci] apagando campanha', id, c.nome);
+    // Apaga arquivos de materiais do Storage (CASCADE apaga as rows, mas nao os arquivos)
+    try {
+      const { data: matsArq } = await sb.from('campanha_interna_materiais')
+        .select('storage_path').eq('campanha_id', id).not('storage_path', 'is', null);
+      const paths = (matsArq || []).map(m => m.storage_path).filter(Boolean);
+      if (paths.length) {
+        const { error: sErr } = await sb.storage.from('kanban').remove(paths);
+        if (sErr) console.warn('[ci] falha limpar storage da campanha (nao bloqueante):', sErr.message);
+      }
+    } catch (e) { console.warn('[ci] cleanup storage campanha:', e); }
     // Apaga evento do calendario antes (ON DELETE SET NULL nao apaga o evento)
     if (c.calendario_evento_id) {
       const { error: eCal } = await sb.from('calendario').delete().eq('id', c.calendario_evento_id);
@@ -32282,17 +32292,25 @@ const aiChatInterval = setInterval(() => {
     const mats = ciMateriais[campanhaId] || [];
     const cards = mats.length === 0
       ? '<div style="padding:14px;text-align:center;color:var(--text3);font-size:12.5px;background:var(--surface);border-radius:8px">Sem anexos ou links.</div>'
-      : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">${mats.map(m => `
+      : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">${mats.map(m => {
+          const isImg = /image|png|jpg|jpeg|gif|webp/i.test((m.mime_type || '') + ' ' + (m.url || ''));
+          const thumb = isImg
+            ? `<a href="${esc(m.url)}" target="_blank" rel="noopener" style="flex-shrink:0"><img src="${esc(m.url)}" style="width:42px;height:42px;object-fit:cover;border-radius:6px;border:1px solid var(--border)"></a>`
+            : `<div style="font-size:22px;flex-shrink:0">${ciIconePorMime(m.mime_type, m.nome)}</div>`;
+          const canalChip = (m.canal && CI_MAT_CANAL_LABELS[m.canal])
+            ? `<span style="display:inline-block;font-size:10px;padding:1px 7px;border-radius:999px;background:var(--surface);border:1px solid var(--border);color:var(--text2);margin-top:3px">${CI_MAT_CANAL_LABELS[m.canal]}</span>` : '';
+          return `
           <div class="card" style="padding:10px;display:flex;gap:8px;align-items:flex-start">
-            <div style="font-size:22px;flex-shrink:0">${ciIconePorMime(m.mime_type, m.nome)}</div>
+            ${thumb}
             <div style="flex:1;min-width:0">
               <a href="${esc(m.url)}" target="_blank" rel="noopener" style="font-weight:600;font-size:12.5px;color:var(--text);text-decoration:none;word-break:break-word">${esc(m.nome)}</a>
               <div style="font-size:10.5px;color:var(--text3);margin-top:2px">${esc(m.adicionado_por_nome || '')} · ${ciTempoRelativo(m.created_at)}</div>
               ${m.descricao ? `<div style="font-size:11px;color:var(--text2);margin-top:3px">${esc(m.descricao)}</div>` : ''}
+              ${canalChip}
             </div>
             ${podeEditar ? `<button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px;color:#ef4444" onclick="ciApagarMaterial('${m.id}','${campanhaId}')">🗑</button>` : ''}
           </div>
-        `).join('')}</div>`;
+        `;}).join('')}</div>`;
     return `
       <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:14px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -32304,8 +32322,17 @@ const aiChatInterval = setInterval(() => {
     `;
   }
 
+  // Canais pra vincular material (espelha estVincCanalStep / galeria do Kit IA)
+  const CI_MAT_CANAIS = [
+    ['', '📎 Sem canal específico'], ['pinterest', '📌 Pinterest'], ['instagram', '📸 Instagram'],
+    ['linkedin', '💼 LinkedIn'], ['facebook', '👍 Facebook'], ['blog', '✍️ Blog'], ['branding', '🎨 Branding'],
+  ];
+  const CI_MAT_CANAL_LABELS = { pinterest:'📌 Pinterest', instagram:'📸 Instagram', linkedin:'💼 LinkedIn', facebook:'👍 Facebook', blog:'✍️ Blog', branding:'🎨 Branding', email:'📧 Email' };
+
   window.ciAbrirModalMaterial = function(campanhaId) {
     document.getElementById('modal-ci-mat')?.remove();
+    window._ciMatMode = 'link';
+    const canalOpts = CI_MAT_CANAIS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('');
     document.body.insertAdjacentHTML('beforeend', `
       <div class="modal-overlay open" id="modal-ci-mat">
         <div class="modal" style="max-width:520px">
@@ -32314,18 +32341,40 @@ const aiChatInterval = setInterval(() => {
             <button class="modal-close" onclick="document.getElementById('modal-ci-mat').remove()">×</button>
           </div>
           <div class="modal-body">
-            <div class="form-field">
-              <label>Nome *</label>
-              <input id="ci-mat-nome" class="input" placeholder='Ex: "Briefing Figma", "Apresentação final"'>
+            <div style="display:flex;gap:6px;margin-bottom:14px">
+              <button type="button" id="ci-mat-tab-link" class="btn btn-primary btn-sm" style="flex:1" onclick="ciMatSetMode('link')">🔗 Link</button>
+              <button type="button" id="ci-mat-tab-upload" class="btn btn-ghost btn-sm" style="flex:1" onclick="ciMatSetMode('upload')">🖼 Upload de imagem</button>
             </div>
             <div class="form-field">
-              <label>URL / link *</label>
-              <input id="ci-mat-url" type="url" class="input" placeholder="https://drive.google.com/... ou https://figma.com/...">
+              <label>Canal (onde vincular este material)</label>
+              <select id="ci-mat-canal" class="input">${canalOpts}</select>
+              <div style="font-size:11px;color:var(--text3);margin-top:4px">Imagens com canal aparecem na aba <strong>Kit IA</strong> e ganham botão 📌 de publicar (Pinterest hoje; outras redes ao conectar no Zernio).</div>
+            </div>
+            <div id="ci-mat-link-wrap">
+              <div class="form-field">
+                <label>Nome *</label>
+                <input id="ci-mat-nome" class="input" placeholder='Ex: "Briefing Figma", "Apresentação final"'>
+              </div>
+              <div class="form-field">
+                <label>URL / link *</label>
+                <input id="ci-mat-url" type="url" class="input" placeholder="https://drive.google.com/... ou https://figma.com/...">
+              </div>
+            </div>
+            <div id="ci-mat-upload-wrap" style="display:none">
+              <div class="form-field">
+                <label>Imagem * (JPG/PNG/WebP/GIF · até 32 MB)</label>
+                <input id="ci-mat-file" type="file" accept="image/*" class="input">
+              </div>
+              <div class="form-field">
+                <label>Nome (opcional — usa o do arquivo)</label>
+                <input id="ci-mat-nome-up" class="input" placeholder="Ex: Arte Pinterest scrub comfy">
+              </div>
             </div>
             <div class="form-field">
               <label>Descrição (opcional)</label>
               <textarea id="ci-mat-desc" class="input" rows="2"></textarea>
             </div>
+            <div id="ci-mat-status" style="font-size:12px;color:var(--text3);min-height:16px"></div>
           </div>
           <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
             <button class="btn btn-ghost" onclick="document.getElementById('modal-ci-mat').remove()">Cancelar</button>
@@ -32337,23 +32386,53 @@ const aiChatInterval = setInterval(() => {
     setTimeout(() => document.getElementById('ci-mat-nome')?.focus(), 100);
   };
 
+  window.ciMatSetMode = function(mode) {
+    window._ciMatMode = mode;
+    const lw = document.getElementById('ci-mat-link-wrap'); if (lw) lw.style.display = mode === 'link' ? '' : 'none';
+    const uw = document.getElementById('ci-mat-upload-wrap'); if (uw) uw.style.display = mode === 'upload' ? '' : 'none';
+    const tl = document.getElementById('ci-mat-tab-link'); if (tl) tl.className = 'btn btn-sm ' + (mode === 'link' ? 'btn-primary' : 'btn-ghost');
+    const tu = document.getElementById('ci-mat-tab-upload'); if (tu) tu.className = 'btn btn-sm ' + (mode === 'upload' ? 'btn-primary' : 'btn-ghost');
+  };
+
   window.ciSalvarMaterial = async function(campanhaId) {
     const btn = document.getElementById('ci-mat-save');
-    if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
+    const statusEl = document.getElementById('ci-mat-status');
+    const mode = window._ciMatMode || 'link';
+    const canal = document.getElementById('ci-mat-canal')?.value || null;
+    const desc = (document.getElementById('ci-mat-desc')?.value || '').trim() || null;
+    const setBusy = (b, t) => { if (btn) { btn.disabled = b; btn.textContent = t; } };
     try {
-      const nome = (document.getElementById('ci-mat-nome')?.value || '').trim();
-      const url = (document.getElementById('ci-mat-url')?.value || '').trim();
-      const desc = (document.getElementById('ci-mat-desc')?.value || '').trim() || null;
-      if (!nome || !url) { showToast('Nome e URL são obrigatórios'); if (btn) { btn.disabled = false; btn.textContent = 'Adicionar'; } return; }
-      const { error } = await sb.from('campanha_interna_materiais').insert({
-        campanha_id: campanhaId,
-        tipo: 'link',
-        url, nome, descricao: desc,
-        adicionado_por: currentUser?.id,
-        adicionado_por_nome: currentProfile?.nome,
-      });
+      const payload = { campanha_id: campanhaId, canal: canal || null, descricao: desc, adicionado_por: currentUser?.id, adicionado_por_nome: currentProfile?.nome };
+      if (mode === 'upload') {
+        const file = document.getElementById('ci-mat-file')?.files?.[0];
+        if (!file) { showToast('Selecione uma imagem'); return; }
+        if (!/^image\//.test(file.type)) { showToast('Só imagens neste modo (use Link pra outros arquivos)'); return; }
+        if (file.size > 32 * 1024 * 1024) { showToast('Imagem acima de 32 MB'); return; }
+        setBusy(true, 'Enviando...'); if (statusEl) statusEl.textContent = 'Fazendo upload...';
+        const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+        const path = `campanha-materiais/${campanhaId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const { error: upErr } = await sb.storage.from('kanban').upload(path, file, { cacheControl: '3600', upsert: false });
+        if (upErr) throw new Error('Upload: ' + (upErr.message || upErr));
+        const { data: urlData } = sb.storage.from('kanban').getPublicUrl(path);
+        const nomeUp = (document.getElementById('ci-mat-nome-up')?.value || '').trim() || file.name;
+        payload.tipo = 'arquivo';
+        payload.url = urlData.publicUrl;
+        payload.storage_path = path;
+        payload.nome = nomeUp;
+        payload.mime_type = file.type || 'image/jpeg';
+        payload.tamanho_bytes = file.size || null;
+      } else {
+        const nome = (document.getElementById('ci-mat-nome')?.value || '').trim();
+        const url = (document.getElementById('ci-mat-url')?.value || '').trim();
+        if (!nome || !url) { showToast('Nome e URL são obrigatórios'); return; }
+        payload.tipo = 'link';
+        payload.url = url;
+        payload.nome = nome;
+      }
+      setBusy(true, 'Salvando...');
+      const { error } = await sb.from('campanha_interna_materiais').insert(payload);
       if (error) throw error;
-      await ciRegistrarHistorico(campanhaId, 'add_material', `Adicionou anexo: ${nome}`, null, { url });
+      await ciRegistrarHistorico(campanhaId, 'add_material', `Adicionou ${payload.tipo === 'arquivo' ? 'imagem' : 'anexo'}: ${payload.nome}${canal ? ' (' + canal + ')' : ''}`, null, { url: payload.url });
       showToast('Material adicionado');
       document.getElementById('modal-ci-mat')?.remove();
       await ciLoadMateriais(campanhaId);
@@ -32361,12 +32440,18 @@ const aiChatInterval = setInterval(() => {
     } catch (e) {
       console.error('[ci] mat salvar', e);
       showToast('Erro: ' + (e.message || e));
-      if (btn) { btn.disabled = false; btn.textContent = 'Adicionar'; }
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">${esc(e.message || String(e))}</span>`;
+      setBusy(false, 'Adicionar');
     }
   };
 
   window.ciApagarMaterial = async function(matId, campanhaId) {
     if (!confirm('Apagar este material?')) return;
+    const mat = (ciMateriais[campanhaId] || []).find(m => m.id === matId);
+    if (mat?.storage_path) {
+      const { error: sErr } = await sb.storage.from('kanban').remove([mat.storage_path]);
+      if (sErr) console.warn('[ci] falha apagar do storage (nao bloqueante):', sErr.message);
+    }
     const { error } = await sb.from('campanha_interna_materiais').delete().eq('id', matId);
     if (error) { showToast('Erro: ' + error.message); return; }
     showToast('Material apagado');
