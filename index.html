@@ -7814,8 +7814,17 @@ updateDynamicField('foto');
 
 <!-- ════════ PROJEÇÕES ════════ -->
 <div class="view" id="view-projecoes"><div style="padding:24px 28px">
-  <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:17px;margin-bottom:4px">Projeções</div>
-  <div style="font-size:12.5px;color:var(--text3);margin-bottom:20px">Metas 2026 (planilha oficial) + realizado da planilha e do Bling/DMS</div>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+    <div>
+      <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:17px;margin-bottom:4px">Projeções</div>
+      <div style="font-size:12.5px;color:var(--text3)">Metas 2026 (planilha oficial) + realizado da planilha e do Bling/DMS</div>
+    </div>
+    <div id="proj-import-wrap" style="display:none;text-align:right">
+      <button class="btn btn-ghost btn-sm" id="proj-import-btn" onclick="metasAbrirImport()">📥 Importar planilha</button>
+      <input type="file" id="proj-meta-file" accept=".xlsx" style="display:none" onchange="metasImportarArquivo(this)">
+      <div id="proj-import-info" style="font-size:10.5px;color:var(--text3);margin-top:4px"></div>
+    </div>
+  </div>
 
   <!-- KPIs meta -->
   <div class="kpi-grid mb20">
@@ -21312,16 +21321,84 @@ let _metasCache = null;
 async function loadMetas2026() {
   if (_metasCache) return _metasCache;
   try {
-    const { data } = await sb.from('metas_mensais').select('mes,meta,realizado_planilha').eq('ano', 2026).order('mes');
+    const { data } = await sb.from('metas_mensais').select('mes,meta,realizado_planilha,atualizado_em').eq('ano', 2026).order('mes');
     const metaByMes = {}, realPlanByMes = {};
+    let atualizadoEm = null;
     (data || []).forEach(r => {
       if (r.meta != null) metaByMes[r.mes] = Number(r.meta);
       if (r.realizado_planilha != null) realPlanByMes[r.mes] = Number(r.realizado_planilha);
+      if (r.atualizado_em && (!atualizadoEm || r.atualizado_em > atualizadoEm)) atualizadoEm = r.atualizado_em;
     });
-    _metasCache = { metaByMes, realPlanByMes };
+    _metasCache = { metaByMes, realPlanByMes, atualizadoEm };
   } catch (e) { console.warn('[proj] metas', e); _metasCache = { metaByMes: {}, realPlanByMes: {} }; }
   return _metasCache;
 }
+
+// ── Importar planilha de metas (estrutura fixa: bloco Total cols CV-DB, linhas 7-18) ──
+function podeImportarMetas() {
+  return ['admin','gerente_comercial','gerente_marketing','gerente_financeiro'].includes(currentProfile?.cargo || '');
+}
+function ensureXLSX() {
+  return new Promise((resolve, reject) => {
+    if (window.XLSX) return resolve(window.XLSX);
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = () => resolve(window.XLSX);
+    s.onerror = () => reject(new Error('Falha ao carregar o leitor de Excel'));
+    document.head.appendChild(s);
+  });
+}
+window.metasAbrirImport = function() {
+  if (!podeImportarMetas()) { showToast('🚫 Sem permissão pra importar metas'); return; }
+  document.getElementById('proj-meta-file')?.click();
+};
+window.metasImportarArquivo = async function(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  const btn = document.getElementById('proj-import-btn');
+  const setBtn = (t, dis) => { if (btn) { btn.textContent = t; btn.disabled = dis; } };
+  setBtn('⏳ Lendo...', true);
+  try {
+    const XLSX = await ensureXLSX();
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const ws = wb.Sheets['Meta com dental'] || wb.Sheets[wb.SheetNames[0]];
+    if (!ws) throw new Error('Aba da planilha não encontrada');
+    const anos = [2021, 2022, 2023, 2024, 2025, 2026];
+    const colReal = ['CV', 'CW', 'CX', 'CY', 'CZ', 'DA']; // bloco Total
+    const num = (ref) => { const c = ws[ref]; return (c && typeof c.v === 'number') ? c.v : null; };
+    const agora = new Date().toISOString();
+    const rows = [];
+    let metaCount = 0;
+    for (let mes = 1; mes <= 12; mes++) {
+      const r = 6 + mes; // linha 7 = janeiro
+      const meta = num('DB' + r);
+      if (meta && meta > 0) metaCount++;
+      anos.forEach((ano, i) => {
+        let realizado = num(colReal[i] + r);
+        if (!(realizado > 0)) realizado = null;
+        const metaVal = (ano === 2026 && meta && meta > 0) ? meta : null;
+        if (realizado == null && metaVal == null) return;
+        rows.push({ ano, mes, meta: metaVal, realizado_planilha: realizado, fonte: 'planilha_metas', atualizado_em: agora });
+      });
+    }
+    if (rows.length < 12 || metaCount < 6) {
+      throw new Error('Planilha não reconhecida — esperava o bloco Total (colunas CV–DB). Confira se é o arquivo de metas certo.');
+    }
+    setBtn('⏳ Salvando...', true);
+    const { error } = await sb.from('metas_mensais').upsert(rows, { onConflict: 'ano,mes' });
+    if (error) throw error;
+    _metasCache = null;
+    showToast('✅ Metas atualizadas (' + rows.length + ' linhas)');
+    if (typeof loadProjecoes === 'function') loadProjecoes();
+  } catch (e) {
+    console.error('[metas import]', e);
+    showToast('Erro ao importar: ' + (e.message || e));
+  } finally {
+    setBtn('📥 Importar planilha', false);
+  }
+};
 
 async function loadProjecoes() {
   const stats = liveData.stats;
@@ -21336,6 +21413,7 @@ async function loadProjecoes() {
   window._projRetry = 0;
 
   const el = (id) => document.getElementById(id);
+  if (el('proj-import-wrap') && podeImportarMetas()) el('proj-import-wrap').style.display = '';
   const fmt = (v) => 'R$' + Math.round(v/1000) + 'k';
   const fmtFull = (v) => 'R$' + Math.round(v).toLocaleString('pt-BR');
 
@@ -21356,7 +21434,11 @@ async function loadProjecoes() {
 
   // ───── METAS (planilha oficial) ───── (isolado: erro aqui não bloqueia as tabelas Bling/DMS)
   try {
-  const { metaByMes, realPlanByMes } = await loadMetas2026();
+  const { metaByMes, realPlanByMes, atualizadoEm } = await loadMetas2026();
+  if (el('proj-import-info') && atualizadoEm) {
+    const d = new Date(atualizadoEm);
+    el('proj-import-info').textContent = 'planilha atualizada ' + d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  }
   const metaAnual = Object.values(metaByMes).reduce((a,b)=>a+b,0);
   const realPlanAnual = Object.values(realPlanByMes).reduce((a,b)=>a+b,0);
   const mesesRealizados = Object.keys(realPlanByMes).map(Number).sort((a,b)=>a-b);
