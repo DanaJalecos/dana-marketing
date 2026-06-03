@@ -21326,7 +21326,14 @@ async function loadMetas2026() {
 async function loadProjecoes() {
   const stats = liveData.stats;
   const pm = liveData.porMes;
-  if (!stats || !pm) return;
+  if (!stats || !pm) {
+    // liveData ainda não chegou (ex: entrou direto em #projecoes antes do load).
+    // O loadOnce já marcou como carregado → re-tenta direto até o dado chegar.
+    window._projRetry = (window._projRetry || 0) + 1;
+    if (window._projRetry <= 15) setTimeout(() => loadProjecoes(), 700);
+    return;
+  }
+  window._projRetry = 0;
 
   const el = (id) => document.getElementById(id);
   const fmt = (v) => 'R$' + Math.round(v/1000) + 'k';
