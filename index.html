@@ -7815,20 +7815,29 @@ updateDynamicField('foto');
 <!-- ════════ PROJEÇÕES ════════ -->
 <div class="view" id="view-projecoes"><div style="padding:24px 28px">
   <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:17px;margin-bottom:4px">Projeções</div>
-  <div style="font-size:12.5px;color:var(--text3);margin-bottom:20px">2025 vs 2026 — real + projetado · dados Bling</div>
+  <div style="font-size:12.5px;color:var(--text3);margin-bottom:20px">Metas 2026 (planilha oficial) + realizado da planilha e do Bling/DMS</div>
 
-  <!-- KPIs projeção -->
+  <!-- KPIs meta -->
   <div class="kpi-grid mb20">
-    <div class="kpi-card dark"><div class="kpi-label">Receita 2026 (real)</div><div class="kpi-value" id="proj-receita-26">--</div><div class="kpi-change up" id="proj-receita-26-sub">carregando...</div></div>
-    <div class="kpi-card"><div class="kpi-label">Receita 2025 (real)</div><div class="kpi-value" id="proj-receita-25">--</div><div class="kpi-change neutral" id="proj-receita-25-sub">ano completo</div></div>
-    <div class="kpi-card"><div class="kpi-label">Projeção Anual 2026</div><div class="kpi-value" id="proj-anual">--</div><div class="kpi-change up" id="proj-anual-sub">baseada na média mensal</div></div>
-    <div class="kpi-card"><div class="kpi-label">Crescimento</div><div class="kpi-value" id="proj-cresc">--</div><div class="kpi-change up" id="proj-cresc-sub">2026 vs 2025</div></div>
+    <div class="kpi-card dark"><div class="kpi-label">Meta Anual 2026</div><div class="kpi-value" id="proj-meta-anual">--</div><div class="kpi-change neutral" id="proj-meta-anual-sub">planilha oficial</div></div>
+    <div class="kpi-card"><div class="kpi-label">Realizado 2026 (planilha)</div><div class="kpi-value" id="proj-real-plan">--</div><div class="kpi-change up" id="proj-real-plan-sub">--</div></div>
+    <div class="kpi-card"><div class="kpi-label">Realizado 2026 (Bling/DMS)</div><div class="kpi-value" id="proj-real-dms">--</div><div class="kpi-change neutral" id="proj-real-dms-sub">tempo real</div></div>
+    <div class="kpi-card"><div class="kpi-label">% da Meta (acumulado)</div><div class="kpi-value" id="proj-meta-pct">--</div><div class="kpi-change up" id="proj-meta-pct-sub">ritmo até o mês</div></div>
   </div>
 
-  <!-- Tabela comparativa 12 meses -->
+  <!-- Meta vs Realizado mensal (planilha) -->
   <div class="card mb20">
     <div class="card-header">
-      <div><div class="card-title">Comparativo Mensal — 2025 vs 2026</div><div class="card-sub">Receita real + meses futuros projetados pela média</div></div>
+      <div><div class="card-title">🎯 Meta 2026 — Meta vs Realizado</div><div class="card-sub">Planilha oficial (empresa toda) · realizado Bling/DMS é o subconjunto rastreado pelo sistema</div></div>
+    </div>
+    <div id="proj-metas-tabela" style="overflow-x:auto"><div style="color:var(--text3);font-size:12px;padding:12px">Carregando metas...</div></div>
+    <div id="proj-metas-barras" style="padding:12px 0 4px"></div>
+  </div>
+
+  <!-- Tabela comparativa 12 meses (Bling/DMS) -->
+  <div class="card mb20">
+    <div class="card-header">
+      <div><div class="card-title">Comparativo Mensal — 2025 vs 2026 (Bling/DMS)</div><div class="card-sub">Receita real do sistema + meses futuros projetados pela média</div></div>
     </div>
     <div id="proj-tabela" style="overflow-x:auto"><div style="color:var(--text3);font-size:12px;padding:12px">Carregando...</div></div>
   </div>
@@ -7836,7 +7845,7 @@ updateDynamicField('foto');
   <!-- Barras comparativas -->
   <div class="card">
     <div class="card-header">
-      <div><div class="card-title">Receita Mensal — 2025 vs 2026</div><div class="card-sub">Barras comparativas por mês</div></div>
+      <div><div class="card-title">Receita Mensal — 2025 vs 2026 (Bling/DMS)</div><div class="card-sub">Barras comparativas por mês</div></div>
     </div>
     <div id="proj-barras" style="padding:8px 0"><div style="color:var(--text3);font-size:12px;padding:12px">Carregando...</div></div>
   </div>
@@ -21298,7 +21307,23 @@ function loadFinanceiro() {
 }
 
 // ── PROJEÇÕES (2025 vs 2026) ──
-function loadProjecoes() {
+// Metas oficiais (planilha) — tabela metas_mensais. Cache por sessão.
+let _metasCache = null;
+async function loadMetas2026() {
+  if (_metasCache) return _metasCache;
+  try {
+    const { data } = await sb.from('metas_mensais').select('mes,meta,realizado_planilha').eq('ano', 2026).order('mes');
+    const metaByMes = {}, realPlanByMes = {};
+    (data || []).forEach(r => {
+      if (r.meta != null) metaByMes[r.mes] = Number(r.meta);
+      if (r.realizado_planilha != null) realPlanByMes[r.mes] = Number(r.realizado_planilha);
+    });
+    _metasCache = { metaByMes, realPlanByMes };
+  } catch (e) { console.warn('[proj] metas', e); _metasCache = { metaByMes: {}, realPlanByMes: {} }; }
+  return _metasCache;
+}
+
+async function loadProjecoes() {
   const stats = liveData.stats;
   const pm = liveData.porMes;
   if (!stats || !pm) return;
@@ -21316,22 +21341,72 @@ function loadProjecoes() {
   const meses26 = Object.entries(pm).filter(([k]) => k.startsWith('2026-')).sort(([a],[b]) => a.localeCompare(b));
   const mesesComDados = meses26.length || 1;
   const mediaM26 = rec26 / mesesComDados;
-  const projecaoAnual = mediaM26 * 12;
-  const crescPct = rec25 > 0 ? Math.round((projecaoAnual - rec25) / rec25 * 100) : 0;
-
-  // KPIs
-  if(el('proj-receita-26')) el('proj-receita-26').textContent = fmt(rec26);
-  if(el('proj-receita-26-sub')) el('proj-receita-26-sub').textContent = ped26.toLocaleString('pt-BR') + ' pedidos · ' + mesesComDados + ' meses';
-  if(el('proj-receita-25')) el('proj-receita-25').textContent = fmt(rec25);
-  if(el('proj-receita-25-sub')) el('proj-receita-25-sub').textContent = ped25.toLocaleString('pt-BR') + ' pedidos';
-  if(el('proj-anual')) el('proj-anual').textContent = fmt(projecaoAnual);
-  if(el('proj-anual-sub')) el('proj-anual-sub').textContent = 'média ' + fmt(mediaM26) + '/mês × 12';
-  if(el('proj-cresc')) { el('proj-cresc').textContent = (crescPct>=0?'+':'') + crescPct + '%'; el('proj-cresc').style.color = crescPct >= 0 ? 'var(--green)' : 'var(--red)'; }
 
   // Tabela comparativa 12 meses
   const meses25 = Object.entries(pm).filter(([k]) => k.startsWith('2025-')).sort(([a],[b]) => a.localeCompare(b));
   const map25 = {}; meses25.forEach(([k,d]) => { map25[parseInt(k.split('-')[1])] = d; });
   const map26 = {}; meses26.forEach(([k,d]) => { map26[parseInt(k.split('-')[1])] = d; });
+
+  // ───── METAS (planilha oficial) ─────
+  const { metaByMes, realPlanByMes } = await loadMetas2026();
+  const metaAnual = Object.values(metaByMes).reduce((a,b)=>a+b,0);
+  const realPlanAnual = Object.values(realPlanByMes).reduce((a,b)=>a+b,0);
+  const mesesRealizados = Object.keys(realPlanByMes).map(Number).sort((a,b)=>a-b);
+  const ultimoMes = mesesRealizados.length ? mesesRealizados[mesesRealizados.length-1] : 0;
+  let metaAcum = 0, realAcum = 0;
+  for (let m=1; m<=ultimoMes; m++){ metaAcum += (metaByMes[m]||0); realAcum += (realPlanByMes[m]||0); }
+  const pctAcum = metaAcum > 0 ? Math.round(realAcum/metaAcum*100) : 0;
+  const pctAnual = metaAnual > 0 ? Math.round(realPlanAnual/metaAnual*100) : 0;
+
+  if (el('proj-meta-anual')) el('proj-meta-anual').textContent = metaAnual ? fmt(metaAnual) : '—';
+  if (el('proj-real-plan')) el('proj-real-plan').textContent = realPlanAnual ? fmt(realPlanAnual) : '—';
+  if (el('proj-real-plan-sub')) el('proj-real-plan-sub').textContent = metaAnual ? (pctAnual + '% da meta anual') : 'sem meta';
+  if (el('proj-real-dms')) el('proj-real-dms').textContent = fmt(rec26);
+  if (el('proj-real-dms-sub')) el('proj-real-dms-sub').textContent = ped26.toLocaleString('pt-BR') + ' pedidos · ' + mesesComDados + ' meses';
+  if (el('proj-meta-pct')) { el('proj-meta-pct').textContent = metaAcum ? (pctAcum + '%') : '—'; el('proj-meta-pct').style.color = pctAcum >= 100 ? 'var(--green)' : pctAcum >= 85 ? 'var(--text)' : 'var(--red)'; }
+  if (el('proj-meta-pct-sub')) el('proj-meta-pct-sub').textContent = ultimoMes ? ('acumulado até ' + getMesNome(ultimoMes)) : 'sem realizado';
+
+  // Tabela Meta vs Realizado
+  const metasTabEl = el('proj-metas-tabela');
+  if (metasTabEl) {
+    let rows = '';
+    for (let m=1; m<=12; m++){
+      const meta = metaByMes[m] || 0;
+      const realP = realPlanByMes[m];
+      const realDms = map26[m] ? map26[m].receita : null;
+      const pct = (meta>0 && realP!=null) ? Math.round(realP/meta*100) : null;
+      const pctClass = pct==null ? '' : (pct>=100 ? 'good' : pct>=85 ? '' : 'bad');
+      rows += `<tr>
+        <td class="em">${getMesNome(m)}</td>
+        <td>${meta>0?fmtFull(meta):'—'}</td>
+        <td class="${realP!=null?'good':''}">${realP!=null?fmtFull(realP):'—'}</td>
+        <td class="${pctClass}">${pct!=null?pct+'%':'—'}</td>
+        <td style="color:var(--text3)">${realDms!=null?fmtFull(realDms):'—'}</td>
+      </tr>`;
+    }
+    metasTabEl.innerHTML = `<table style="width:100%"><thead><tr><th>Mês</th><th>Meta</th><th>Realizado (planilha)</th><th>% Meta</th><th>Realizado (Bling/DMS)</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  // Barras Meta vs Realizado (planilha)
+  const metasBarEl = el('proj-metas-barras');
+  if (metasBarEl) {
+    const maxVal = Math.max(...Object.values(metaByMes), ...Object.values(realPlanByMes), 1);
+    let html = '';
+    for (let m=1; m<=12; m++){
+      const meta = metaByMes[m] || 0;
+      const realP = realPlanByMes[m];
+      const bateu = realP!=null && realP>=meta;
+      html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <div style="width:46px;font-size:11px;font-weight:600;text-align:right">${getMesNome(m).substring(0,3)}</div>
+        <div style="flex:1;position:relative;height:14px;background:var(--surface3);border-radius:3px;overflow:hidden">
+          <div style="position:absolute;top:0;left:0;height:100%;width:${Math.round(meta/maxVal*100)}%;background:rgba(150,150,150,.35)"></div>
+          ${realP!=null?`<div style="position:absolute;top:0;left:0;height:100%;width:${Math.round(realP/maxVal*100)}%;background:${bateu?'var(--green)':'var(--black)'};border-radius:3px"></div>`:''}
+        </div>
+        <div style="font-size:9px;min-width:88px;color:var(--text3)">${realP!=null?fmt(realP):'—'} / ${fmt(meta)}</div>
+      </div>`;
+    }
+    metasBarEl.innerHTML = html + '<div style="display:flex;gap:16px;margin-top:8px;font-size:10px;color:var(--text3);flex-wrap:wrap"><div><span style="display:inline-block;width:10px;height:10px;background:rgba(150,150,150,.35);border-radius:2px;margin-right:4px"></span>Meta</div><div><span style="display:inline-block;width:10px;height:10px;background:var(--black);border-radius:2px;margin-right:4px"></span>Realizado (planilha)</div><div><span style="display:inline-block;width:10px;height:10px;background:var(--green);border-radius:2px;margin-right:4px"></span>Bateu a meta</div></div>';
+  }
 
   const tabelaEl = el('proj-tabela');
   if(tabelaEl) {
