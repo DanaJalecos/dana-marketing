@@ -2654,8 +2654,12 @@
   const _C360_ZAP_STOP = new Set(['avulsa','avulso','manga','longa','curta','itc','com','sem','para','und','par','dana','equipe','voce','seu','sua','que','aqui','mais','nossos','nossa','nosso']);
   // Palavra de TIPO (peso medio) — produto da mesma familia
   const _C360_TIPO_WORDS = new Set(['jaleco','jalecos','scrub','scrubs','avental','aventais','dolma','dolmas','gorro','gorros','touca','toucas','colete','coletes','turbante','turbantes','camiseta','camisetas','calca','calcas','blusa','camisa','pijama','conjunto']);
-  // Palavra de COR (peso baixo) — discrimina menos que o modelo
-  const _C360_COR_WORDS = new Set(['branco','branca','off','white','preto','preta','azul','marinho','bebe','celeste','verde','militar','oliva','escuro','claro','vinho','bordo','cinza','chumbo','grafite','bege','areia','nude','rosa','cha','vermelho','amarelo','lilas','roxo','roxa','caramelo','denim','jeans','camel','ferrugem','argila','natural','mediterraneo','acafrao','aco','cacau','rose','salmao']);
+  // Cores COMPOSTAS (2 palavras): tratadas como UM token pra nao confundir
+  // "azul marinho" com "azul bebe". Forma normalizada (lower, sem acento).
+  const _C360_COR_FRASES = ['azul marinho','azul bebe','azul serenity','azul claro','azul escuro','verde militar','verde escuro','verde claro','verde agua','verde oliva','rosa cha','rosa nude','rosa bebe','rosa antigo','off white','areia escura','cinza chumbo','cinza claro','vinho marsala'];
+  // Palavra de COR (peso baixo) — discrimina menos que o modelo. Inclui as
+  // formas unidas das cores compostas (ex: 'azulmarinho').
+  const _C360_COR_WORDS = new Set(['branco','branca','off','white','preto','preta','azul','marinho','bebe','celeste','verde','militar','oliva','escuro','claro','vinho','bordo','cinza','chumbo','grafite','bege','areia','nude','rosa','cha','vermelho','amarelo','lilas','roxo','roxa','caramelo','denim','jeans','camel','ferrugem','argila','natural','mediterraneo','acafrao','aco','cacau','rose','salmao','azulmarinho','azulbebe','azulserenity','azulclaro','azulescuro','verdemilitar','verdeescuro','verdeclaro','verdeagua','verdeoliva','rosacha','rosanude','rosabebe','rosaantigo','offwhite','areiaescura','cinzachumbo','cinzaclaro','vinhomarsala']);
 
   // Catalogo do site (251 produtos, todos com imagem persistente). Cache 1x.
   window._c360CatalogoCache = window._c360CatalogoCache || null;
@@ -2675,6 +2679,8 @@
   function _c360TokensProd(s) {
     let t = String(s || '').toLowerCase().replace(/[áàâãä]/g, 'a').replace(/[éèêë]/g, 'e').replace(/[íìîï]/g, 'i').replace(/[óòôõö]/g, 'o').replace(/[úùûü]/g, 'u').replace(/ç/g, 'c');
     t = t.replace(/tamanho\s*:.*/g, ' ').replace(/cor\s*:.*/g, ' ');
+    // junta cores compostas: "azul marinho" -> "azulmarinho" (1 token)
+    for (const f of _C360_COR_FRASES) { if (t.indexOf(f) !== -1) t = t.split(f).join(f.replace(/\s+/g, '')); }
     t = t.replace(/[^a-z0-9\s]/g, ' ');
     return t.split(/\s+/).filter(w => w.length >= 3 && !_C360_ZAP_STOP.has(w));
   }
