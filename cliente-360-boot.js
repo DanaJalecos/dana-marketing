@@ -623,6 +623,28 @@
     if ((state.page+1) * PAGE_SIZE < total) { state.page++; renderList(); window.scrollTo(0,0); }
   };
 
+  // Item 6: busca por telefone no servidor (normaliza dígitos via RPC; acha clientes
+  // que estão fora do top 5000 carregado). Aditiva: só ACRESCENTA ao state.clientes.
+  async function _c360BuscaTelefoneServer(qDig) {
+    try {
+      if ((state.searchQuery || '').replace(/\D/g, '') !== qDig) return; // a busca já mudou
+      const { data: ids } = await state.sb.rpc('c360_busca_telefone', { p_empresa: state.empresa, p_termo: qDig, p_limite: 200 });
+      const idList = (ids || []).map(r => r.contato_id).filter(Boolean);
+      if (idList.length === 0) return;
+      const carregados = new Set((state.clientes || []).map(c => c.contato_id));
+      const faltam = idList.filter(id => !carregados.has(id));
+      if (faltam.length === 0) return; // já estão na lista — filtro client-side já cobre
+      const { data: extras } = await state.sb.from('cliente_scoring_full').select('*')
+        .eq('empresa', state.empresa).in('contato_id', faltam.slice(0, 200));
+      if (!extras || extras.length === 0) return;
+      const jaTem = new Set((state.clientes || []).map(c => c.contato_id));
+      for (const r of extras) {
+        if (!jaTem.has(r.contato_id)) state.clientes.push({ ...r, uf: phoneToUF(r.celular || r.telefone) });
+      }
+      if ((state.searchQuery || '').replace(/\D/g, '') === qDig) applyFilters(); // re-filtra se ainda é a mesma busca
+    } catch (e) { console.warn('[c360] busca telefone server', e); }
+  }
+
   // ─── Filtros: busca + segmento + UF ───
   function wireSearchAndFilters() {
     // 1) Input de busca
@@ -661,6 +683,13 @@
       searchInput.addEventListener('input', (e) => {
         state.searchQuery = e.target.value || '';
         applyFilters();
+        // Item 6: se o termo parece telefone (4+ dígitos), busca no servidor pra achar
+        // clientes que estão fora do top 5000 carregado (debounced).
+        clearTimeout(state._buscaTelDebounce);
+        const qDig = state.searchQuery.replace(/\D/g, '');
+        if (qDig.length >= 4) {
+          state._buscaTelDebounce = setTimeout(() => _c360BuscaTelefoneServer(qDig), 450);
+        }
       });
     }
 
@@ -1605,6 +1634,18 @@
       return { lbl, bg: col.bg, fg: col.fg };
     };
 
+    // ─── Filtro de pedidos por ano (client-side puro: só esconde/mostra cards, não toca a geração) ───
+    const _anoDoPedido = (p) => (p && p.data) ? String(p.data).slice(0, 4) : '';
+    const anosPedidos = [...new Set((pedidos || []).map(_anoDoPedido).filter(Boolean))].sort((a, b) => b.localeCompare(a));
+    const filtroAnoHtml = anosPedidos.length > 1 ? `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+        <span style="font-size:12px;color:#94a3b8">Filtrar por ano:</span>
+        <select id="c360-pedidos-ano" onchange="c360FiltrarPedidosAno(this.value)" style="background:#1e293b;color:#e2e8f0;border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer">
+          <option value="todos">Todos os anos (${pedidos.length})</option>
+          ${anosPedidos.map(a => `<option value="${a}">${a} (${(pedidos || []).filter(p => _anoDoPedido(p) === a).length})</option>`).join('')}
+        </select>
+      </div>` : '';
+
     const pedidosHtml = pedidos.length === 0
       ? '<div style="padding:24px;text-align:center;color:#64748b;font-size:13px">Sem pedidos cadastrados.</div>'
       : pedidos.map(p => {
@@ -1618,7 +1659,7 @@
           `).join('');
           const mais = (p.itens || []).length > 8 ? `<div style="padding:6px 0;font-size:12px;color:#64748b">+ ${(p.itens||[]).length-8} item(s)...</div>` : '';
           return `
-            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;margin-bottom:12px">
+            <div data-c360-pedido-ano="${_anoDoPedido(p)}" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;margin-bottom:12px">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
                 <div>
                   <span style="font-weight:600;font-size:14px;color:#e2e8f0">Pedido #${escapeHtml(String(p.numero||p.id))}</span>
@@ -1722,7 +1763,7 @@
       <button id="c360-tab-insights" onclick="c360SwitchTab('insights')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">◆ Insights IA</button>
       <button id="c360-tab-notas" onclick="c360SwitchTab('notas')" style="padding:14px 20px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;font-weight:500;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px">💬 Notas</button>
     </div>
-    <div id="c360-tabpanel-pedidos" style="padding:16px">${pedidosHtml}</div>
+    <div id="c360-tabpanel-pedidos" style="padding:16px">${filtroAnoHtml}${pedidosHtml}</div>
     <div id="c360-tabpanel-site" style="padding:20px;display:none">
       <div style="text-align:center;padding:20px;color:rgba(255,255,255,0.4)">⏳ Carregando pedidos do site...</div>
     </div>
@@ -1863,6 +1904,15 @@
       ${sub ? `<div style="font-size:11px;color:#64748b;margin-top:4px">${escapeHtml(sub)}</div>` : ''}
     </div>`;
   }
+
+  // Filtro de pedidos por ano (item 5) — esconde/mostra os cards já renderizados
+  window.c360FiltrarPedidosAno = function(ano) {
+    const cards = document.querySelectorAll('#c360-tabpanel-pedidos [data-c360-pedido-ano]');
+    cards.forEach(card => {
+      const a = card.getAttribute('data-c360-pedido-ano');
+      card.style.display = (ano === 'todos' || a === ano) ? '' : 'none';
+    });
+  };
 
   // Tabs internos
   window.c360SwitchTab = function(tab) {
@@ -5888,7 +5938,21 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     let q = state.sb.from('cliente_scoring_vendedor').select('*').eq('empresa', empresa);
     if (vendedorId === '__none__') q = q.is('vendedor_profile_id', null);
     else if (vendedorId) q = q.eq('vendedor_profile_id', vendedorId);
-    if (busca) q = q.ilike('contato_nome', '%' + busca.replace(/%/g,'') + '%');
+    if (busca) {
+      // Item 6: se a busca parece telefone (4+ dígitos), resolve via RPC (normaliza
+      // dígitos) e filtra por contato_id; senão, busca por nome como antes.
+      const bDig = String(busca).replace(/\D/g, '');
+      if (bDig.length >= 4) {
+        try {
+          const { data: idsTel } = await state.sb.rpc('c360_busca_telefone', { p_empresa: empresa, p_termo: bDig, p_limite: 1000 });
+          const idList = (idsTel || []).map(r => r.contato_id).filter(Boolean);
+          if (idList.length === 0) return [];
+          q = q.in('contato_id', idList.slice(0, 1000));
+        } catch (e) { q = q.ilike('contato_nome', '%' + busca.replace(/%/g, '') + '%'); }
+      } else {
+        q = q.ilike('contato_nome', '%' + busca.replace(/%/g, '') + '%');
+      }
+    }
     if (f.segmento) q = q.eq('segmento', f.segmento);
     if (idsFromMeta) q = q.in('contato_id', idsFromMeta);
     // FASE 5: filtro produto (via RPC clientes_que_compraram -> Set -> .in)
