@@ -2650,7 +2650,12 @@
   // (display nao precisa de CORS).
   // ════════════════════════════════════════════════════════════════
   const C360_IMG_PROXY = SUPABASE_URL + '/functions/v1/c360-img-proxy?url=';
-  const _C360_ZAP_STOP = new Set(['avulsa','avulso','manga','longa','curta','itc','com','sem','para','und','par']);
+  // Ruido a ignorar (variacao + assinatura "Equipe Dana Jalecos" + conectores)
+  const _C360_ZAP_STOP = new Set(['avulsa','avulso','manga','longa','curta','itc','com','sem','para','und','par','dana','equipe','voce','seu','sua','que','aqui','mais','nossos','nossa','nosso']);
+  // Palavra de TIPO (peso medio) — produto da mesma familia
+  const _C360_TIPO_WORDS = new Set(['jaleco','jalecos','scrub','scrubs','avental','aventais','dolma','dolmas','gorro','gorros','touca','toucas','colete','coletes','turbante','turbantes','camiseta','camisetas','calca','calcas','blusa','camisa','pijama','conjunto']);
+  // Palavra de COR (peso baixo) — discrimina menos que o modelo
+  const _C360_COR_WORDS = new Set(['branco','branca','off','white','preto','preta','azul','marinho','bebe','celeste','verde','militar','oliva','escuro','claro','vinho','bordo','cinza','chumbo','grafite','bege','areia','nude','rosa','cha','vermelho','amarelo','lilas','roxo','roxa','caramelo','denim','jeans','camel','ferrugem','argila','natural','mediterraneo','acafrao','aco','cacau','rose','salmao']);
 
   // Catalogo do site (251 produtos, todos com imagem persistente). Cache 1x.
   window._c360CatalogoCache = window._c360CatalogoCache || null;
@@ -2674,52 +2679,59 @@
     return t.split(/\s+/).filter(w => w.length >= 3 && !_C360_ZAP_STOP.has(w));
   }
 
-  // Casa um produto sugerido (nome Bling + categoria) com a melhor foto do catalogo.
-  function _c360MatchCatalogo(catalogo, sug, usados) {
-    const stoks = _c360TokensProd(sug.nome);
-    if (!stoks.length) return null;
-    const cat = (sug.categoria || '').toLowerCase();
-    let best = null, bestScore = 0;
+  // Casa os produtos do CATALOGO com o TEXTO da mensagem/acao do insight
+  // (o que vai ser enviado). Peso: modelo (manoel/comfy/glamour) > cor > tipo.
+  // Threshold evita match so pela palavra de tipo (ex: assinatura "...Jalecos").
+  function _c360ProdutosNoTexto(catalogo, texto, limite) {
+    const msgToks = new Set(_c360TokensProd(texto));
+    if (!msgToks.size) return [];
+    const scored = [];
     for (const p of catalogo) {
-      if (usados.has(p.sku_ref)) continue;
       const ptoks = _c360TokensProd(p.nome);
       if (!ptoks.length) continue;
-      let ov = 0; for (const t of ptoks) if (stoks.indexOf(t) !== -1) ov++;
-      if (ov === 0) continue;
-      let score = ov;
-      const pcat = (p.categoria || '').toLowerCase();
-      if (cat && pcat && (pcat.indexOf(cat) !== -1 || cat.indexOf(pcat) !== -1)) score += 1.5;
-      if (score > bestScore) { bestScore = score; best = p; }
+      let score = 0, model = false, tipo = false;
+      const seen = new Set();
+      for (const t of ptoks) {
+        if (seen.has(t)) continue; seen.add(t);
+        if (!msgToks.has(t)) continue;
+        if (_C360_TIPO_WORDS.has(t)) { score += 1.5; tipo = true; }
+        else if (_C360_COR_WORDS.has(t)) { score += 1; }
+        else { score += 3; model = true; }
+      }
+      if (score >= 2.5 && (model || tipo)) scored.push({ p: p, score: score });
     }
-    return (best && bestScore >= 2) ? best : null;
+    scored.sort((a, b) => b.score - a.score);
+    const out = [], usados = new Set();
+    for (const x of scored) {
+      if (usados.has(x.p.sku_ref)) continue;
+      usados.add(x.p.sku_ref); out.push(x.p);
+      if (out.length >= limite) break;
+    }
+    return out;
   }
 
-  // Carrega + renderiza a galeria contextual no host do card de insight.
-  async function c360CarregarZapImagens(contatoNome) {
+  // Carrega + renderiza a galeria de imagens ALINHADA com a mensagem do insight.
+  // textoMsg = mensagem WhatsApp + acao comercial (onde o produto e citado).
+  async function c360CarregarZapImagens(contatoNome, textoMsg) {
     const host = document.getElementById('c360-zap-imgs-host');
     if (!host) return;
     try {
-      const empresa = state.empresa;
-      const [catalogo, sugRes] = await Promise.all([
-        c360LoadCatalogo(),
-        state.sb.rpc('sugerir_produto_proximo', { p_contato_nome: contatoNome, p_empresa: empresa, p_limite: 6 })
-      ]);
-      const sugestoes = (sugRes && sugRes.data) || [];
-      const usados = new Set();
-      const matched = [];
-      for (const s of sugestoes) {
-        const m = _c360MatchCatalogo(catalogo, s, usados);
-        if (m) { usados.add(m.sku_ref); matched.push(m); }
-        if (matched.length >= 4) break;
-      }
-      // Fallback: completa com produtos das categorias sugeridas (sempre tem imagem)
-      if (matched.length < 3 && sugestoes.length) {
-        const cats = [...new Set(sugestoes.map(s => (s.categoria || '').toLowerCase()).filter(Boolean))];
-        for (const p of catalogo) {
-          if (matched.length >= 4) break;
-          if (usados.has(p.sku_ref)) continue;
-          const pcat = (p.categoria || '').toLowerCase();
-          if (cats.some(c => pcat.indexOf(c) !== -1 || c.indexOf(pcat) !== -1)) { usados.add(p.sku_ref); matched.push(p); }
+      const catalogo = await c360LoadCatalogo();
+      const texto = String(textoMsg || '').trim();
+      // 1) Match direto com o que a mensagem cita (modelo > cor > tipo)
+      let matched = texto ? _c360ProdutosNoTexto(catalogo, texto, 4) : [];
+      // 2) Fallback so se NADA bateu: a mensagem citou um TIPO (ex: "jaleco")
+      //    mas sem modelo/cor que casasse -> mostra itens daquele tipo.
+      if (matched.length === 0 && texto) {
+        const msgToks = new Set(_c360TokensProd(texto));
+        const tipos = [..._C360_TIPO_WORDS].filter(t => msgToks.has(t));
+        if (tipos.length) {
+          const usados = new Set();
+          for (const p of catalogo) {
+            if (matched.length >= 4) break;
+            const pnome = (p.nome || '').toLowerCase();
+            if (!usados.has(p.sku_ref) && tipos.some(t => pnome.indexOf(t) !== -1)) { usados.add(p.sku_ref); matched.push(p); }
+          }
         }
       }
       host.innerHTML = matched.length ? _c360RenderZapGaleria(matched) : '';
@@ -2979,9 +2991,11 @@
           ? '<div style="padding:40px;text-align:center;color:#64748b"><div style="font-size:32px;margin-bottom:8px;color:oklch(88% 0.018 80)">◉</div><div style="font-size:14px;margin-bottom:4px;color:#e2e8f0">Nenhum insight gerado ainda</div><div style="font-size:12px">Clique em "Gerar novo Insight" pra criar o primeiro.</div></div>'
           : cards}
       </div>`;
-    // Fase 1 banco de imagens: galeria de produtos sugeridos no card mais recente
+    // Fase 1 banco de imagens: galeria alinhada com a mensagem do insight mais recente
     if (insights && insights.length) {
-      setTimeout(() => { try { c360CarregarZapImagens(contatoNome); } catch (_) {} }, 30);
+      let _txt = '';
+      try { const _s0 = parseInsightSecoes(insights[0].insight || ''); _txt = ((_s0.mensagem_whatsapp || '') + ' ' + (_s0.acao || '')).trim(); } catch (_) {}
+      setTimeout(() => { try { c360CarregarZapImagens(contatoNome, _txt); } catch (_) {} }, 30);
     }
   }
 
