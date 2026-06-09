@@ -2740,13 +2740,14 @@
           }
         }
       }
-      host.innerHTML = matched.length ? _c360RenderZapGaleria(matched) : '';
+      host.innerHTML = _c360RenderZapGaleria(matched, contatoNome);
     } catch (e) { console.warn('[c360 zap imgs]', e); host.innerHTML = ''; }
   }
   window.c360CarregarZapImagens = c360CarregarZapImagens;
 
-  function _c360RenderZapGaleria(produtos) {
-    const cards = produtos.map(p => {
+  function _c360RenderZapGaleria(produtos, contatoNome) {
+    const contatoArg = escapeHtml(contatoNome || '').replace(/'/g, '&#39;');
+    const cards = (produtos || []).map(p => {
       const url = p.imagem_principal || '';
       const urlEnc = encodeURIComponent(url);
       const nome = escapeHtml(p.nome || '');
@@ -2762,11 +2763,17 @@
           </div>
         </div>`;
     }).join('');
+    const corpo = (produtos && produtos.length)
+      ? `<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px">${cards}</div>
+         <div style="font-size:10px;color:#64748b;margin-top:6px">📋 copia a imagem (cola no WhatsApp Web com Ctrl+V) · ⬇ baixa pro celular</div>`
+      : `<div style="font-size:11.5px;color:#64748b">Sem foto sugerida pela mensagem — abra o <b style="color:#94a3b8">Banco de imagens</b> pra escolher uma.</div>`;
     return `
       <div style="margin-top:14px;padding-top:14px;border-top:1px dashed rgba(34,197,94,0.2)">
-        <div style="font-size:10.5px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px">🖼 Imagens pra mandar junto</div>
-        <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px">${cards}</div>
-        <div style="font-size:10px;color:#64748b;margin-top:6px">📋 copia a imagem (cola no WhatsApp Web com Ctrl+V) · ⬇ baixa pro celular</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+          <div style="font-size:10.5px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:0.8px">🖼 Imagens pra mandar junto</div>
+          <button onclick="c360AbrirBancoImagens('${contatoArg}')" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.04);color:#cbd5e1;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">🖼 Banco de imagens</button>
+        </div>
+        ${corpo}
       </div>`;
   }
 
@@ -2830,6 +2837,212 @@
     } finally {
       if (btn) btn.disabled = false;
     }
+  };
+
+  // ════════════════════════════════════════════════════════════════
+  // BANCO DE IMAGENS COMPLETO (Fase 2) — modal com 3 fontes
+  // Brand Kit (brandkit_itens) + Estudio IA (estudio_pecas) + importadas
+  // (c360_zap_imagens). Busca + filtro por fonte. Copiar/baixar via proxy.
+  // Importar (admin/gerente) URL/upload -> edge c360-importar-imagem.
+  // ════════════════════════════════════════════════════════════════
+  window._c360BancoState = window._c360BancoState || { fonte: 'todas', busca: '', itens: null, contato: '' };
+
+  function c360PodeImportarBanco() {
+    const c = (state.profile && state.profile.cargo) || '';
+    return ['admin', 'gerente_comercial', 'gerente_marketing'].indexOf(c) !== -1;
+  }
+
+  async function c360CarregarBancoFontes() {
+    const sb = state.sb;
+    const out = [];
+    try {
+      const { data } = await sb.from('brandkit_itens').select('nome, categoria, url, mime_type').order('created_at', { ascending: false });
+      (data || []).forEach(b => {
+        const isImg = (b.mime_type && String(b.mime_type).toLowerCase().indexOf('image/') === 0) || /\.(png|jpe?g|webp|gif|avif)(\?|$)/i.test(b.url || '');
+        if (b.url && isImg) out.push({ nome: b.nome || 'Brand Kit', url: b.url, tag: b.categoria || '', fonte: 'brandkit' });
+      });
+    } catch (e) { console.warn('[banco brandkit]', e); }
+    try {
+      const { data } = await sb.from('estudio_pecas').select('produto_nome, tema, tipo_peca, imagem_url, status').not('imagem_url', 'is', null).order('created_at', { ascending: false }).limit(200);
+      (data || []).forEach(e => {
+        if (e.status && e.status !== 'ok') return;
+        const nome = [e.produto_nome, e.tema].filter(Boolean).join(' · ') || 'Estudio IA';
+        out.push({ nome: nome, url: e.imagem_url, tag: e.tipo_peca || '', fonte: 'estudio' });
+      });
+    } catch (e) { console.warn('[banco estudio]', e); }
+    try {
+      const { data } = await sb.from('c360_zap_imagens').select('*').order('created_at', { ascending: false }).limit(300);
+      (data || []).forEach(i => out.push({ id: i.id, nome: i.nome, url: i.url, tag: i.tag || '', fonte: 'importada', delete_url: i.delete_url, criado_por: i.criado_por }));
+    } catch (e) { console.warn('[banco importadas]', e); }
+    return out;
+  }
+
+  window.c360AbrirBancoImagens = async function (contatoNome) {
+    let ov = document.getElementById('c360-banco-overlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'c360-banco-overlay';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding:32px 16px;overflow:auto';
+      ov.addEventListener('click', function (e) { if (e.target === ov) window.c360FecharBanco(); });
+      document.body.appendChild(ov);
+    }
+    const st = window._c360BancoState;
+    st.contato = contatoNome || ''; st.fonte = 'todas'; st.busca = ''; st.itens = null;
+    ov.style.display = 'flex';
+    ov.innerHTML = '<div style="background:#0f1115;border:1px solid rgba(255,255,255,0.1);border-radius:14px;width:100%;max-width:880px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden"><div id="c360-banco-body" style="padding:44px;text-align:center;color:#94a3b8">Carregando banco de imagens…</div></div>';
+    try { st.itens = await c360CarregarBancoFontes(); } catch (e) { st.itens = []; }
+    c360RenderBanco();
+  };
+  window.c360FecharBanco = function () { const o = document.getElementById('c360-banco-overlay'); if (o) o.style.display = 'none'; };
+  window.c360BancoFonte = function (f) { window._c360BancoState.fonte = f; c360RenderBanco(); };
+  window.c360BancoBusca = function (v) { window._c360BancoState.busca = v; c360RenderBancoGrid(); };
+
+  function c360RenderBanco() {
+    const body = document.getElementById('c360-banco-body');
+    if (!body) return;
+    const st = window._c360BancoState;
+    const itens = st.itens || [];
+    const counts = { brandkit: 0, estudio: 0, importada: 0 };
+    itens.forEach(i => { counts[i.fonte] = (counts[i.fonte] || 0) + 1; });
+    const chip = (key, label, n) => {
+      const on = st.fonte === key;
+      return '<button onclick="c360BancoFonte(\'' + key + '\')" style="padding:5px 12px;border-radius:999px;border:1px solid ' + (on ? '#22c55e' : 'rgba(255,255,255,0.15)') + ';background:' + (on ? 'rgba(34,197,94,0.15)' : 'transparent') + ';color:' + (on ? '#22c55e' : '#cbd5e1') + ';font-size:12px;font-weight:' + (on ? 700 : 500) + ';cursor:pointer">' + label + (n != null ? ' (' + n + ')' : '') + '</button>';
+    };
+    const importBtn = c360PodeImportarBanco()
+      ? '<button onclick="c360BancoAbrirImport()" style="padding:7px 14px;border-radius:8px;border:none;background:#a855f7;color:#fff;font-size:12.5px;font-weight:700;cursor:pointer">+ Importar imagem</button>' : '';
+    body.style.cssText = 'padding:0;display:flex;flex-direction:column;min-height:0;flex:1';
+    body.innerHTML =
+      '<div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;gap:10px">' +
+        '<div style="font-size:15px;font-weight:700;color:#f1f5f9">🖼 Banco de imagens</div>' +
+        '<button onclick="c360FecharBanco()" style="width:30px;height:30px;border-radius:7px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:#cbd5e1;cursor:pointer;font-size:15px">✕</button>' +
+      '</div>' +
+      '<div style="padding:12px 18px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-bottom:1px solid rgba(255,255,255,0.06)">' +
+        chip('todas', 'Todas', itens.length) + chip('brandkit', 'Brand Kit', counts.brandkit) + chip('estudio', 'Estúdio IA', counts.estudio) + chip('importada', 'Importadas', counts.importada) +
+        '<div style="flex:1"></div>' + importBtn +
+      '</div>' +
+      '<div style="padding:10px 18px 0"><input id="c360-banco-busca" type="text" placeholder="Buscar por nome ou tag…" value="' + escapeHtml(st.busca || '') + '" oninput="c360BancoBusca(this.value)" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:rgba(0,0,0,0.25);color:#e2e8f0;font-size:13px;box-sizing:border-box"></div>' +
+      '<div id="c360-banco-import-host" style="padding:0 18px"></div>' +
+      '<div id="c360-banco-grid" style="padding:14px 18px;overflow-y:auto;flex:1;min-height:0"></div>';
+    c360RenderBancoGrid();
+  }
+
+  function c360RenderBancoGrid() {
+    const grid = document.getElementById('c360-banco-grid');
+    if (!grid) return;
+    const st = window._c360BancoState;
+    const q = (st.busca || '').toLowerCase().trim();
+    let itens = (st.itens || []).filter(i => {
+      if (st.fonte !== 'todas' && i.fonte !== st.fonte) return false;
+      if (q && (i.nome || '').toLowerCase().indexOf(q) === -1 && (i.tag || '').toLowerCase().indexOf(q) === -1) return false;
+      return true;
+    });
+    if (!itens.length) { grid.innerHTML = '<div style="padding:30px;text-align:center;color:#64748b;font-size:13px">Nenhuma imagem ' + (q ? 'pra essa busca' : 'nessa fonte') + '.</div>'; return; }
+    const fonteBadge = { brandkit: ['Brand Kit', '#3b82f6'], estudio: ['Estúdio IA', '#a855f7'], importada: ['Importada', '#22c55e'] };
+    const meId = (state.profile && state.profile.id) || null;
+    const podeImport = c360PodeImportarBanco();
+    grid.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">' + itens.map(i => {
+      const url = i.url || ''; const urlEnc = encodeURIComponent(url); const nome = escapeHtml(i.nome || '');
+      const fb = fonteBadge[i.fonte] || ['', '#64748b'];
+      const podeDel = i.fonte === 'importada' && (podeImport || (i.criado_por && i.criado_por === meId));
+      const delBtn = podeDel ? '<button onclick="c360BancoDeletar(\'' + i.id + '\',\'' + encodeURIComponent(i.delete_url || '') + '\',this)" title="Apagar do banco" style="position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:6px;border:none;background:rgba(0,0,0,0.55);color:#fca5a5;cursor:pointer;font-size:12px">🗑</button>' : '';
+      return '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:10px;overflow:hidden;position:relative">' +
+        delBtn +
+        '<img src="' + escapeHtml(url) + '" alt="" loading="lazy" style="width:100%;height:150px;object-fit:cover;display:block;background:#0b0b0b" onerror="this.style.display=\'none\'">' +
+        '<div style="padding:7px 8px">' +
+          '<div style="font-size:11px;color:#e2e8f0;line-height:1.3;height:28px;overflow:hidden" title="' + nome + '">' + nome + '</div>' +
+          '<div style="display:flex;align-items:center;gap:5px;margin:5px 0"><span style="font-size:9px;padding:1px 6px;border-radius:999px;background:' + fb[1] + '22;color:' + fb[1] + ';font-weight:700">' + fb[0] + '</span>' + (i.tag ? '<span style="font-size:9.5px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(i.tag) + '</span>' : '') + '</div>' +
+          '<div style="display:flex;gap:5px">' +
+            '<button onclick="c360CopiarImagemZap(\'' + urlEnc + '\',this)" title="Copiar imagem (Ctrl+V no WhatsApp)" style="flex:1;padding:5px 0;border:none;border-radius:5px;background:#22c55e;color:#fff;font-size:12px;font-weight:700;cursor:pointer">📋</button>' +
+            '<button onclick="c360BaixarImagemZap(\'' + urlEnc + '\',this)" title="Baixar" style="flex:1;padding:5px 0;border:1px solid rgba(255,255,255,0.15);border-radius:5px;background:transparent;color:#cbd5e1;font-size:12px;cursor:pointer">⬇</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('') + '</div>';
+  }
+
+  window.c360BancoAbrirImport = function () {
+    const host = document.getElementById('c360-banco-import-host');
+    if (!host) return;
+    if (host.dataset.open === '1') { host.dataset.open = '0'; host.innerHTML = ''; return; }
+    host.dataset.open = '1';
+    host.innerHTML =
+      '<div style="margin-top:10px;padding:12px;border:1px solid rgba(168,85,247,0.3);border-radius:10px;background:rgba(168,85,247,0.06)">' +
+        '<div style="display:flex;gap:8px;margin-bottom:8px">' +
+          '<input id="c360-imp-nome" type="text" placeholder="Nome da imagem" style="flex:2;padding:8px 10px;border-radius:7px;border:1px solid rgba(255,255,255,0.12);background:rgba(0,0,0,0.25);color:#e2e8f0;font-size:12.5px">' +
+          '<input id="c360-imp-tag" type="text" placeholder="Tag (opcional)" style="flex:1;padding:8px 10px;border-radius:7px;border:1px solid rgba(255,255,255,0.12);background:rgba(0,0,0,0.25);color:#e2e8f0;font-size:12.5px">' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+          '<input id="c360-imp-url" type="url" placeholder="Cole uma URL de imagem…" style="flex:2;min-width:200px;padding:8px 10px;border-radius:7px;border:1px solid rgba(255,255,255,0.12);background:rgba(0,0,0,0.25);color:#e2e8f0;font-size:12.5px">' +
+          '<span style="color:#64748b;font-size:11px">ou</span>' +
+          '<input id="c360-imp-file" type="file" accept="image/*" style="flex:1;color:#cbd5e1;font-size:11.5px">' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;margin-top:10px;align-items:center">' +
+          '<button id="c360-imp-btn" onclick="c360BancoImportar(this)" style="padding:8px 16px;border-radius:7px;border:none;background:#a855f7;color:#fff;font-size:12.5px;font-weight:700;cursor:pointer">Importar</button>' +
+          '<button onclick="c360BancoAbrirImport()" style="padding:8px 14px;border-radius:7px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:#cbd5e1;font-size:12.5px;cursor:pointer">Cancelar</button>' +
+          '<span id="c360-imp-msg" style="font-size:11.5px;color:#94a3b8"></span>' +
+        '</div>' +
+      '</div>';
+  };
+
+  window.c360BancoImportar = async function (btn) {
+    const g = (id) => document.getElementById(id);
+    const nome = (g('c360-imp-nome') && g('c360-imp-nome').value || '').trim();
+    const tag = (g('c360-imp-tag') && g('c360-imp-tag').value || '').trim();
+    const url = (g('c360-imp-url') && g('c360-imp-url').value || '').trim();
+    const fileEl = g('c360-imp-file');
+    const file = fileEl && fileEl.files && fileEl.files[0];
+    const msg = g('c360-imp-msg');
+    const setMsg = (t, cor) => { if (msg) { msg.textContent = t; msg.style.color = cor || '#94a3b8'; } };
+    if (!nome) return setMsg('Dê um nome.', '#fca5a5');
+    if (!url && !file) return setMsg('Cole uma URL ou escolha um arquivo.', '#fca5a5');
+    if (btn) { btn.disabled = true; btn.textContent = 'Importando…'; }
+    setMsg('');
+    try {
+      const payload = { nome: nome, tag: tag };
+      if (file) {
+        payload.image_base64 = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file); });
+      } else { payload.image_url = url; }
+      const { data: { session } } = await state.sb.auth.getSession();
+      const resp = await fetch(SUPABASE_URL + '/functions/v1/c360-importar-imagem', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + ((session && session.access_token) || SUPABASE_ANON_KEY), 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const j = await resp.json();
+      if (!resp.ok || !j.item) throw new Error(j.error || ('Erro ' + resp.status));
+      const it = j.item;
+      window._c360BancoState.itens.unshift({ id: it.id, nome: it.nome, url: it.url, tag: it.tag || '', fonte: 'importada', delete_url: it.delete_url, criado_por: it.criado_por });
+      window._c360BancoState.fonte = 'importada';
+      c360RenderBanco();
+      if (typeof toast === 'function') toast('Imagem importada!', 'success');
+    } catch (e) {
+      console.warn('[banco importar]', e);
+      setMsg('Falhou: ' + (e.message || e), '#fca5a5');
+      if (btn) { btn.disabled = false; btn.textContent = 'Importar'; }
+    }
+  };
+
+  window.c360BancoDeletar = async function (id, delUrlEnc, btn) {
+    if (!id) return;
+    if (btn && btn.dataset.confirm !== '1') {
+      btn.dataset.confirm = '1'; btn.textContent = '✓?'; btn.style.background = 'rgba(239,68,68,0.85)'; btn.style.color = '#fff';
+      setTimeout(() => { if (btn && btn.dataset.confirm === '1') { btn.dataset.confirm = '0'; btn.textContent = '🗑'; btn.style.background = 'rgba(0,0,0,0.55)'; btn.style.color = '#fca5a5'; } }, 3000);
+      return;
+    }
+    try {
+      const { error } = await state.sb.from('c360_zap_imagens').delete().eq('id', id);
+      if (error) throw error;
+      const delUrl = decodeURIComponent(delUrlEnc || '');
+      if (delUrl) {
+        try {
+          const { data: { session } } = await state.sb.auth.getSession();
+          fetch(SUPABASE_URL + '/functions/v1/apagar-imgbb', { method: 'POST', headers: { 'Authorization': 'Bearer ' + ((session && session.access_token) || SUPABASE_ANON_KEY), 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ delete_url: delUrl }) }).catch(() => {});
+        } catch (_) {}
+      }
+      window._c360BancoState.itens = (window._c360BancoState.itens || []).filter(x => x.id !== id);
+      c360RenderBanco();
+      if (typeof toast === 'function') toast('Imagem removida do banco.', 'success');
+    } catch (e) { console.warn('[banco deletar]', e); if (typeof toast === 'function') toast('Não consegui apagar.', 'error'); }
   };
 
   function formatTextoInsight(t) {
