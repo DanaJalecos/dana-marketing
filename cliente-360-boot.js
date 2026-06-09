@@ -2640,6 +2640,180 @@
   // Expoe pro onclick inline funcionar
   window.c360OpenWhatsApp = c360OpenWhatsApp;
 
+  // ════════════════════════════════════════════════════════════════
+  // BANCO DE IMAGENS NO ZAP (Fase 1 — contextual)
+  // Galeria de produtos sugeridos (com imagem PERSISTENTE do catalogo
+  // do site) abaixo do insight. Botoes: 📋 copiar imagem (clipboard ->
+  // Ctrl+V no WhatsApp Web) e ⬇ baixar. As imagens do CDN nao mandam
+  // CORS, entao copiar/baixar passam pela edge c360-img-proxy (que
+  // reescreve a imagem com header CORS). A EXIBICAO usa <img src> direto
+  // (display nao precisa de CORS).
+  // ════════════════════════════════════════════════════════════════
+  const C360_IMG_PROXY = SUPABASE_URL + '/functions/v1/c360-img-proxy?url=';
+  const _C360_ZAP_STOP = new Set(['avulsa','avulso','manga','longa','curta','itc','com','sem','para','und','par']);
+
+  // Catalogo do site (251 produtos, todos com imagem persistente). Cache 1x.
+  window._c360CatalogoCache = window._c360CatalogoCache || null;
+  async function c360LoadCatalogo() {
+    if (window._c360CatalogoCache) return window._c360CatalogoCache;
+    try {
+      const { data } = await state.sb
+        .from('produto_catalogo_site')
+        .select('sku_ref, nome, imagem_principal, preco, categoria, url_pagina')
+        .not('imagem_principal', 'is', null);
+      window._c360CatalogoCache = data || [];
+    } catch (e) { console.warn('[c360 catalogo]', e); window._c360CatalogoCache = []; }
+    return window._c360CatalogoCache;
+  }
+
+  // Tokeniza nome de produto: minusculo, sem acento, sem sufixo Tamanho/Cor, sem ruido.
+  function _c360TokensProd(s) {
+    let t = String(s || '').toLowerCase().replace(/[áàâãä]/g, 'a').replace(/[éèêë]/g, 'e').replace(/[íìîï]/g, 'i').replace(/[óòôõö]/g, 'o').replace(/[úùûü]/g, 'u').replace(/ç/g, 'c');
+    t = t.replace(/tamanho\s*:.*/g, ' ').replace(/cor\s*:.*/g, ' ');
+    t = t.replace(/[^a-z0-9\s]/g, ' ');
+    return t.split(/\s+/).filter(w => w.length >= 3 && !_C360_ZAP_STOP.has(w));
+  }
+
+  // Casa um produto sugerido (nome Bling + categoria) com a melhor foto do catalogo.
+  function _c360MatchCatalogo(catalogo, sug, usados) {
+    const stoks = _c360TokensProd(sug.nome);
+    if (!stoks.length) return null;
+    const cat = (sug.categoria || '').toLowerCase();
+    let best = null, bestScore = 0;
+    for (const p of catalogo) {
+      if (usados.has(p.sku_ref)) continue;
+      const ptoks = _c360TokensProd(p.nome);
+      if (!ptoks.length) continue;
+      let ov = 0; for (const t of ptoks) if (stoks.indexOf(t) !== -1) ov++;
+      if (ov === 0) continue;
+      let score = ov;
+      const pcat = (p.categoria || '').toLowerCase();
+      if (cat && pcat && (pcat.indexOf(cat) !== -1 || cat.indexOf(pcat) !== -1)) score += 1.5;
+      if (score > bestScore) { bestScore = score; best = p; }
+    }
+    return (best && bestScore >= 2) ? best : null;
+  }
+
+  // Carrega + renderiza a galeria contextual no host do card de insight.
+  async function c360CarregarZapImagens(contatoNome) {
+    const host = document.getElementById('c360-zap-imgs-host');
+    if (!host) return;
+    try {
+      const empresa = state.empresa;
+      const [catalogo, sugRes] = await Promise.all([
+        c360LoadCatalogo(),
+        state.sb.rpc('sugerir_produto_proximo', { p_contato_nome: contatoNome, p_empresa: empresa, p_limite: 6 })
+      ]);
+      const sugestoes = (sugRes && sugRes.data) || [];
+      const usados = new Set();
+      const matched = [];
+      for (const s of sugestoes) {
+        const m = _c360MatchCatalogo(catalogo, s, usados);
+        if (m) { usados.add(m.sku_ref); matched.push(m); }
+        if (matched.length >= 4) break;
+      }
+      // Fallback: completa com produtos das categorias sugeridas (sempre tem imagem)
+      if (matched.length < 3 && sugestoes.length) {
+        const cats = [...new Set(sugestoes.map(s => (s.categoria || '').toLowerCase()).filter(Boolean))];
+        for (const p of catalogo) {
+          if (matched.length >= 4) break;
+          if (usados.has(p.sku_ref)) continue;
+          const pcat = (p.categoria || '').toLowerCase();
+          if (cats.some(c => pcat.indexOf(c) !== -1 || c.indexOf(pcat) !== -1)) { usados.add(p.sku_ref); matched.push(p); }
+        }
+      }
+      host.innerHTML = matched.length ? _c360RenderZapGaleria(matched) : '';
+    } catch (e) { console.warn('[c360 zap imgs]', e); host.innerHTML = ''; }
+  }
+  window.c360CarregarZapImagens = c360CarregarZapImagens;
+
+  function _c360RenderZapGaleria(produtos) {
+    const cards = produtos.map(p => {
+      const url = p.imagem_principal || '';
+      const urlEnc = encodeURIComponent(url);
+      const nome = escapeHtml(p.nome || '');
+      return `
+        <div style="width:118px;flex-shrink:0;background:rgba(0,0,0,0.22);border:1px solid rgba(255,255,255,0.08);border-radius:8px;overflow:hidden">
+          <img src="${escapeHtml(url)}" alt="" loading="lazy" style="width:100%;height:118px;object-fit:cover;display:block;background:#0b0b0b" onerror="this.style.display='none'">
+          <div style="padding:6px 7px">
+            <div style="font-size:10.5px;color:#cbd5e1;line-height:1.3;height:27px;overflow:hidden" title="${nome}">${nome}</div>
+            <div style="display:flex;gap:4px;margin-top:5px">
+              <button onclick="c360CopiarImagemZap('${urlEnc}', this)" title="Copiar imagem (cola no WhatsApp Web com Ctrl+V)" style="flex:1;padding:5px 0;border:none;border-radius:5px;background:#22c55e;color:#fff;font-size:12px;font-weight:700;cursor:pointer">📋</button>
+              <button onclick="c360BaixarImagemZap('${urlEnc}', this)" title="Baixar imagem" style="flex:1;padding:5px 0;border:1px solid rgba(255,255,255,0.15);border-radius:5px;background:transparent;color:#cbd5e1;font-size:12px;cursor:pointer">⬇</button>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+    return `
+      <div style="margin-top:14px;padding-top:14px;border-top:1px dashed rgba(34,197,94,0.2)">
+        <div style="font-size:10.5px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px">🖼 Imagens pra mandar junto</div>
+        <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px">${cards}</div>
+        <div style="font-size:10px;color:#64748b;margin-top:6px">📋 copia a imagem (cola no WhatsApp Web com Ctrl+V) · ⬇ baixa pro celular</div>
+      </div>`;
+  }
+
+  async function _c360ImgAuthHeaders() {
+    let tok = SUPABASE_ANON_KEY;
+    try { const { data: { session } } = await state.sb.auth.getSession(); if (session && session.access_token) tok = session.access_token; } catch (_) {}
+    return { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + tok };
+  }
+  async function _c360FetchBlobProxy(url) {
+    const headers = await _c360ImgAuthHeaders();
+    const resp = await fetch(C360_IMG_PROXY + encodeURIComponent(url), { headers });
+    if (!resp.ok) throw new Error('proxy ' + resp.status);
+    return await resp.blob();
+  }
+  async function _c360BlobToPng(blob) {
+    const bitmap = await createImageBitmap(blob);
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width; canvas.height = bitmap.height;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0);
+    return await new Promise(res => canvas.toBlob(res, 'image/png'));
+  }
+
+  window.c360CopiarImagemZap = async function (urlEnc, btn) {
+    const url = decodeURIComponent(urlEnc);
+    if (btn) { btn.dataset.orig = btn.textContent; btn.textContent = '…'; btn.disabled = true; }
+    try {
+      if (!navigator.clipboard || !window.ClipboardItem) throw new Error('clipboard indisponivel');
+      const item = new ClipboardItem({ 'image/png': (async () => {
+        const blob = await _c360FetchBlobProxy(url);
+        const png = await _c360BlobToPng(blob);
+        if (!png) throw new Error('conversao png falhou');
+        return png;
+      })() });
+      await navigator.clipboard.write([item]);
+      if (btn) btn.textContent = '✓';
+      if (typeof toast === 'function') toast('Imagem copiada! Cole no WhatsApp com Ctrl+V', 'success');
+      if (btn) setTimeout(() => { btn.textContent = btn.dataset.orig || '📋'; btn.disabled = false; }, 1800);
+    } catch (e) {
+      console.warn('[c360 copiar img]', e);
+      if (typeof toast === 'function') toast('Nao consegui copiar — baixando a imagem.', 'warn');
+      if (btn) { btn.textContent = btn.dataset.orig || '📋'; btn.disabled = false; }
+      try { await window.c360BaixarImagemZap(urlEnc); } catch (_) {}
+    }
+  };
+
+  window.c360BaixarImagemZap = async function (urlEnc, btn) {
+    const url = decodeURIComponent(urlEnc);
+    if (btn) btn.disabled = true;
+    try {
+      const blob = await _c360FetchBlobProxy(url);
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objUrl;
+      const ext = ((blob.type || 'image/jpeg').split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+      a.download = 'dana-' + Date.now() + '.' + ext;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(objUrl), 5000);
+    } catch (e) {
+      console.warn('[c360 baixar img]', e);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
+
   function formatTextoInsight(t) {
     if (!t) return '';
     let h = escapeHtml(t);
@@ -2741,6 +2915,7 @@
         ${secBlock('Risco ou Oportunidade Principal', s.risco)}
         ${secBlock('Ação Comercial Recomendada', s.acao)}
         ${waBlock}
+        ${isNewest ? '<div id="c360-zap-imgs-host"></div>' : ''}
       </div>`;
   }
 
@@ -2804,6 +2979,10 @@
           ? '<div style="padding:40px;text-align:center;color:#64748b"><div style="font-size:32px;margin-bottom:8px;color:oklch(88% 0.018 80)">◉</div><div style="font-size:14px;margin-bottom:4px;color:#e2e8f0">Nenhum insight gerado ainda</div><div style="font-size:12px">Clique em "Gerar novo Insight" pra criar o primeiro.</div></div>'
           : cards}
       </div>`;
+    // Fase 1 banco de imagens: galeria de produtos sugeridos no card mais recente
+    if (insights && insights.length) {
+      setTimeout(() => { try { c360CarregarZapImagens(contatoNome); } catch (_) {} }, 30);
+    }
   }
 
   // ─── Notas por cliente (Fase 4) ───
