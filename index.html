@@ -21319,7 +21319,7 @@ async function gerarConteudoInsights() {
   const box = document.getElementById('cti-box');
   const btn = document.getElementById('cti-btn');
   if (!box) return;
-  box.innerHTML = `<div style="background:linear-gradient(135deg,#faf5ff,#f5f3ff);border:1.5px solid #e9d5ff;border-radius:12px;padding:16px;margin-bottom:16px;color:#6d28d9;font-weight:700;font-size:12.5px">⏳ Buscando o que está bombando no Instagram/TikTok do nicho...</div>`;
+  box.innerHTML = `<div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid #a855f7;border-radius:12px;padding:16px;margin-bottom:16px;color:var(--text2);font-weight:700;font-size:12.5px">⏳ Buscando o que está bombando no Instagram/TikTok do nicho...</div>`;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Analisando...'; }
   try {
     let token = SUPABASE_ANON_KEY;
@@ -21341,13 +21341,13 @@ function _renderConteudoInsights(a, provider) {
   const box = document.getElementById('cti-box');
   if (!box) return;
   window._ctiIdeias = a.ideias || [];
-  const chip = (t) => `<span style="display:inline-block;background:#f3e8ff;color:#7c3aed;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;margin:2px 4px 2px 0">${esc(t)}</span>`;
-  const sec = (label, inner) => inner ? `<div style="margin-bottom:12px"><div style="font-size:10.5px;font-weight:800;color:#9333ea;text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px">${label}</div>${inner}</div>` : '';
-  const formatos = (a.formatos || []).map(f => `<div style="background:#fff;border:1px solid #e9d5ff;border-radius:9px;padding:10px 12px;margin-bottom:6px"><div style="font-weight:700;font-size:12.5px">${esc(f.nome || '')} <span style="font-size:10px;color:var(--text3);font-weight:500">· ${esc(f.plataforma || '')}</span></div><div style="font-size:11.5px;color:var(--text2);margin-top:2px">${esc(f.porque || '')}</div></div>`).join('');
-  const ideias = (a.ideias || []).map((idea, i) => `<div style="background:#fff;border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div style="min-width:0"><div style="font-weight:700;font-size:12.5px">${esc(idea.titulo || '')} <span style="font-size:10px;color:var(--text3);font-weight:500">· ${esc(idea.formato || '')}</span></div>${idea.gancho ? `<div style="font-size:11.5px;color:var(--text2);margin-top:2px">🎬 ${esc(idea.gancho)}</div>` : ''}</div><button class="btn btn-ghost btn-sm" style="font-size:11px;white-space:nowrap" onclick="criarRefDeIdeia(${i})">+ Referência</button></div>`).join('');
-  box.innerHTML = `<div style="background:linear-gradient(135deg,#faf5ff,#f5f3ff);border:1.5px solid #e9d5ff;border-radius:12px;padding:18px;margin-bottom:16px">
+  const chip = (t) => `<span style="display:inline-block;background:rgba(168,85,247,0.16);color:#a855f7;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;margin:2px 4px 2px 0">${esc(t)}</span>`;
+  const sec = (label, inner) => inner ? `<div style="margin-bottom:12px"><div style="font-size:10.5px;font-weight:800;color:#a855f7;text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px">${label}</div>${inner}</div>` : '';
+  const formatos = (a.formatos || []).map(f => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-bottom:6px"><div style="font-weight:700;font-size:12.5px;color:var(--text)">${esc(f.nome || '')} <span style="font-size:10px;color:var(--text3);font-weight:500">· ${esc(f.plataforma || '')}</span></div><div style="font-size:11.5px;color:var(--text2);margin-top:2px">${esc(f.porque || '')}</div></div>`).join('');
+  const ideias = (a.ideias || []).map((idea, i) => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div style="min-width:0"><div style="font-weight:700;font-size:12.5px;color:var(--text)">${esc(idea.titulo || '')} <span style="font-size:10px;color:var(--text3);font-weight:500">· ${esc(idea.formato || '')}</span></div>${idea.gancho ? `<div style="font-size:11.5px;color:var(--text2);margin-top:2px">🎬 ${esc(idea.gancho)}</div>` : ''}</div><button class="btn btn-ghost btn-sm" style="font-size:11px;white-space:nowrap" onclick="criarRefDeIdeia(${i})">+ Referência</button></div>`).join('');
+  box.innerHTML = `<div style="background:var(--white);border:1.5px solid var(--border);border-left:3px solid #a855f7;border-radius:12px;padding:18px;margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px">
-      <div style="color:#6d28d9;font-weight:800;font-size:12.5px;text-transform:uppercase;letter-spacing:.5px">✨ Insights de Conteúdo · IG/TikTok</div>
+      <div style="color:#a855f7;font-weight:800;font-size:12.5px;text-transform:uppercase;letter-spacing:.5px">✨ Insights de Conteúdo · IG/TikTok</div>
       <button class="modal-close" style="font-size:18px;line-height:1" onclick="document.getElementById('cti-box').innerHTML=''">×</button>
     </div>
     ${a.resumo ? `<div style="font-size:13px;color:var(--text);line-height:1.6;margin-bottom:12px">${esc(a.resumo)}</div>` : ''}
