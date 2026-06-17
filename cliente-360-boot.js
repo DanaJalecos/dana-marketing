@@ -1698,9 +1698,10 @@
           <div style="font-size:12px;color:#64748b">${EMPRESA_LABELS[c.empresa] || c.empresa}${tipo ? ' · '+tipo : ''}</div>
         </div>
       </div>
-      <div style="display:flex;gap:10px;flex-shrink:0">
+      <div style="display:flex;gap:10px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
         <button onclick="c360Recalcular()" style="padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:#e2e8f0;cursor:pointer;font-size:13px;font-weight:500">Recalcular</button>
         <button onclick="c360InsightIA()" style="padding:8px 16px;border-radius:8px;border:1px solid rgba(251,191,36,0.4);background:rgba(251,191,36,0.1);color:#fbbf24;cursor:pointer;font-size:13px;font-weight:500">◆ Insight IA</button>
+        <button onclick="c360InsightIA('reativacao')" title="Mensagem de reativação focada em valor (re-conscientização), sem cupom de desconto" style="padding:8px 16px;border-radius:8px;border:1px solid rgba(177,87,64,0.5);background:rgba(177,87,64,0.12);color:#e08a6f;cursor:pointer;font-size:13px;font-weight:500">♻️ Reativar</button>
       </div>
     </div>
   </div>
@@ -3073,9 +3074,11 @@
     }).join('');
   }
 
-  async function c360GenerateInsight(contatoNome) {
+  async function c360GenerateInsight(contatoNome, modo) {
     const { data: { session } } = await state.sb.auth.getSession();
     if (!session) throw new Error('Sessão expirada. Relogue.');
+    const _body = { contato_nome: contatoNome, empresa: state.empresa };
+    if (modo) _body.modo = modo;   // 'reativacao' = re-conscientização (sem cupom); ausente = comportamento padrão
     const resp = await fetch(`${SUPABASE_URL}/functions/v1/cliente360-insight`, {
       method: 'POST',
       headers: {
@@ -3083,7 +3086,7 @@
         'apikey': SUPABASE_ANON_KEY,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ contato_nome: contatoNome, empresa: state.empresa }),
+      body: JSON.stringify(_body),
     });
     const j = await resp.json();
     if (!resp.ok) throw new Error(j.error || ('Erro ' + resp.status));
@@ -3202,9 +3205,12 @@
             <span>Análises geradas por IA (Groq Llama 3.3 70B · fallback Gemini 2.5 Pro)</span>
             ${quotaBadge}
           </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="c360InsightIA('reativacao')" ${desabilitado?'disabled':''} title="Mensagem de reativação focada em valor (re-conscientização), sem cupom de desconto" style="padding:8px 16px;border-radius:8px;border:1px solid rgba(177,87,64,0.5);background:rgba(177,87,64,0.12);color:#e08a6f;cursor:${desabilitado?'not-allowed':'pointer'};font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;opacity:${desabilitado?0.4:1}">♻️ Reativar</button>
           <button onclick="c360InsightIA()" ${desabilitado?'disabled':''} style="padding:8px 16px;border-radius:8px;border:1px solid oklch(88% 0.018 80 / 0.5);background:oklch(88% 0.018 80 / 0.12);color:oklch(88% 0.018 80);cursor:${desabilitado?'not-allowed':'pointer'};font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;opacity:${desabilitado?0.4:1}">
             ${gerando ? '⏳ Gerando...' : !podeGerar ? '🚫 Indisponível' : '◆ Gerar novo Insight'}
           </button>
+          </div>
         </div>
         ${insights.length === 0
           ? '<div style="padding:40px;text-align:center;color:#64748b"><div style="font-size:32px;margin-bottom:8px;color:oklch(88% 0.018 80)">◉</div><div style="font-size:14px;margin-bottom:4px;color:#e2e8f0">Nenhum insight gerado ainda</div><div style="font-size:12px">Clique em "Gerar novo Insight" pra criar o primeiro.</div></div>'
@@ -3669,7 +3675,7 @@
   };
 
   // Botão do header (◆ Insight IA) + aba Insights IA compartilham lógica
-  window.c360InsightIA = async function() {
+  window.c360InsightIA = async function(modo) {
     const page = document.getElementById('page-cliente-1');
     const nomeEl = page?.querySelector('h2');
     const nome = nomeEl?.textContent?.trim();
@@ -3682,11 +3688,11 @@
     renderInsightsTab(nome, history, true);
 
     try {
-      const result = await c360GenerateInsight(nome);
+      const result = await c360GenerateInsight(nome, modo);
       if (result.quota) state.c360InsightQuota = { cargo: state.c360InsightQuota?.cargo, ...result.quota };
       if (typeof showToast === 'function') {
-        const msg = result.quota ? `Insight gerado! (${result.quota.usados}/${result.quota.limite} hoje)` : 'Insight gerado!';
-        showToast(msg, 'success');
+        const _q = result.quota ? ` (${result.quota.usados}/${result.quota.limite} hoje)` : '';
+        showToast((modo === 'reativacao' ? '♻️ Insight de reativação gerado!' : 'Insight gerado!') + _q, 'success');
       }
       // Reload com o novo insight no topo
       const newHistory = await c360LoadInsightsHistory(nome);
