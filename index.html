@@ -3892,6 +3892,7 @@ select.input { cursor: pointer; }
   <!-- Tabs (Fase 2 = Referências) -->
   <div class="tabs mb20">
     <div class="tab active" onclick="switchInfluTab(this,'lista')">👥 Influencers</div>
+    <div class="tab" onclick="switchInfluTab(this,'candidatos');loadCandidatos()">🌟 Novos Influencers <span id="cand-badge" style="display:none;background:var(--red);color:#fff;font-size:9px;font-weight:800;padding:1px 6px;border-radius:20px;margin-left:4px;vertical-align:middle"></span></div>
     <div class="tab" onclick="switchInfluTab(this,'embaixadores');renderEmbaixadores()">⭐ Embaixadores</div>
     <div class="tab" onclick="switchInfluTab(this,'dashboard');loadInfluDashboard()">📊 Dashboard <span style="font-size:9px;opacity:0.7;margin-left:4px">Fase 2</span></div>
     <div class="tab" onclick="switchInfluTab(this,'referencias')">🎬 Referências de Conteúdo <span style="font-size:9px;opacity:0.7;margin-left:4px">Fase 2</span></div>
@@ -4143,6 +4144,41 @@ select.input { cursor: pointer; }
     </div>
 
     <div id="env-lista" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px">
+      <div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:12.5px;padding:30px">Carregando...</div>
+    </div>
+  </div>
+
+  <!-- Tab: Novos Influencers (candidatos da Landing Page) — item 4 PDF -->
+  <div id="infl-tab-candidatos" class="infl-tab-panel" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;gap:12px;flex-wrap:wrap">
+      <div>
+        <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:17px">🌟 Novos Influencers</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:3px">Candidaturas recebidas pela Landing Page de Embaixadoras · aprovar cria a ficha do influencer automaticamente</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="loadCandidatos()">↻ Atualizar</button>
+    </div>
+
+    <div class="kpi-grid mb20">
+      <div class="kpi-card dark"><div class="kpi-label">Pendentes</div><div class="kpi-value" id="cand-kpi-pendentes">0</div><div class="kpi-change up">aguardando análise</div></div>
+      <div class="kpi-card"><div class="kpi-label">Aprovados</div><div class="kpi-value" id="cand-kpi-aprovados">0</div><div class="kpi-change up">viraram influencer</div></div>
+      <div class="kpi-card"><div class="kpi-label">Reprovados</div><div class="kpi-value" id="cand-kpi-reprovados">0</div><div class="kpi-change up">não selecionados</div></div>
+      <div class="kpi-card"><div class="kpi-label">Total Recebido</div><div class="kpi-value" id="cand-kpi-total">0</div><div class="kpi-change up">desde o início</div></div>
+    </div>
+
+    <div class="card mb20">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="color:var(--text3);font-size:13px">🔽</span>
+        <div class="card-title" style="margin:0;font-size:13px">Filtrar por Status</div>
+      </div>
+      <select class="input" id="cand-filtro-status" onchange="renderCandidatos()" style="max-width:280px">
+        <option value="pendente">⏳ Pendentes</option>
+        <option value="aprovado">✅ Aprovados</option>
+        <option value="reprovado">❌ Reprovados</option>
+        <option value="todos">Todos</option>
+      </select>
+    </div>
+
+    <div id="cand-lista" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px">
       <div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:12.5px;padding:30px">Carregando...</div>
     </div>
   </div>
@@ -4426,6 +4462,46 @@ select.input { cursor: pointer; }
     <div style="display:flex;gap:8px">
       <button class="btn btn-ghost" onclick="closeModal('env-excluir')" style="flex:1">Cancelar</button>
       <button class="btn btn-primary" onclick="confirmarExcluirEnvio()" style="flex:1;background:var(--red);border-color:var(--red)">Remover</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Reprovar Candidato (item 4 PDF) -->
+<div class="modal-overlay" id="modal-cand-reprovar">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <div class="modal-title" style="color:var(--red)">❌ Reprovar Candidatura</div>
+      <button class="modal-close" onclick="closeModal('cand-reprovar')">×</button>
+    </div>
+    <div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:12px">
+      Reprovar a candidatura de <strong id="cand-rep-nome" style="color:var(--text)"></strong>?
+    </div>
+    <label class="label">Motivo (opcional, interno)</label>
+    <textarea class="input" id="cand-rep-motivo" rows="3" placeholder="Ex: perfil fora do nicho, conta inativa..."></textarea>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-ghost" onclick="closeModal('cand-reprovar')" style="flex:1">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarReprovarCandidato()" style="flex:1;background:var(--red);border-color:var(--red)">Reprovar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: IA do Creator (item 4 PDF — boas-vindas / gamificação / campanha) -->
+<div class="modal-overlay" id="modal-influ-ia">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <div class="modal-title">🤖 IA do Creator <span id="influ-ia-nome" style="color:var(--text3);font-weight:600;font-size:13px"></span></div>
+      <button class="modal-close" onclick="closeModal('influ-ia')">×</button>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Gera mensagens prontas, no tom da marca. Revise antes de enviar.</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="btn btn-ghost btn-sm" style="font-size:11.5px" onclick="_influIaRun('boas_vindas')">💌 Boas-vindas</button>
+      <button class="btn btn-ghost btn-sm" style="font-size:11.5px" onclick="_influIaRun('gamificacao')">🏆 Gamificação do mês</button>
+      <button class="btn btn-ghost btn-sm" style="font-size:11.5px" onclick="_influIaRun('campanha')">📋 Briefing de campanha</button>
+    </div>
+    <div id="influ-ia-out" style="min-height:130px;max-height:340px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;font-size:13px;line-height:1.6;white-space:pre-wrap;color:var(--text)">Escolha uma opção acima pra gerar com IA. ✨</div>
+    <div id="influ-ia-actions" style="display:none;gap:8px;margin-top:12px">
+      <button class="btn btn-ghost btn-sm" onclick="_influIaCopiar()" style="flex:1">📋 Copiar</button>
+      <a id="influ-ia-wa" class="btn btn-primary btn-sm" href="#" target="_blank" style="flex:1;display:none">💬 Abrir no WhatsApp</a>
     </div>
   </div>
 </div>
@@ -10959,7 +11035,7 @@ const SUBTAB_SWITCHERS = {
 const VALID_SUBTABS = {
   prospeccao:      ['lista','kanban'],
   admin:           ['usuarios','permissoes','atividades','custos-ia','sync-retries'],
-  influenciadores: ['lista','embaixadores','referencias','envios'],
+  influenciadores: ['lista','candidatos','embaixadores','referencias','envios'],
   briefingvisual:  ['salvos','materiais','brandkit'],
   criativos:       ['aguardando','aprovados','reprovados','todo','publicados'],
   mercado:         ['noticias','tendencias','concorrentes','oportunidades'],
@@ -20338,6 +20414,7 @@ async function loadInfluenciadores() {
     atualizarFiltroNichos();
     renderInfluenciadores();
     if (typeof renderEmbaixadores === 'function') renderEmbaixadores();
+    if (typeof loadCandidatos === 'function') loadCandidatos();
   } catch (e) {
     console.error('loadInfluenciadores:', e);
     const el = document.getElementById('inf-tabela');
@@ -21599,6 +21676,226 @@ async function confirmarExcluirEnvio() {
 }
 
 // ════════════════════════════════════════════════════════════
+// NOVOS INFLUENCERS (item 4 PDF) — candidatos da Landing Page de Embaixadoras
+// Captados em influenciador_candidatos (via edge captar-influencer).
+// Aprovar = cria a ficha em influenciadores (+ IA boas-vindas opcional). Reprovar = motivo.
+// ════════════════════════════════════════════════════════════
+let _candidatosCache = [];
+let _candReprovarId = null;
+let _candRealtimeOn = false;
+const CAND_STATUS = {
+  pendente:  { label: '⏳ Pendente',  cor: '#f59e0b' },
+  aprovado:  { label: '✅ Aprovado',  cor: '#10b981' },
+  reprovado: { label: '❌ Reprovado', cor: '#ef4444' },
+};
+function _candPodeRevisar() {
+  const c = currentProfile?.cargo;
+  return c === 'admin' || c === 'gerente_marketing' || c === 'gerente_comercial';
+}
+async function loadCandidatos() {
+  try {
+    const { data, error } = await sb.from('influenciador_candidatos').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    _candidatosCache = data || [];
+    _candAtualizarBadge();
+    renderCandidatos();
+    if (!_candRealtimeOn) {
+      _candRealtimeOn = true;
+      try {
+        sb.channel('realtime-candidatos')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'influenciador_candidatos' }, () => loadCandidatos())
+          .subscribe();
+      } catch {}
+    }
+  } catch (e) {
+    console.error('loadCandidatos:', e);
+    const el = document.getElementById('cand-lista');
+    if (el) el.innerHTML = `<div style="color:var(--red);font-size:12px;padding:12px">Erro: ${esc(e.message || e)}</div>`;
+  }
+}
+function _candAtualizarBadge() {
+  const n = _candidatosCache.filter(c => c.status === 'pendente').length;
+  const b = document.getElementById('cand-badge');
+  if (b) { b.textContent = n; b.style.display = n ? '' : 'none'; }
+}
+function renderCandidatos() {
+  const el = document.getElementById('cand-lista');
+  if (!el) return;
+  const setK = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  setK('cand-kpi-pendentes', _candidatosCache.filter(c => c.status === 'pendente').length);
+  setK('cand-kpi-aprovados', _candidatosCache.filter(c => c.status === 'aprovado').length);
+  setK('cand-kpi-reprovados', _candidatosCache.filter(c => c.status === 'reprovado').length);
+  setK('cand-kpi-total', _candidatosCache.length);
+
+  const filtro = (document.getElementById('cand-filtro-status') || {}).value || 'pendente';
+  let lista = _candidatosCache;
+  if (filtro !== 'todos') lista = lista.filter(c => c.status === filtro);
+
+  if (!lista.length) {
+    el.innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:12.5px;padding:30px;background:var(--surface2);border:1px dashed var(--border);border-radius:10px">
+      ${filtro === 'pendente' ? '🎉 Nenhuma candidatura pendente. Tudo em dia!' : 'Nenhum candidato neste filtro.'}<br>
+      <span style="font-size:11px">As candidaturas chegam pela Landing Page de Embaixadoras.</span></div>`;
+    return;
+  }
+  const pode = _candPodeRevisar();
+  const fmtSeg = (n) => !n ? '—' : (n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1e3 ? Math.round(n / 1000) + 'k' : String(n));
+  el.innerHTML = lista.map(c => {
+    const st = CAND_STATUS[c.status] || CAND_STATUS.pendente;
+    const ig = c.instagram ? esc(c.instagram) : '';
+    const igUrl = c.instagram ? 'https://instagram.com/' + c.instagram.replace('@', '') : '';
+    const wa = (c.whatsapp || '').replace(/\D/g, '');
+    const local = [c.cidade, c.estado].filter(Boolean).join(' · ');
+    const quando = c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR') : '';
+    return `<div class="card" style="padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">
+        <div style="min-width:0">
+          <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:14px;line-height:1.3">${esc(c.nome)}</div>
+          ${ig ? `<div style="font-size:11px;color:var(--text3);margin-top:2px"><a href="${esc(igUrl)}" target="_blank" style="color:var(--text3);text-decoration:none">${ig} ↗</a></div>` : ''}
+        </div>
+        <span style="font-size:10px;font-weight:800;padding:3px 9px;border-radius:20px;background:${st.cor}22;color:${st.cor};white-space:nowrap">${st.label}</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:11px;color:var(--text3);margin-bottom:8px">
+        ${c.profissao ? `<span>💼 ${esc(c.profissao)}</span>` : ''}
+        ${local ? `<span>📍 ${esc(local)}</span>` : ''}
+        <span>👥 ${fmtSeg(c.seguidores)}</span>
+        ${c.ja_cliente ? `<span style="color:var(--green)">💚 já é cliente</span>` : ''}
+      </div>
+      ${c.sobre ? `<div style="font-size:11.5px;color:var(--text2);background:var(--surface2);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-style:italic">"${esc(c.sobre)}"</div>` : ''}
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+        ${wa ? `<a class="btn btn-ghost btn-sm" style="font-size:11px" href="https://wa.me/55${wa}" target="_blank">💬 WhatsApp</a>` : ''}
+        ${c.tiktok ? `<a class="btn btn-ghost btn-sm" style="font-size:11px" href="https://tiktok.com/${esc(c.tiktok)}" target="_blank">🎵 TikTok</a>` : ''}
+        ${c.email ? `<a class="btn btn-ghost btn-sm" style="font-size:11px" href="mailto:${esc(c.email)}">✉️ Email</a>` : ''}
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:8px">📅 ${quando}${c.status !== 'pendente' && c.revisado_por_nome ? ' · por ' + esc(c.revisado_por_nome) : ''}${c.status === 'reprovado' && c.motivo_reprovacao ? ' · "' + esc(c.motivo_reprovacao) + '"' : ''}</div>
+      ${pode && c.status === 'pendente' ? `<div style="display:flex;gap:6px">
+        <button class="btn btn-primary btn-sm" style="flex:1;font-size:11px;background:var(--green);border-color:var(--green)" onclick="aprovarCandidato('${c.id}')">✅ Aprovar</button>
+        <button class="btn btn-ghost btn-sm" style="flex:1;font-size:11px" onclick="abrirReprovarCandidato('${c.id}')">❌ Reprovar</button>
+      </div>` : ''}
+      ${c.status === 'aprovado' ? `<div style="font-size:11px;color:var(--green);text-align:center;padding:6px;background:rgba(16,185,129,0.1);border-radius:7px">✓ Virou influencer — veja na aba Influencers</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function aprovarCandidato(id) {
+  if (!_candPodeRevisar()) { showToast('Sem permissão pra aprovar'); return; }
+  const c = _candidatosCache.find(x => String(x.id) === String(id));
+  if (!c) return;
+  if (!confirm(`Aprovar ${c.nome} como influencer?\n\nIsso cria a ficha dele(a) na lista de influencers (nível nano, status ativo).`)) return;
+  try {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const payload = {
+      nome: c.nome, instagram: c.instagram, tiktok: c.tiktok || null,
+      cidade: c.cidade || null, estado: c.estado || null, regiao: c.regiao || null,
+      profissao: c.profissao || null, nicho: c.nicho || null, tipo_conteudo: c.tipo_conteudo || null,
+      seguidores: c.seguidores || 0, contato: c.whatsapp || null,
+      status: 'ativo', nivel: 'nano', ja_comprou_dana: !!c.ja_cliente,
+      inicio_parceria: hoje,
+      observacoes: 'Captado via Landing Page de Embaixadoras' + (c.email ? ' · email: ' + c.email : '') + (c.sobre ? ' · "' + c.sobre + '"' : ''),
+      criado_por: currentUser?.id || null, criado_por_nome: currentProfile?.nome || null,
+    };
+    const { data: novo, error } = await sb.from('influenciadores').insert(payload).select('id').single();
+    if (error) throw error;
+    const { error: e2 } = await sb.from('influenciador_candidatos').update({
+      status: 'aprovado', influenciador_id: novo.id,
+      revisado_por: currentUser?.id || null, revisado_por_nome: currentProfile?.nome || null,
+      revisado_em: new Date().toISOString(),
+    }).eq('id', id);
+    if (e2) throw e2;
+    showToast('✅ ' + c.nome + ' aprovado! Ficha de influencer criada.');
+    logActivity('aprovou_candidato_influ', c.nome, 'influenciadores');
+    loadCandidatos();
+    if (typeof loadInfluenciadores === 'function') loadInfluenciadores();
+    // IA de boas-vindas (Fase 4) — só dispara se a função existir
+    if (typeof influIaBoasVindas === 'function') influIaBoasVindas(novo.id, c);
+  } catch (e) { console.error('aprovarCandidato:', e); showToast('Erro ao aprovar: ' + (e.message || e)); }
+}
+
+function abrirReprovarCandidato(id) {
+  if (!_candPodeRevisar()) { showToast('Sem permissão'); return; }
+  const c = _candidatosCache.find(x => String(x.id) === String(id));
+  if (!c) return;
+  _candReprovarId = id;
+  document.getElementById('cand-rep-nome').textContent = c.nome || '';
+  document.getElementById('cand-rep-motivo').value = '';
+  openModal('cand-reprovar');
+}
+async function confirmarReprovarCandidato() {
+  if (!_candReprovarId) return;
+  const motivo = document.getElementById('cand-rep-motivo').value.trim() || null;
+  try {
+    const { error } = await sb.from('influenciador_candidatos').update({
+      status: 'reprovado', motivo_reprovacao: motivo,
+      revisado_por: currentUser?.id || null, revisado_por_nome: currentProfile?.nome || null,
+      revisado_em: new Date().toISOString(),
+    }).eq('id', _candReprovarId);
+    if (error) throw error;
+    closeModal('cand-reprovar');
+    showToast('Candidatura reprovada');
+    logActivity('reprovou_candidato_influ', '—', 'influenciadores');
+    _candReprovarId = null;
+    loadCandidatos();
+  } catch (e) { showToast('Erro: ' + (e.message || e)); }
+}
+
+// ════════════════════════════════════════════════════════════
+// IA DO CREATOR (item 4 PDF) — boas-vindas + gamificação (edge influenciador-ia)
+// + briefing de campanha (reusa edge gerar-briefing-influenciador). Modal #modal-influ-ia.
+// ════════════════════════════════════════════════════════════
+let _influIaCtx = null;
+let _influIaTexto = '';
+function _influIaReset() {
+  const o = document.getElementById('influ-ia-out'); if (o) o.textContent = 'Escolha uma opção acima pra gerar com IA. ✨';
+  const a = document.getElementById('influ-ia-actions'); if (a) a.style.display = 'none';
+  _influIaTexto = '';
+}
+function influIaAbrir(influId) {
+  const i = _influenciadoresCache.find(x => String(x.id) === String(influId));
+  _influIaCtx = { influId, nome: i?.nome || '', whats: (i?.contato || '').replace(/\D/g, '') };
+  const n = document.getElementById('influ-ia-nome'); if (n) n.textContent = i?.nome ? '· ' + i.nome : '';
+  _influIaReset();
+  openModal('influ-ia');
+}
+function influIaBoasVindas(influId, cand) {
+  _influIaCtx = { influId, nome: cand?.nome || '', whats: (cand?.whatsapp || '').replace(/\D/g, '') };
+  const n = document.getElementById('influ-ia-nome'); if (n) n.textContent = cand?.nome ? '· ' + cand.nome : '';
+  _influIaReset();
+  openModal('influ-ia');
+  _influIaRun('boas_vindas');
+}
+async function _influIaRun(action) {
+  if (!_influIaCtx) return;
+  const out = document.getElementById('influ-ia-out');
+  const acts = document.getElementById('influ-ia-actions');
+  if (out) out.textContent = '✨ Gerando com IA...';
+  if (acts) acts.style.display = 'none';
+  try {
+    let texto;
+    if (action === 'campanha') {
+      const { data, error } = await sb.functions.invoke('gerar-briefing-influenciador', { body: { influenciador_id: _influIaCtx.influId } });
+      if (error) throw error; if (data?.error) throw new Error(data.error);
+      texto = data.briefing;
+    } else {
+      const { data, error } = await sb.functions.invoke('influenciador-ia', { body: { action, influenciador_id: _influIaCtx.influId } });
+      if (error) throw error; if (data?.error) throw new Error(data.error);
+      texto = data.mensagem;
+    }
+    _influIaTexto = texto || '';
+    if (out) out.textContent = _influIaTexto;
+    if (acts) acts.style.display = 'flex';
+    const wa = document.getElementById('influ-ia-wa');
+    if (wa) {
+      if (_influIaCtx.whats && _influIaCtx.whats.length >= 10 && action !== 'campanha') {
+        wa.href = 'https://wa.me/55' + _influIaCtx.whats + '?text=' + encodeURIComponent(_influIaTexto);
+        wa.style.display = '';
+      } else { wa.style.display = 'none'; }
+    }
+  } catch (e) {
+    if (out) out.textContent = 'Erro ao gerar: ' + (e.message || e);
+  }
+}
+function _influIaCopiar() { navigator.clipboard.writeText(_influIaTexto || '').then(() => showToast('📋 Copiado!')).catch(() => {}); }
+
+// ════════════════════════════════════════════════════════════
 // EMBAIXADORES (item 2 PDF) — sub-aba que filtra creators nível embaixador/elite
 // ════════════════════════════════════════════════════════════
 const EMB_NIVEL_INFO = {
@@ -21655,6 +21952,7 @@ function renderEmbaixadores() {
       ${canEdit ? `<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="abrirModalEditarInfluenciador('${i.id}')">✏️ Editar</button>
         <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="influAbrirPainel('${i.id}')">💰 Painel</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="influIaAbrir('${i.id}')">🤖 IA</button>
       </div>` : ''}
     </div>`;
   }).join('');
