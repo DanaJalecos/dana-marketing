@@ -3894,6 +3894,7 @@ select.input { cursor: pointer; }
     <div class="tab active" onclick="switchInfluTab(this,'lista')">👥 Influenciadores</div>
     <div class="tab" onclick="switchInfluTab(this,'dashboard');loadInfluDashboard()">📊 Dashboard <span style="font-size:9px;opacity:0.7;margin-left:4px">Fase 2</span></div>
     <div class="tab" onclick="switchInfluTab(this,'referencias')">🎬 Referências de Conteúdo <span style="font-size:9px;opacity:0.7;margin-left:4px">Fase 2</span></div>
+    <div class="tab" onclick="switchInfluTab(this,'envios')">📦 Pedidos Enviados</div>
   </div>
 
   <!-- Tab: Dashboard executivo (Fase 2 · Onda 1) -->
@@ -4083,6 +4084,42 @@ select.input { cursor: pointer; }
       <div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:12.5px;padding:30px">Carregando...</div>
     </div>
 
+  </div>
+
+  <!-- Tab: Pedidos Enviados (mimos/recebidos) — item 5 PDF -->
+  <div id="infl-tab-envios" class="infl-tab-panel" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;gap:12px;flex-wrap:wrap">
+      <div>
+        <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:17px">📦 Pedidos Enviados</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:3px">Mimos e produtos enviados aos influenciadores · controle manual: enviado → entregue → conteúdo postado</div>
+      </div>
+      <button class="btn btn-primary btn-sm" id="env-btn-novo" onclick="abrirModalNovoEnvio()">+ Cadastrar Envio</button>
+    </div>
+
+    <div class="kpi-grid mb20">
+      <div class="kpi-card"><div class="kpi-label">Total Enviados</div><div class="kpi-value" id="env-kpi-total">0</div><div class="kpi-change up" id="env-kpi-invest">R$ 0 investido</div></div>
+      <div class="kpi-card"><div class="kpi-label">A Caminho</div><div class="kpi-value" id="env-kpi-enviado">0</div><div class="kpi-change up">aguardando entrega</div></div>
+      <div class="kpi-card"><div class="kpi-label">Entregues</div><div class="kpi-value" id="env-kpi-entregue">0</div><div class="kpi-change up">aguardando conteúdo</div></div>
+      <div class="kpi-card"><div class="kpi-label">Conteúdo Postado</div><div class="kpi-value" id="env-kpi-postado">0</div><div class="kpi-change up">ciclo concluído</div></div>
+    </div>
+
+    <div class="card mb20">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="color:var(--text3);font-size:13px">🔽</span>
+        <div class="card-title" style="margin:0;font-size:13px">Filtrar por Status</div>
+      </div>
+      <select class="input" id="env-filtro-status" onchange="renderEnvios()" style="max-width:280px">
+        <option value="todos">Todos</option>
+        <option value="enviado">📦 Enviado</option>
+        <option value="entregue">✅ Entregue</option>
+        <option value="conteudo_postado">🎬 Conteúdo Postado</option>
+        <option value="cancelado">❌ Cancelado</option>
+      </select>
+    </div>
+
+    <div id="env-lista" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px">
+      <div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:12.5px;padding:30px">Carregando...</div>
+    </div>
   </div>
 
 </div>
@@ -4288,6 +4325,82 @@ select.input { cursor: pointer; }
     <div style="display:flex;gap:8px">
       <button class="btn btn-ghost" onclick="closeModal('ref-excluir')" style="flex:1">Cancelar</button>
       <button class="btn btn-primary" onclick="confirmarExcluirReferencia()" style="flex:1;background:var(--red);border-color:var(--red)">Remover</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Novo/Editar Envio (mimo) — item 5 PDF -->
+<div class="modal-overlay" id="modal-env-novo">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <div class="modal-title" id="env-modal-title">+ Cadastrar Envio</div>
+      <button class="modal-close" onclick="closeModal('env-novo')">×</button>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px" id="env-modal-sub">Registre um mimo/produto enviado a um influenciador</div>
+    <div class="form-row-2">
+      <div>
+        <label class="label">Influenciador *</label>
+        <select class="input" id="env-influenciador"><option value="">Selecione...</option></select>
+      </div>
+      <div>
+        <label class="label">Data do envio *</label>
+        <input class="input" type="date" id="env-data">
+      </div>
+    </div>
+    <div class="form-row">
+      <label class="label">O que foi enviado *</label>
+      <input class="input" id="env-descricao" placeholder="Ex: Kit jaleco Manuela + scrub + brinde personalizado">
+    </div>
+    <div class="form-row-2">
+      <div>
+        <label class="label">Campanha (opcional)</label>
+        <input class="input" id="env-campanha" placeholder="Ex: Lançamento Inverno 2026">
+      </div>
+      <div>
+        <label class="label">Status</label>
+        <select class="input" id="env-status">
+          <option value="enviado">📦 Enviado</option>
+          <option value="entregue">✅ Entregue</option>
+          <option value="conteudo_postado">🎬 Conteúdo Postado</option>
+          <option value="cancelado">❌ Cancelado</option>
+        </select>
+      </div>
+    </div>
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:12px;margin-bottom:8px">💰 Custos do envio <span style="font-size:10px;color:var(--text3);font-weight:500">(opcional — alimenta o ROI no Dashboard)</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">
+        <div><label class="label">Custo real R$</label><input class="input" type="number" min="0" step="0.01" id="env-custo" placeholder="0,00"></div>
+        <div><label class="label">Valor venda R$</label><input class="input" type="number" min="0" step="0.01" id="env-valor" placeholder="0,00"></div>
+        <div><label class="label">Frete R$</label><input class="input" type="number" min="0" step="0.01" id="env-frete" placeholder="0,00"></div>
+        <div><label class="label">Embalagem R$</label><input class="input" type="number" min="0" step="0.01" id="env-embalagem" placeholder="0,00"></div>
+      </div>
+    </div>
+    <div class="form-row">
+      <label class="label">Observações</label>
+      <textarea class="input" id="env-obs" rows="2" placeholder="Endereço, código de rastreio, notas..."></textarea>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn btn-ghost" onclick="closeModal('env-novo')" style="flex:1">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarEnvio()" style="flex:1" id="env-btn-salvar">Cadastrar Envio</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Excluir Envio -->
+<div class="modal-overlay" id="modal-env-excluir">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <div class="modal-title" style="color:var(--red)">🗑 Remover Envio</div>
+      <button class="modal-close" onclick="closeModal('env-excluir')">×</button>
+    </div>
+    <div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:16px">
+      Remover o envio <strong id="env-del-nome" style="color:var(--text)"></strong>?
+      <br><br>
+      <span style="color:var(--red);font-size:12px">⚠️ Essa ação não pode ser desfeita.</span>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-ghost" onclick="closeModal('env-excluir')" style="flex:1">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarExcluirEnvio()" style="flex:1;background:var(--red);border-color:var(--red)">Remover</button>
     </div>
   </div>
 </div>
@@ -10821,7 +10934,7 @@ const SUBTAB_SWITCHERS = {
 const VALID_SUBTABS = {
   prospeccao:      ['lista','kanban'],
   admin:           ['usuarios','permissoes','atividades','custos-ia','sync-retries'],
-  influenciadores: ['lista','referencias'],
+  influenciadores: ['lista','referencias','envios'],
   briefingvisual:  ['salvos','materiais','brandkit'],
   criativos:       ['aguardando','aprovados','reprovados','todo','publicados'],
   mercado:         ['noticias','tendencias','concorrentes','oportunidades'],
@@ -11143,6 +11256,7 @@ function go(el, viewId, opts) {
   if (viewId === 'influenciadores') {
     if (typeof loadInfluenciadores === 'function') loadInfluenciadores();
     if (typeof loadReferencias === 'function') loadReferencias();
+    if (typeof loadEnviosInfluencer === 'function') loadEnviosInfluencer();
   }
   if (viewId === 'lojafisica') { if (typeof loadLojaFisica === 'function') loadLojaFisica(); }
   if (viewId === 'personas' || viewId === 'construtor') { if (typeof loadPersonasStats === 'function') loadPersonasStats(); }
@@ -21140,6 +21254,234 @@ async function confirmarExcluirReferencia() {
     logActivity('excluiu_referencia', r?.titulo || '—', 'influenciadores');
     _refExcluirId = null;
     loadReferencias();
+  } catch (e) { showToast('Erro: ' + e.message); }
+}
+
+// ════════════════════════════════════════════════════════════
+// PEDIDOS ENVIADOS (mimos/recebidos) — tabela influenciador_recebidos · item 5 PDF
+// ════════════════════════════════════════════════════════════
+let _enviosCache = [];
+let _envEditandoId = null;
+let _envExcluirId = null;
+
+const ENV_STATUS_LABELS = {
+  enviado: '📦 Enviado',
+  entregue: '✅ Entregue',
+  conteudo_postado: '🎬 Conteúdo Postado',
+  cancelado: '❌ Cancelado',
+};
+const ENV_STATUS_BG = {
+  enviado: { bg: 'rgba(59,130,246,0.15)', color: '#2563eb' },
+  entregue: { bg: 'rgba(217,119,6,0.15)', color: 'var(--amber)' },
+  conteudo_postado: { bg: 'rgba(26,122,58,0.15)', color: 'var(--green)' },
+  cancelado: { bg: 'rgba(0,0,0,0.06)', color: '#888' },
+};
+
+async function loadEnviosInfluencer() {
+  try {
+    if (!_influenciadoresCache.length) {
+      try { const { data } = await sb.from('influenciadores').select('id, nome, instagram').order('nome'); _influenciadoresCache = data || []; } catch {}
+    }
+    const { data, error } = await sb.from('influenciador_recebidos')
+      .select('*')
+      .order('data', { ascending: false })
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    _enviosCache = data || [];
+    atualizarKPIsEnvios();
+    renderEnvios();
+  } catch (e) {
+    console.error('loadEnviosInfluencer:', e);
+    const el = document.getElementById('env-lista');
+    if (el) el.innerHTML = `<div style="grid-column:1/-1;color:var(--red);font-size:12px;padding:12px;text-align:center">Erro: ${esc(e.message || e)}</div>`;
+  }
+}
+
+function _envNomeInfluenciador(id) {
+  const i = _influenciadoresCache.find(x => x.id === id);
+  return i ? i.nome : '—';
+}
+
+function atualizarKPIsEnvios() {
+  const ativos = _enviosCache.filter(e => e.status !== 'cancelado');
+  const invest = ativos.reduce((s, e) => s + (Number(e.custo_real)||0) + (Number(e.frete)||0) + (Number(e.embalagem)||0), 0);
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('env-kpi-total', ativos.length);
+  set('env-kpi-invest', 'R$ ' + invest.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' investido');
+  set('env-kpi-enviado', _enviosCache.filter(e => e.status === 'enviado').length);
+  set('env-kpi-entregue', _enviosCache.filter(e => e.status === 'entregue').length);
+  set('env-kpi-postado', _enviosCache.filter(e => e.status === 'conteudo_postado').length);
+}
+
+function renderEnvios() {
+  const el = document.getElementById('env-lista');
+  if (!el) return;
+  const filtro = document.getElementById('env-filtro-status')?.value || 'todos';
+  const lista = filtro === 'todos' ? _enviosCache : _enviosCache.filter(e => e.status === filtro);
+
+  if (!lista.length) {
+    el.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text3);font-size:12.5px;background:var(--surface2);border:1px dashed var(--border);border-radius:10px">
+      ${filtro === 'todos' ? '📦 Nenhum envio cadastrado ainda. Clique em <strong>+ Cadastrar Envio</strong>.' : 'Nenhum envio com status "' + (ENV_STATUS_LABELS[filtro] || filtro) + '"'}
+    </div>`;
+    return;
+  }
+
+  const canEdit = currentProfile?.cargo === 'admin' || userPermissoes['influenciadores'] !== false;
+  const statusChip = (s) => {
+    const c = ENV_STATUS_BG[s] || ENV_STATUS_BG.enviado;
+    return `<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;background:${c.bg};color:${c.color}">${ENV_STATUS_LABELS[s] || s}</span>`;
+  };
+  const fmtData = (s) => {
+    if (!s) return '';
+    const d = new Date(s + 'T12:00:00');
+    return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear();
+  };
+
+  el.innerHTML = lista.map(e => {
+    const nome = esc(_envNomeInfluenciador(e.influenciador_id));
+    const desc = esc(e.descricao || 'Sem descrição');
+    const custo = (Number(e.custo_real)||0) + (Number(e.frete)||0) + (Number(e.embalagem)||0);
+    const custoHtml = custo > 0 ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">💰 Investido: R$ ${custo.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>` : '';
+    const campHtml = e.campanha ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">🎯 ${esc(e.campanha)}</div>` : '';
+    const obsHtml = e.obs ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">📝 ${esc(e.obs)}</div>` : '';
+    return `<div class="card" style="padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px">
+        <div>
+          <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:14px;line-height:1.3">👤 ${nome}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">📅 ${fmtData(e.data)}</div>
+        </div>
+        ${canEdit ? `<div style="display:flex;gap:2px;flex-shrink:0">
+          <button class="btn btn-ghost btn-sm" style="padding:3px 6px;font-size:11px" onclick="abrirModalEditarEnvio('${e.id}')" title="Editar">✏️</button>
+          <button class="btn btn-ghost btn-sm" style="padding:3px 6px;font-size:11px;color:var(--red)" onclick="abrirModalExcluirEnvio('${e.id}')" title="Excluir">🗑</button>
+        </div>` : ''}
+      </div>
+      <div style="font-size:12.5px;color:var(--text2);line-height:1.4;margin-bottom:10px">📦 ${desc}</div>
+      <div style="margin-bottom:8px">${statusChip(e.status)}</div>
+      ${campHtml}${custoHtml}${obsHtml}
+      ${canEdit ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+        <label style="font-size:10.5px;color:var(--text3);font-weight:600;display:block;margin-bottom:4px">Mudar Status:</label>
+        <select class="input" style="font-size:11.5px;padding:4px 8px;height:auto" onchange="mudarStatusEnvio('${e.id}', this.value)">
+          ${Object.entries(ENV_STATUS_LABELS).map(([v,l]) => `<option value="${v}" ${e.status===v?'selected':''}>${l}</option>`).join('')}
+        </select>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function mudarStatusEnvio(id, novoStatus) {
+  try {
+    const { error } = await sb.from('influenciador_recebidos').update({ status: novoStatus, updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) throw error;
+    const c = _enviosCache.find(e => String(e.id) === String(id));
+    if (c) c.status = novoStatus;
+    atualizarKPIsEnvios();
+    renderEnvios();
+    showToast('✓ Status atualizado');
+    logActivity('editou_envio_influ', 'Status → ' + (ENV_STATUS_LABELS[novoStatus] || novoStatus), 'influenciadores');
+  } catch (e) { showToast('Erro: ' + e.message); }
+}
+
+async function _envPopularSelect(selectedId) {
+  const sel = document.getElementById('env-influenciador');
+  if (!sel) return;
+  if (!_influenciadoresCache.length) {
+    try { const { data } = await sb.from('influenciadores').select('id, nome').order('nome'); _influenciadoresCache = data || []; } catch {}
+  }
+  sel.innerHTML = '<option value="">Selecione...</option>' +
+    _influenciadoresCache.map(i => `<option value="${i.id}" ${selectedId===i.id?'selected':''}>${esc(i.nome)}</option>`).join('');
+}
+
+async function abrirModalNovoEnvio() {
+  _envEditandoId = null;
+  document.getElementById('env-modal-title').textContent = '+ Cadastrar Envio';
+  document.getElementById('env-modal-sub').textContent = 'Registre um mimo/produto enviado a um influenciador';
+  document.getElementById('env-btn-salvar').textContent = 'Cadastrar Envio';
+  ['env-descricao','env-campanha','env-custo','env-valor','env-frete','env-embalagem','env-obs'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  document.getElementById('env-status').value = 'enviado';
+  document.getElementById('env-data').value = new Date().toISOString().slice(0,10);
+  await _envPopularSelect();
+  openModal('env-novo');
+  setTimeout(() => document.getElementById('env-influenciador')?.focus(), 100);
+}
+
+async function abrirModalEditarEnvio(id) {
+  const e = _enviosCache.find(x => String(x.id) === String(id));
+  if (!e) return;
+  _envEditandoId = e.id;
+  document.getElementById('env-modal-title').textContent = '✏️ Editar Envio';
+  document.getElementById('env-modal-sub').textContent = 'Atualize os dados do envio';
+  document.getElementById('env-btn-salvar').textContent = 'Salvar alterações';
+  document.getElementById('env-descricao').value = e.descricao || '';
+  document.getElementById('env-campanha').value = e.campanha || '';
+  document.getElementById('env-status').value = e.status || 'enviado';
+  document.getElementById('env-data').value = e.data || '';
+  document.getElementById('env-custo').value = e.custo_real || '';
+  document.getElementById('env-valor').value = e.valor_venda || '';
+  document.getElementById('env-frete').value = e.frete || '';
+  document.getElementById('env-embalagem').value = e.embalagem || '';
+  document.getElementById('env-obs').value = e.obs || '';
+  await _envPopularSelect(e.influenciador_id);
+  openModal('env-novo');
+}
+
+async function salvarEnvio() {
+  const influId = document.getElementById('env-influenciador').value || '';
+  if (!influId) { showToast('Selecione o influenciador'); return; }
+  const descricao = document.getElementById('env-descricao').value.trim();
+  if (!descricao) { showToast('Descreva o que foi enviado'); return; }
+  const data = document.getElementById('env-data').value || new Date().toISOString().slice(0,10);
+  const num = (id) => Number(document.getElementById(id).value) || 0;
+  const payload = {
+    influenciador_id: influId,
+    descricao,
+    campanha: document.getElementById('env-campanha').value.trim() || null,
+    data,
+    status: document.getElementById('env-status').value,
+    custo_real: num('env-custo'),
+    valor_venda: num('env-valor'),
+    frete: num('env-frete'),
+    embalagem: num('env-embalagem'),
+    obs: document.getElementById('env-obs').value.trim() || null,
+    updated_at: new Date().toISOString(),
+  };
+  try {
+    if (_envEditandoId) {
+      const { error } = await sb.from('influenciador_recebidos').update(payload).eq('id', _envEditandoId);
+      if (error) throw error;
+      showToast('✓ Envio atualizado');
+      logActivity('editou_envio_influ', descricao, 'influenciadores');
+    } else {
+      payload.criado_por = currentUser?.id || null;
+      const { error } = await sb.from('influenciador_recebidos').insert(payload);
+      if (error) throw error;
+      showToast('✓ Envio cadastrado');
+      logActivity('criou_envio_influ', descricao, 'influenciadores');
+    }
+    closeModal('env-novo');
+    _envEditandoId = null;
+    loadEnviosInfluencer();
+  } catch (e) { showToast('Erro: ' + e.message); }
+}
+
+function abrirModalExcluirEnvio(id) {
+  const e = _enviosCache.find(x => String(x.id) === String(id));
+  if (!e) return;
+  _envExcluirId = e.id;
+  document.getElementById('env-del-nome').textContent = '"' + (e.descricao || '') + '" → ' + _envNomeInfluenciador(e.influenciador_id);
+  openModal('env-excluir');
+}
+
+async function confirmarExcluirEnvio() {
+  if (!_envExcluirId) return;
+  const e = _enviosCache.find(x => String(x.id) === String(_envExcluirId));
+  try {
+    const { error } = await sb.from('influenciador_recebidos').delete().eq('id', _envExcluirId);
+    if (error) throw error;
+    closeModal('env-excluir');
+    showToast('✓ Envio removido');
+    logActivity('excluiu_envio_influ', e?.descricao || '—', 'influenciadores');
+    _envExcluirId = null;
+    loadEnviosInfluencer();
   } catch (e) { showToast('Erro: ' + e.message); }
 }
 
