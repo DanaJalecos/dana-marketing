@@ -2840,7 +2840,7 @@ select.input { cursor: pointer; }
       <span class="nav-badge" style="background:#7c3aed;color:white;font-size:9px">NOVO</span>
     </div>
     <div class="nav-item" onclick="go(this,'influenciadores')">
-      <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6" cy="5" r="3"/><path d="M1 14c0-3 2.2-5 5-5s5 2 5 5"/><path d="M12 7c1.1 0 2 .9 2 2s-.9 2-2 2M14.5 14H11"/></svg></div>Influenciadores
+      <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6" cy="5" r="3"/><path d="M1 14c0-3 2.2-5 5-5s5 2 5 5"/><path d="M12 7c1.1 0 2 .9 2 2s-.9 2-2 2M14.5 14H11"/></svg></div>Marketing de Influência
     </div>
     <div class="nav-item" onclick="go(this,'provasocial')">
       <div class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 1l1.8 3.6L14 5.4l-3 2.9.7 4.1L8 10.4l-3.7 1.9.7-4.1-3-2.9 4.2-.8z"/></svg></div>Prova Social
@@ -3873,8 +3873,8 @@ select.input { cursor: pointer; }
   <!-- Header -->
   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;gap:12px;flex-wrap:wrap">
     <div>
-      <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:20px">Controle de Influenciadores</div>
-      <div style="font-size:12.5px;color:var(--text3);margin-top:3px">Gerencie parcerias e acompanhe performance de influenciadores</div>
+      <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:20px">Marketing de Influência</div>
+      <div style="font-size:12.5px;color:var(--text3);margin-top:3px">Influencers, embaixadores, conteúdo e performance das parcerias</div>
     </div>
     <button class="btn btn-primary btn-sm" id="inf-btn-novo" onclick="abrirModalNovoInfluenciador()">+ Novo Influenciador</button>
   </div>
@@ -3891,7 +3891,8 @@ select.input { cursor: pointer; }
 
   <!-- Tabs (Fase 2 = Referências) -->
   <div class="tabs mb20">
-    <div class="tab active" onclick="switchInfluTab(this,'lista')">👥 Influenciadores</div>
+    <div class="tab active" onclick="switchInfluTab(this,'lista')">👥 Influencers</div>
+    <div class="tab" onclick="switchInfluTab(this,'embaixadores');renderEmbaixadores()">⭐ Embaixadores</div>
     <div class="tab" onclick="switchInfluTab(this,'dashboard');loadInfluDashboard()">📊 Dashboard <span style="font-size:9px;opacity:0.7;margin-left:4px">Fase 2</span></div>
     <div class="tab" onclick="switchInfluTab(this,'referencias')">🎬 Referências de Conteúdo <span style="font-size:9px;opacity:0.7;margin-left:4px">Fase 2</span></div>
     <div class="tab" onclick="switchInfluTab(this,'envios')">📦 Pedidos Enviados</div>
@@ -4084,6 +4085,22 @@ select.input { cursor: pointer; }
       <div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:12.5px;padding:30px">Carregando...</div>
     </div>
 
+  </div>
+
+  <!-- Tab: Embaixadores (item 2 PDF) -->
+  <div id="infl-tab-embaixadores" class="infl-tab-panel" style="display:none">
+    <div style="margin-bottom:16px">
+      <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:17px">⭐ Embaixadores</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:3px">Os creators de nível Embaixador e Elite — sua linha de frente. Promova mais creators no Dashboard.</div>
+    </div>
+    <div class="kpi-grid mb20">
+      <div class="kpi-card dark"><div class="kpi-label">Embaixadores</div><div class="kpi-value" id="emb-kpi-total">0</div><div class="kpi-change up">nível embaixador/elite</div></div>
+      <div class="kpi-card"><div class="kpi-label">Receita Gerada</div><div class="kpi-value" id="emb-kpi-receita">R$ 0</div><div class="kpi-change up">pelos embaixadores</div></div>
+      <div class="kpi-card"><div class="kpi-label">Cupons Usados</div><div class="kpi-value" id="emb-kpi-cupons">0</div><div class="kpi-change up">total acumulado</div></div>
+    </div>
+    <div id="emb-lista" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">
+      <div style="grid-column:1/-1;text-align:center;color:var(--text3);font-size:12.5px;padding:30px">Carregando...</div>
+    </div>
   </div>
 
   <!-- Tab: Pedidos Enviados (mimos/recebidos) — item 5 PDF -->
@@ -10851,7 +10868,7 @@ const VIEW_META = {
   portal_influenciador: { title: 'Meu Painel', sub: 'Suas vendas, comissão e créditos · Dana Jalecos', action: '' },
   'campanhas-internas': { title: 'Campanhas Internas', sub: 'Organização da equipe por campanha · quem faz o quê', action: 'Nova Campanha' },
   criativos:    { title: 'Criativos', sub: 'Artes, vídeos e calendário de publicação', action: 'Novo Criativo' },
-  influenciadores: { title: 'Influenciadores', sub: 'Controle de parcerias e performance', action: '' },
+  influenciadores: { title: 'Marketing de Influência', sub: 'Influencers, embaixadores e performance', action: '' },
   personas:     { title: 'Públicos Ideais', sub: '5 personas estratégicas da Dana Jalecos', action: 'Criar Campanha' },
   mercado:      { title: 'Mercado e Tendências', sub: 'Monitoramento ao vivo de concorrentes e tendências', action: '' },
   referencias:  { title: 'Referências', sub: 'Banco de inspiração de criativos e estratégias', action: '' },
@@ -10934,7 +10951,7 @@ const SUBTAB_SWITCHERS = {
 const VALID_SUBTABS = {
   prospeccao:      ['lista','kanban'],
   admin:           ['usuarios','permissoes','atividades','custos-ia','sync-retries'],
-  influenciadores: ['lista','referencias','envios'],
+  influenciadores: ['lista','embaixadores','referencias','envios'],
   briefingvisual:  ['salvos','materiais','brandkit'],
   criativos:       ['aguardando','aprovados','reprovados','todo','publicados'],
   mercado:         ['noticias','tendencias','concorrentes','oportunidades'],
@@ -20311,6 +20328,7 @@ async function loadInfluenciadores() {
     atualizarKPIsInfluenciadores();
     atualizarFiltroNichos();
     renderInfluenciadores();
+    if (typeof renderEmbaixadores === 'function') renderEmbaixadores();
   } catch (e) {
     console.error('loadInfluenciadores:', e);
     const el = document.getElementById('inf-tabela');
@@ -21483,6 +21501,68 @@ async function confirmarExcluirEnvio() {
     _envExcluirId = null;
     loadEnviosInfluencer();
   } catch (e) { showToast('Erro: ' + e.message); }
+}
+
+// ════════════════════════════════════════════════════════════
+// EMBAIXADORES (item 2 PDF) — sub-aba que filtra creators nível embaixador/elite
+// ════════════════════════════════════════════════════════════
+const EMB_NIVEL_INFO = {
+  nano:       { label: 'Nano',       cor: '#94a3b8' },
+  creator:    { label: 'Creator',    cor: '#3b82f6' },
+  embaixador: { label: 'Embaixador', cor: '#a855f7' },
+  elite:      { label: 'Elite',      cor: '#f59e0b' },
+};
+function _ehEmbaixador(i) { return i.nivel === 'embaixador' || i.nivel === 'elite'; }
+
+function renderEmbaixadores() {
+  const el = document.getElementById('emb-lista');
+  if (!el) return;
+  const lista = _influenciadoresCache.filter(_ehEmbaixador).sort((a, b) => (+b.receita || 0) - (+a.receita || 0));
+
+  const setK = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  const receita = lista.reduce((s, i) => s + (+i.receita || 0), 0);
+  setK('emb-kpi-total', lista.length);
+  setK('emb-kpi-receita', 'R$ ' + Math.round(receita).toLocaleString('pt-BR'));
+  setK('emb-kpi-cupons', lista.reduce((s, i) => s + (+i.usos_cupom || 0), 0));
+
+  if (!lista.length) {
+    el.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text3);font-size:12.5px;background:var(--surface2);border:1px dashed var(--border);border-radius:10px">
+      ⭐ Nenhum embaixador ainda. Promova um creator no <strong>Dashboard</strong> (nível Embaixador/Elite) e ele aparece aqui.
+    </div>`;
+    return;
+  }
+
+  const canEdit = currentProfile?.cargo === 'admin' || userPermissoes['influenciadores'] !== false;
+  const fmtR = (v) => 'R$ ' + (+v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtSeg = (n) => !n ? '—' : (n >= 1e6 ? (n/1e6).toFixed(1).replace(/\.0$/,'') + 'M' : n >= 1e3 ? Math.round(n/1000) + 'k' : String(n));
+
+  el.innerHTML = lista.map(i => {
+    const ni = EMB_NIVEL_INFO[i.nivel] || EMB_NIVEL_INFO.embaixador;
+    const insta = i.instagram ? esc(i.instagram.startsWith('@') ? i.instagram : '@' + i.instagram.replace(/.*instagram\.com\//, '').replace(/[?\/].*$/, '')) : '';
+    const igUrl = i.instagram ? (i.instagram.startsWith('http') ? i.instagram : 'https://instagram.com/' + i.instagram.replace('@','')) : '';
+    const local = [i.cidade, i.regiao].filter(Boolean).join(' · ');
+    const pct = i.comissao_pct_override != null ? (+i.comissao_pct_override) : null;
+    return `<div class="card" style="padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">
+        <div style="min-width:0">
+          <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:14px;line-height:1.3">${esc(i.nome)}</div>
+          ${insta ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">${igUrl ? `<a href="${esc(igUrl)}" target="_blank" style="color:var(--text3);text-decoration:none">${insta} ↗</a>` : insta}</div>` : ''}
+        </div>
+        <span style="font-size:10px;font-weight:800;padding:3px 9px;border-radius:20px;background:${ni.cor}22;color:${ni.cor};white-space:nowrap">${ni.label}${pct!=null ? ' · ' + pct + '%' : ''}</span>
+      </div>
+      ${local ? `<div style="font-size:11px;color:var(--text3);margin-bottom:8px">📍 ${esc(local)}</div>` : ''}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11.5px;margin-top:6px">
+        <div style="background:var(--surface2);border-radius:7px;padding:7px 9px"><div style="color:var(--text3);font-size:10px">Receita gerada</div><div style="font-weight:700">${fmtR(i.receita)}</div></div>
+        <div style="background:var(--surface2);border-radius:7px;padding:7px 9px"><div style="color:var(--text3);font-size:10px">Seguidores</div><div style="font-weight:700">${fmtSeg(i.seguidores)}</div></div>
+        <div style="background:var(--surface2);border-radius:7px;padding:7px 9px"><div style="color:var(--text3);font-size:10px">Cupons usados</div><div style="font-weight:700">${(+i.usos_cupom||0)}</div></div>
+        <div style="background:var(--surface2);border-radius:7px;padding:7px 9px"><div style="color:var(--text3);font-size:10px">Vendas geradas</div><div style="font-weight:700">${(+i.vendas_geradas||0)}</div></div>
+      </div>
+      ${canEdit ? `<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="abrirModalEditarInfluenciador('${i.id}')">✏️ Editar</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="influAbrirPainel('${i.id}')">💰 Painel</button>
+      </div>` : ''}
+    </div>`;
+  }).join('');
 }
 
 // ── MARKETPLACES (Social Selling) ──
