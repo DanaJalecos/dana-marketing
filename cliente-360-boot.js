@@ -3109,9 +3109,14 @@
     const data = new Date(ins.created_at);
     const dataStr = data.toLocaleDateString('pt-BR');
     const dataFull = data.toLocaleString('pt-BR');
+    const isReativ = ins.modo === 'reativacao';
+    const accent = isReativ ? '#e08a6f' : 'oklch(88% 0.018 80)';
+    const cardBg = isReativ ? 'rgba(177,87,64,0.07)' : 'rgba(255,255,255,0.02)';
+    const cardBorder = isReativ ? 'rgba(177,87,64,0.40)' : 'oklch(88% 0.018 80 / 0.3)';
+    const titulo = isReativ ? '♻️ Estratégia de Reativação' : 'Análise de Comportamento';
     const secBlock = (label, conteudo) => conteudo ? `
       <div style="margin-top:16px">
-        <div style="font-size:10.5px;font-weight:700;color:oklch(88% 0.018 80);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">${label}:</div>
+        <div style="font-size:10.5px;font-weight:700;color:${accent};text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">${label}:</div>
         ${formatTextoInsight(conteudo)}
       </div>` : '';
     // Bloco WhatsApp: so renderiza se a IA gerou a 4a secao E o cliente tem fone
@@ -3131,12 +3136,12 @@
         💬 IA sugeriu uma mensagem WhatsApp, mas o cliente está sem telefone cadastrado.
       </div>` : '';
     return `
-      <div style="background:rgba(255,255,255,0.02);border:1px solid oklch(88% 0.018 80 / 0.3);border-radius:12px;padding:20px;margin-bottom:14px;position:relative">
+      <div style="background:${cardBg};border:1px solid ${cardBorder};border-radius:12px;padding:20px;margin-bottom:14px;position:relative">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:4px">
           <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
-            <div style="width:32px;height:32px;border-radius:8px;background:oklch(88% 0.018 80 / 0.15);display:flex;align-items:center;justify-content:center;color:oklch(88% 0.018 80);font-size:16px;flex-shrink:0">◉</div>
+            <div style="width:32px;height:32px;border-radius:8px;background:${isReativ ? 'rgba(177,87,64,0.18)' : 'oklch(88% 0.018 80 / 0.15)'};display:flex;align-items:center;justify-content:center;color:${accent};font-size:16px;flex-shrink:0">${isReativ ? '♻️' : '◉'}</div>
             <div style="min-width:0">
-              <div style="font-size:15px;font-weight:700;color:oklch(88% 0.018 80);text-align:left">Análise de Comportamento</div>
+              <div style="font-size:15px;font-weight:700;color:${accent};text-align:left">${titulo}</div>
               <div style="font-size:11px;color:#64748b;margin-top:2px;text-align:left">${prettyModel(ins.modelo, ins.modelo_provider)} · por ${escapeHtml(ins.user_nome || '—')}${isNewest ? ' · <span style="color:#22c55e;font-weight:600">◉ mais recente</span>' : ''}</div>
             </div>
           </div>
