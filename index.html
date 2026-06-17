@@ -4054,8 +4054,13 @@ select.input { cursor: pointer; }
         <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:17px">🎬 Referências de Conteúdo</div>
         <div style="font-size:12px;color:var(--text3);margin-top:3px">Gerencie ideias e referências para criação de conteúdo</div>
       </div>
-      <button class="btn btn-primary btn-sm" id="ref-btn-novo" onclick="abrirModalNovaReferencia()">+ Nova Referência</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sm" id="cti-btn" onclick="gerarConteudoInsights()" style="background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;border:none">✨ Insights de conteúdo (IG/TikTok)</button>
+        <button class="btn btn-primary btn-sm" id="ref-btn-novo" onclick="abrirModalNovaReferencia()">+ Nova Referência</button>
+      </div>
     </div>
+
+    <div id="cti-box"></div>
 
     <!-- KPIs -->
     <div class="kpi-grid mb20">
@@ -21305,6 +21310,64 @@ async function confirmarExcluirReferencia() {
     _refExcluirId = null;
     loadReferencias();
   } catch (e) { showToast('Erro: ' + e.message); }
+}
+
+// ════════════════════════════════════════════════════════════
+// INSIGHTS DE CONTEÚDO IA (item 3 PDF) — o que performa no IG/TikTok no nicho
+// ════════════════════════════════════════════════════════════
+async function gerarConteudoInsights() {
+  const box = document.getElementById('cti-box');
+  const btn = document.getElementById('cti-btn');
+  if (!box) return;
+  box.innerHTML = `<div style="background:linear-gradient(135deg,#faf5ff,#f5f3ff);border:1.5px solid #e9d5ff;border-radius:12px;padding:16px;margin-bottom:16px;color:#6d28d9;font-weight:700;font-size:12.5px">⏳ Buscando o que está bombando no Instagram/TikTok do nicho...</div>`;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Analisando...'; }
+  try {
+    let token = SUPABASE_ANON_KEY;
+    try { token = (await sb.auth.getSession()).data.session?.access_token || SUPABASE_ANON_KEY; } catch {}
+    const r = await fetch(SUPABASE_URL + '/functions/v1/conteudo-insights', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('erro ' + r.status));
+    _renderConteudoInsights(d.analise || {}, d.provider);
+  } catch (e) {
+    box.innerHTML = `<div style="background:var(--red-bg);border:1px solid var(--red);border-radius:10px;padding:14px;margin-bottom:16px;color:var(--red);font-size:12.5px">${esc(e.message || e)}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✨ Insights de conteúdo (IG/TikTok)'; }
+  }
+}
+
+function _renderConteudoInsights(a, provider) {
+  const box = document.getElementById('cti-box');
+  if (!box) return;
+  window._ctiIdeias = a.ideias || [];
+  const chip = (t) => `<span style="display:inline-block;background:#f3e8ff;color:#7c3aed;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;margin:2px 4px 2px 0">${esc(t)}</span>`;
+  const sec = (label, inner) => inner ? `<div style="margin-bottom:12px"><div style="font-size:10.5px;font-weight:800;color:#9333ea;text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px">${label}</div>${inner}</div>` : '';
+  const formatos = (a.formatos || []).map(f => `<div style="background:#fff;border:1px solid #e9d5ff;border-radius:9px;padding:10px 12px;margin-bottom:6px"><div style="font-weight:700;font-size:12.5px">${esc(f.nome || '')} <span style="font-size:10px;color:var(--text3);font-weight:500">· ${esc(f.plataforma || '')}</span></div><div style="font-size:11.5px;color:var(--text2);margin-top:2px">${esc(f.porque || '')}</div></div>`).join('');
+  const ideias = (a.ideias || []).map((idea, i) => `<div style="background:#fff;border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div style="min-width:0"><div style="font-weight:700;font-size:12.5px">${esc(idea.titulo || '')} <span style="font-size:10px;color:var(--text3);font-weight:500">· ${esc(idea.formato || '')}</span></div>${idea.gancho ? `<div style="font-size:11.5px;color:var(--text2);margin-top:2px">🎬 ${esc(idea.gancho)}</div>` : ''}</div><button class="btn btn-ghost btn-sm" style="font-size:11px;white-space:nowrap" onclick="criarRefDeIdeia(${i})">+ Referência</button></div>`).join('');
+  box.innerHTML = `<div style="background:linear-gradient(135deg,#faf5ff,#f5f3ff);border:1.5px solid #e9d5ff;border-radius:12px;padding:18px;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px">
+      <div style="color:#6d28d9;font-weight:800;font-size:12.5px;text-transform:uppercase;letter-spacing:.5px">✨ Insights de Conteúdo · IG/TikTok</div>
+      <button class="modal-close" style="font-size:18px;line-height:1" onclick="document.getElementById('cti-box').innerHTML=''">×</button>
+    </div>
+    ${a.resumo ? `<div style="font-size:13px;color:var(--text);line-height:1.6;margin-bottom:12px">${esc(a.resumo)}</div>` : ''}
+    ${sec('Formatos em alta', formatos)}
+    ${(a.temas && a.temas.length) ? sec('Temas quentes', a.temas.map(chip).join('')) : ''}
+    ${(a.hashtags && a.hashtags.length) ? sec('Hashtags', a.hashtags.map(chip).join('')) : ''}
+    ${sec('Ideias prontas (clique pra virar Referência)', ideias)}
+    ${(a.dicas && a.dicas.length) ? sec('Dicas de execução', '<ul style="margin:0 0 0 16px;font-size:12px;line-height:1.6;color:var(--text2)">' + a.dicas.map(d => `<li>${esc(d)}</li>`).join('') + '</ul>') : ''}
+    <div style="font-size:10.5px;color:var(--text3);margin-top:6px">Gerado por IA${provider ? ' (' + esc(provider) + ')' : ''} · revise antes de produzir</div>
+  </div>`;
+}
+
+function criarRefDeIdeia(i) {
+  const o = (window._ctiIdeias || [])[i];
+  if (!o) return;
+  Promise.resolve(abrirModalNovaReferencia()).then(() => {
+    const t = document.getElementById('ref-titulo'); if (t) t.value = o.titulo || '';
+    const desc = document.getElementById('ref-descricao'); if (desc) desc.value = o.gancho || '';
+    const tipo = document.getElementById('ref-tipo'); if (tipo) tipo.value = o.formato || '';
+  });
 }
 
 // ════════════════════════════════════════════════════════════
