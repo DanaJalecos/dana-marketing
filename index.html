@@ -3959,6 +3959,9 @@ select.input { cursor: pointer; }
 
   <!-- Tab: Lista -->
   <div id="infl-tab-lista" class="infl-tab-panel">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:14px;font-size:11.5px;color:var(--text2);display:flex;align-items:flex-start;gap:7px">
+      <span>💳</span><span><strong>Receita, cupons usados e ticket médio reais</strong> via Magazord — cruzando o cupom de cada influencer (●) com os pedidos pagos do site. Quem ainda não tem cupom vinculado usa os números manuais. A <em>Conversão</em> segue manual (cupom não tem funil de visitas).</span>
+    </div>
     <!-- Filtros -->
     <div class="card mb20">
       <div class="card-title" style="margin-bottom:4px">Filtros</div>
@@ -20325,6 +20328,7 @@ async function loadInfluenciadores() {
       .order('seguidores', { ascending: false, nullsFirst: false });
     if (error) throw error;
     _influenciadoresCache = data || [];
+    await _carregarCupomStats();
     atualizarKPIsInfluenciadores();
     atualizarFiltroNichos();
     renderInfluenciadores();
@@ -20336,27 +20340,55 @@ async function loadInfluenciadores() {
   }
 }
 
+// ── Item 1 PDF: receita/cupons/ticket REAIS do Magazord (cruza codigo_cupom) ──
+let _cupomStatsCarregado = false;
+async function _carregarCupomStats() {
+  try {
+    const { data, error } = await sb.from('influenciador_cupom_stats').select('*');
+    if (error) throw error;
+    const byId = {};
+    (data || []).forEach(s => { byId[s.influenciador_id] = s; });
+    _influenciadoresCache.forEach(i => {
+      const s = byId[i.id];
+      if (s && (+s.usos > 0)) {
+        i._real_receita = +s.receita || 0;
+        i._real_usos = +s.usos || 0;
+        i._real_ticket = +s.ticket_medio || 0;
+        i._fonte_real = true;
+      } else { i._real_receita = null; i._real_usos = null; i._fonte_real = false; }
+    });
+    _cupomStatsCarregado = true;
+  } catch (e) { console.warn('cupom stats (Magazord) indisponivel, usando manual:', e.message || e); }
+}
+function _inflRec(i)    { return (i && i._real_receita != null) ? i._real_receita : (+(i && i.receita) || 0); }
+function _inflUsos(i)   { return (i && i._real_usos != null) ? i._real_usos : (+(i && i.usos_cupom) || 0); }
+function _inflVendas(i) { return (i && i._real_usos != null) ? i._real_usos : (+(i && i.vendas_geradas) || 0); }
+
 function atualizarKPIsInfluenciadores() {
   const total = _influenciadoresCache.length;
   const ativos = _influenciadoresCache.filter(i => i.status === 'ativo').length;
-  const receitaTotal = _influenciadoresCache.reduce((s, i) => s + (+i.receita || 0), 0);
-  const vendasTotal = _influenciadoresCache.reduce((s, i) => s + (+i.vendas_geradas || 0), 0);
-  const usosTotal = _influenciadoresCache.reduce((s, i) => s + (+i.usos_cupom || 0), 0);
-  const conversaoMedia = usosTotal > 0 ? (vendasTotal / usosTotal * 100) : 0;
-  const ticketMedio = vendasTotal > 0 ? receitaTotal / vendasTotal : 0;
+  const receitaTotal = _influenciadoresCache.reduce((s, i) => s + _inflRec(i), 0);
+  const usosTotal = _influenciadoresCache.reduce((s, i) => s + _inflUsos(i), 0);
+  const vendasTotal = _influenciadoresCache.reduce((s, i) => s + _inflVendas(i), 0);
+  // Conversão segue manual (cupom não tem funil de visitas): vendas manuais / usos manuais
+  const usosManual = _influenciadoresCache.reduce((s, i) => s + (+i.usos_cupom || 0), 0);
+  const vendasManual = _influenciadoresCache.reduce((s, i) => s + (+i.vendas_geradas || 0), 0);
+  const conversaoMedia = usosManual > 0 ? (vendasManual / usosManual * 100) : 0;
+  const ticketMedio = usosTotal > 0 ? receitaTotal / usosTotal : 0;
   // Top Performer = quem mais teve USOS de cupom (pedido Manu); receita desempata
   const top = _influenciadoresCache.slice().sort((a, b) =>
-    ((+b.usos_cupom || 0) - (+a.usos_cupom || 0)) || ((+b.receita || 0) - (+a.receita || 0)))[0];
+    (_inflUsos(b) - _inflUsos(a)) || (_inflRec(b) - _inflRec(a)))[0];
 
   // Receita/dia: soma receita_diaria de cada influencer com inicio_parceria preenchido
   const hoje = new Date();
   let receitaDiaSomada = 0;
   let diasContabilizados = 0;
   for (const i of _influenciadoresCache) {
-    if (!i.inicio_parceria || !(+i.receita > 0)) continue;
+    const rec = _inflRec(i);
+    if (!i.inicio_parceria || !(rec > 0)) continue;
     const dt = new Date(i.inicio_parceria);
     const dias = Math.max(1, Math.floor((hoje - dt) / 86400000));
-    receitaDiaSomada += (+i.receita) / dias;
+    receitaDiaSomada += rec / dias;
     diasContabilizados++;
   }
   const receitaDiaMedia = diasContabilizados > 0 ? receitaDiaSomada / diasContabilizados : 0;
@@ -20374,7 +20406,7 @@ function atualizarKPIsInfluenciadores() {
   set('inf-kpi-conv', conversaoMedia.toFixed(2) + '%');
   if (top && top.nome) {
     set('inf-kpi-top', (top.nome.split(' ')[0] || top.nome).slice(0, 16));
-    set('inf-kpi-top-sub', (+top.usos_cupom || 0) + ' usos · ' + fmtR(+top.receita || 0));
+    set('inf-kpi-top-sub', _inflUsos(top) + ' usos · ' + fmtR(_inflRec(top)));
   } else {
     set('inf-kpi-top', '—');
     set('inf-kpi-top-sub', 'R$ 0,00');
@@ -20393,9 +20425,9 @@ function _influAggBy(field) {
     const key = (i[field] || '').trim() || 'Sem definição';
     if (!map[key]) map[key] = { qtd: 0, cupons: 0, vendas: 0, receita: 0, conv: 0 };
     map[key].qtd++;
-    map[key].cupons += +i.usos_cupom || 0;
-    map[key].vendas += +i.vendas_geradas || 0;
-    map[key].receita += +i.receita || 0;
+    map[key].cupons += _inflUsos(i);
+    map[key].vendas += _inflVendas(i);
+    map[key].receita += _inflRec(i);
   }
   for (const k of Object.keys(map)) {
     map[k].conv = map[k].cupons > 0 ? (map[k].vendas / map[k].cupons * 100) : 0;
@@ -20616,9 +20648,9 @@ function renderInfluenciadores() {
           <td>${i.regiao ? esc(i.regiao) : '<span style="color:var(--text3)">—</span>'}</td>
           <td>${statusChip(i.status)}</td>
           <td style="text-align:right">${fmtK(i.seguidores)}</td>
-          <td style="text-align:right">${i.usos_cupom || 0}</td>
-          <td style="text-align:right">${i.vendas_geradas || 0}</td>
-          <td style="text-align:right" class="${+i.receita > 0 ? 'good' : ''}">${fmtR(+i.receita || 0)}</td>
+          <td style="text-align:right">${_inflUsos(i)}</td>
+          <td style="text-align:right">${_inflVendas(i)}</td>
+          <td style="text-align:right" class="${_inflRec(i) > 0 ? 'good' : ''}">${fmtR(_inflRec(i))}${i._fonte_real ? ' <span title="Receita real via cupom (Magazord)" style="color:var(--blue);font-size:9px">●</span>' : ''}</td>
           <td style="text-align:right">${conv.toFixed(2)}%</td>
           <td>
             <button class="btn btn-ghost btn-sm" style="padding:3px 6px;font-size:11px;color:var(--amber)" onclick="influAbrirPainel('${i.id}')" title="Painel / Comissão / Crédito">💰</button>
