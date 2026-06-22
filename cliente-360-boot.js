@@ -6794,7 +6794,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
   // FIX (29/05): empresa dinamica (state.empresa) - antes era hardcode 'matriz'
   // e vendedora BC (Camilli) via clientes da matriz.
   // ══════════════════════════════════════════════════════════
-  let _mcPoolPag = 0, _mcPoolBusca = '', _mcPoolBuscaTimer = null;
+  let _mcPoolPag = 0, _mcPoolBusca = '', _mcPoolBuscaTimer = null, _mcPoolModo = 'nome';
   const _MC_POOL_PP = 25;
 
   function _mcPoolPodeVer() {
@@ -6853,6 +6853,14 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     _mcPoolBuscaTimer = setTimeout(() => { _mcPoolPag = 0; mcLoadPoolWidget(); }, 280);
   };
 
+  // Alterna o modo de busca do pool: por nome do cliente ou por produto comprado.
+  window.c360PoolModo = function(m) {
+    if (m !== 'nome' && m !== 'produto') return;
+    _mcPoolModo = m;
+    _mcPoolPag = 0;
+    mcLoadPoolWidget();
+  };
+
   // Abre cliente do pool. Pool segue a empresa atual (state.empresa) — não
   // força mais matriz (fix 29/05 pra vendedora BC ver clientes BC).
   window.c360PoolAbrirCliente = async function(nome) {
@@ -6907,12 +6915,20 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     if (!cont) return;
     try {
       const empPool = _mcPoolEmpresa();
-      const { data, error } = await state.sb.rpc('clientes_sem_vendedor', {
-        p_empresa: empPool,
-        p_busca: _mcPoolBusca || null,
-        p_offset: _mcPoolPag * _MC_POOL_PP,
-        p_limit: _MC_POOL_PP,
-      });
+      const _porProduto = _mcPoolModo === 'produto' && (_mcPoolBusca || '').trim() !== '';
+      const { data, error } = _porProduto
+        ? await state.sb.rpc('clientes_sem_vendedor_por_produto', {
+            p_empresa: empPool,
+            p_produto: _mcPoolBusca,
+            p_offset: _mcPoolPag * _MC_POOL_PP,
+            p_limit: _MC_POOL_PP,
+          })
+        : await state.sb.rpc('clientes_sem_vendedor', {
+            p_empresa: empPool,
+            p_busca: _mcPoolBusca || null,
+            p_offset: _mcPoolPag * _MC_POOL_PP,
+            p_limit: _MC_POOL_PP,
+          });
       // Atualiza label da empresa caso usuário tenha trocado o seletor
       const labelEl = document.getElementById('mc-pool-empresa-label');
       if (labelEl) labelEl.textContent = _mcPoolEmpresaLabel();
@@ -6955,12 +6971,19 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
           <button onclick="window.c360PoolPag(1)" ${_mcPoolPag>=totPag-1?'disabled':''} style="padding:5px 12px;border-radius:5px;border:1px solid rgba(255,255,255,0.18);background:${_mcPoolPag>=totPag-1?'rgba(255,255,255,0.02)':'rgba(255,255,255,0.06)'};color:${_mcPoolPag>=totPag-1?'#475569':'#e2e8f0'};cursor:${_mcPoolPag>=totPag-1?'default':'pointer'};font-size:11px">Próxima ▶</button>
         </div>`;
 
+      const modoNome = _mcPoolModo !== 'produto';
+      const segBtn = (m, lbl) => `<button onclick="window.c360PoolModo('${m}')" style="padding:6px 12px;border:none;background:${_mcPoolModo===m?'rgba(96,165,250,0.18)':'transparent'};color:${_mcPoolModo===m?'#bfdbfe':'#94a3b8'};font-size:11px;font-weight:600;cursor:pointer">${lbl}</button>`;
+      const buscou = (_mcPoolBusca || '').trim() !== '';
       cont.innerHTML = `
         <div style="padding-top:8px;font-size:10.5px;color:#64748b;font-style:italic;margin-bottom:8px">
           💡 Clientes de <strong>${_mcPoolEmpresaLabel()}</strong> sem nenhum vendedor. Abra um e <strong style="color:#93c5fd">mude o status</strong> ou <strong style="color:#93c5fd">registre um contato</strong> — ele vira <strong>automaticamente seu</strong> (e todas as compras dele passam a contar pra sua carteira). Primeiro que pega, leva.
         </div>
-        <input id="mc-pool-busca" type="text" placeholder="🔍 Buscar cliente sem vendedor por nome…" value="${escapeHtml(_mcPoolBusca)}" oninput="window.c360PoolBusca(this.value)" style="width:100%;box-sizing:border-box;padding:7px 10px;margin-bottom:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#e2e8f0;font-size:12px;outline:none">
-        <div>${total===0 ? '<div style="padding:18px;text-align:center;color:#64748b;font-size:12px">🎉 Nenhum cliente sem vendedor'+(_mcPoolBusca?' com esse nome':'')+'</div>' : rows}</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+          <div style="display:inline-flex;border:1px solid rgba(255,255,255,0.12);border-radius:6px;overflow:hidden;flex-shrink:0">${segBtn('nome','Por nome')}${segBtn('produto','Por produto')}</div>
+          <input id="mc-pool-busca" type="text" placeholder="${modoNome ? '🔍 Buscar cliente sem vendedor por nome…' : '🔍 Filtrar por produto comprado (ex.: jaleco, scrub)…'}" value="${escapeHtml(_mcPoolBusca)}" oninput="window.c360PoolBusca(this.value)" style="flex:1;box-sizing:border-box;padding:7px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#e2e8f0;font-size:12px;outline:none">
+        </div>
+        ${!modoNome && buscou ? `<div style="font-size:10.5px;color:#93c5fd;margin-bottom:6px">Clientes sem vendedor que compraram <strong>&ldquo;${escapeHtml(_mcPoolBusca)}&rdquo;</strong></div>` : ''}
+        <div>${total===0 ? '<div style="padding:18px;text-align:center;color:#64748b;font-size:12px">🎉 Nenhum cliente sem vendedor'+(buscou?(modoNome?' com esse nome':' que comprou esse produto'):'')+'</div>' : rows}</div>
         ${pager}
       `;
       const inp = document.getElementById('mc-pool-busca');
