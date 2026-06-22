@@ -933,7 +933,7 @@
           state.clientes.push(c);
         }
       }
-      const [pedidos, inadResult, cicloResult, bench] = await Promise.all([
+      const [pedidos, inadResult, cicloResult, bench, nascResult] = await Promise.all([
         fetchPedidosCliente(nome, state.empresa),
         state.sb.from('cliente_inadimplencia')
           .select('total_atrasado, max_dias_atraso, qtd_contas_atrasadas, vencimento_mais_antigo, pedidos_origem')
@@ -941,16 +941,25 @@
         state.sb.from('cliente_ciclo_compra')
           .select('ciclo_compra_dias, pedidos_validos')
           .eq('contato_nome', nome).eq('empresa', state.empresa).maybeSingle(),
-        loadCicloBenchmark(state.empresa)
+        loadCicloBenchmark(state.empresa),
+        // data_nascimento não vem na view cliente_scoring_full → busca direto de contatos
+        // (usado pelo selo + painel "Cadastro incompleto")
+        (c?.contato_id
+          ? state.sb.from('contatos').select('data_nascimento').eq('id', c.contato_id).maybeSingle()
+          : Promise.resolve({ data: null }))
       ]);
       const fav = computeFavoritos(pedidos);
       const inad = (inadResult && !inadResult.error) ? inadResult.data : null;
       const ciclo = (cicloResult && !cicloResult.error) ? cicloResult.data : null;
-      if (c) { c._inadimplencia = inad; c._ciclo = ciclo; c._cicloBenchmark = bench; }
+      if (c) {
+        c._inadimplencia = inad; c._ciclo = ciclo; c._cicloBenchmark = bench;
+        c.data_nascimento = (nascResult && !nascResult.error && nascResult.data)
+          ? nascResult.data.data_nascimento : (c.data_nascimento || null);
+      }
       renderClientDetail(c, nome, pedidos, fav);
       // Injeta painel de metadata (status/tel_alt/observacao) logo abaixo do header
       if (c?.contato_id) {
-        await injectMetadataPanel(c.contato_id, state.empresa, nome, inad);
+        await injectMetadataPanel(c.contato_id, state.empresa, nome, inad, c);
         // Hook sob demanda: se contato não tem data_nascimento, dispara sync em background
         // (fire-and-forget; admin/gerente/vendedora podem chamar)
         _c360TalvezSyncNascimento(c.contato_id);
@@ -993,7 +1002,7 @@
     { v: 'sem_interesse', l: '😐 Sem interesse', cor: '#94a3b8' },
   ];
 
-  async function injectMetadataPanel(contatoId, empresa, nome, inadOpt) {
+  async function injectMetadataPanel(contatoId, empresa, nome, inadOpt, cliente) {
     const page = document.getElementById('page-cliente-1');
     if (!page) return;
     // Busca metadata existente
@@ -1099,6 +1108,44 @@
     `;
     panel.parentNode.insertBefore(sugestaoPanel, panel.nextSibling);
 
+    // Painel: 📋 Cadastro incompleto (accordion como o de oferta sugerida).
+    // Só aparece se faltar CPF/CNPJ, telefone/celular OU data de nascimento.
+    (function () {
+      if (!cliente) return;
+      var campos = [
+        { label: 'CPF / CNPJ',          val: cliente.numero_documento,             fmt: function (v) { return String(v); } },
+        { label: 'Telefone / Celular',  val: (cliente.celular || cliente.telefone), fmt: function (v) { return String(v); } },
+        { label: 'Data de nascimento',  val: cliente.data_nascimento,              fmt: function (v) { try { var p = String(v).slice(0, 10).split('-'); return p[2] + '/' + p[1] + '/' + p[0]; } catch (e) { return String(v); } } },
+      ];
+      var faltando = campos.filter(function (k) { return !k.val; });
+      if (!faltando.length) return; // cadastro completo → nem renderiza o painel
+      var linhas = campos.map(function (k) {
+        var ok = !!k.val;
+        return '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:6px;margin-bottom:6px">'
+          + '<span style="font-size:14px">' + (ok ? '✅' : '⚠️') + '</span>'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="font-size:12.5px;font-weight:600;color:' + (ok ? '#cbd5e1' : '#fbbf24') + '">' + k.label + '</div>'
+          + '<div style="font-size:11px;color:' + (ok ? '#64748b' : '#f59e0b') + '">' + (ok ? escapeHtml(k.fmt(k.val)) : 'Faltando — precisa preencher') + '</div>'
+          + '</div></div>';
+      }).join('');
+      var cadPanel = document.createElement('div');
+      cadPanel.id = 'c360-cadastro-panel';
+      cadPanel.style.cssText = 'margin:0 auto 20px;padding:14px 16px;background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.25);border-radius:10px;max-width:1200px;width:calc(100% - 40px)';
+      cadPanel.innerHTML = ''
+        + '<div onclick="c360CadastroToggleExpand()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;user-select:none">'
+        +   '<div style="display:flex;align-items:center;gap:8px">'
+        +     '<span id="c360-cadastro-arrow" style="color:#94a3b8;font-size:11px;width:14px;display:inline-block">▶</span>'
+        +     '<span style="font-family:\'Playfair Display\',serif;font-size:14px;font-weight:600;color:#fbbf24">📋 Cadastro incompleto</span>'
+        +     '<span style="font-size:10.5px;color:#64748b">' + faltando.length + ' de ' + campos.length + ' campo' + (faltando.length > 1 ? 's' : '') + ' faltando</span>'
+        +   '</div>'
+        + '</div>'
+        + '<div id="c360-cadastro-body" style="display:none;margin-top:12px">'
+        +   linhas
+        +   '<div style="font-size:10.5px;color:#64748b;margin-top:6px">💡 Complete no Bling — o DMS sincroniza sozinho. CPF, telefone e nascimento são essenciais pra cobrança, contato e a estratégia de aniversário.</div>'
+        + '</div>';
+      sugestaoPanel.parentNode.insertBefore(cadPanel, sugestaoPanel.nextSibling);
+    })();
+
     // Histórico de status (audit trail) — carrega async
     setTimeout(() => _carregarHistoricoStatus(contatoId, empresa), 50);
 
@@ -1193,6 +1240,30 @@
     const aberto = body.style.display !== 'none';
     body.style.display = aberto ? 'none' : '';
     if (arrow) arrow.textContent = aberto ? '▶' : '▼';
+  };
+
+  // Toggle do painel "📋 Cadastro incompleto"
+  window.c360CadastroToggleExpand = function() {
+    const body = document.getElementById('c360-cadastro-body');
+    const arrow = document.getElementById('c360-cadastro-arrow');
+    if (!body) return;
+    const aberto = body.style.display !== 'none';
+    body.style.display = aberto ? 'none' : '';
+    if (arrow) arrow.textContent = aberto ? '▶' : '▼';
+  };
+
+  // Abre o painel "Cadastro incompleto" a partir do selo no header (expande + rola até ele + realça)
+  window.c360CadastroAbrir = function() {
+    const panel = document.getElementById('c360-cadastro-panel');
+    const body = document.getElementById('c360-cadastro-body');
+    const arrow = document.getElementById('c360-cadastro-arrow');
+    if (!panel || !body) return;
+    body.style.display = '';
+    if (arrow) arrow.textContent = '▼';
+    try { panel.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+    panel.style.transition = 'box-shadow .3s';
+    panel.style.boxShadow = '0 0 0 2px rgba(245,158,11,0.55)';
+    setTimeout(function () { panel.style.boxShadow = 'none'; }, 1200);
   };
 
   window.c360SaveMetadata = async function(contatoId, empresa) {
@@ -1695,7 +1766,7 @@
             <span class="inline-flex items-center rounded-full font-medium text-xs px-2.5 py-1 ${risco.cls} border">Risco: ${risco.label}</span>
             ${inadimpHtml}
             ${posvendaPendenteHtml}
-            ${(function(){var f=[];if(!(c.telefone||c.celular))f.push('telefone/celular');if(!c.numero_documento)f.push('CPF/CNPJ');return f.length?'<span title="Faltando: '+f.join(', ')+'" style="display:inline-flex;align-items:center;gap:4px;background:rgba(245,158,11,0.14);color:#fbbf24;border:1px solid rgba(245,158,11,0.4);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">📋 Cadastro incompleto</span>':'';})()}
+            ${(function(){var f=[];if(!(c.telefone||c.celular))f.push('telefone/celular');if(!c.numero_documento)f.push('CPF/CNPJ');if(!c.data_nascimento)f.push('data de nascimento');return f.length?'<span onclick="c360CadastroAbrir()" title="Faltando: '+f.join(', ')+' — clique para ver" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;background:rgba(245,158,11,0.14);color:#fbbf24;border:1px solid rgba(245,158,11,0.4);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">📋 Cadastro incompleto</span>':'';})()}
           </div>
           <div style="font-size:13px;color:#94a3b8;margin-bottom:4px">${fone ? escapeHtml(fone) : '<span style="color:#475569">sem telefone</span>'}${c.uf ? ' · '+c.uf : ''}${doc ? ' · '+escapeHtml(doc) : ''}</div>
           <div style="font-size:12px;color:#64748b">${EMPRESA_LABELS[c.empresa] || c.empresa}${tipo ? ' · '+tipo : ''}</div>
