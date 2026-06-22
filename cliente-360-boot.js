@@ -6747,7 +6747,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
             <h1 style="margin:0 0 6px;font-size:28px;font-weight:700;color:#f1f5f9;font-family:'Playfair Display',serif">Meus Clientes</h1>
             <div style="font-size:13px;color:#94a3b8">Olá ${escapeHtml(perms.nome)} — sua carteira · ${EMPRESA_LABELS[state.empresa]}</div>
           </div>
-          <button class="mc-sync-btn" onclick="window.c360McReload()" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:13px;font-weight:600" title="Busca pedidos novos no Bling (1x por minuto)">🔄 Atualizar</button>
+          <button class="mc-sync-btn" onclick="window.c360McReload()" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:13px;font-weight:600" title="Busca pedidos + itens novos no Bling (espera ~90s entre cliques)">🔄 Atualizar</button>
         </div>
 
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px">
@@ -7786,7 +7786,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button onclick="window.c360McOpenMapear()" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(167,139,250,0.4);background:rgba(167,139,250,0.12);color:#c4b5fd;cursor:pointer;font-size:13px;font-weight:600">⚙ Mapear vendedores Bling</button>
-            <button class="mc-sync-btn" onclick="window.c360McReload()" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:13px;font-weight:600" title="Busca pedidos novos no Bling (1x por minuto)">🔄 Atualizar</button>
+            <button class="mc-sync-btn" onclick="window.c360McReload()" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#e2e8f0;cursor:pointer;font-size:13px;font-weight:600" title="Busca pedidos + itens novos no Bling (espera ~90s entre cliques)">🔄 Atualizar</button>
           </div>
         </div>
 
@@ -8502,8 +8502,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
   // (Filtros unificados: ver c360McVendedorFilter / c360McAdminFilter acima)
 
-  // ─── Força sync do Bling (pedidos matriz+BC) com cooldown de 60s ───
-  const MC_SYNC_COOLDOWN_MS = 60000;
+  // ─── Força sync do Bling (pedidos + itens matriz+BC) com cooldown de 90s ───
+  const MC_SYNC_COOLDOWN_MS = 90000;
   let _mcCooldownTimer = null;
 
   function mcSyncCooldownTick() {
@@ -8539,10 +8539,20 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     if (!_mcCooldownTimer) _mcCooldownTimer = setInterval(mcSyncCooldownTick, 1000);
     if (typeof showToast === 'function') showToast('🔄 Buscando pedidos novos no Bling...');
     try {
-      // sync-pedidos = incremental dos últimos 7 dias (leve). matriz + BC em paralelo.
+      // Fase 1: pedidos (incremental ~7d, leve) — matriz + BC em paralelo.
       await Promise.allSettled([
         state.sb.functions.invoke('sync-pedidos', { body: {} }),
         state.sb.functions.invoke('sync-pedidos-bc', { body: {} }),
+      ]);
+      // Fase 2: itens dos pedidos recém-puxados (traz a atribuição de vendedor).
+      // Roda DEPOIS pra enxergar os pedidos novos; a edge só busca os pedidos que
+      // ainda NÃO têm itens (na prática, poucos = os recém-chegados) → fica leve.
+      // Usa getValidToken (NUNCA renova token) e upsert idempotente → não conflita
+      // com o cron nem coloca o token da matriz em risco.
+      if (typeof showToast === 'function') showToast('🔄 Trazendo itens e vendedor...');
+      await Promise.allSettled([
+        state.sb.functions.invoke('sync-pedidos-itens', { body: {} }),
+        state.sb.functions.invoke('sync-pedidos-itens-bc', { body: {} }),
       ]);
     } catch (e) { console.warn('[mc] force sync erro:', e); }
     mcInvalidateCache();
