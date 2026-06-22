@@ -6842,6 +6842,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
         ${mcRenderPoolWidget(false)}
 
+        ${mcRenderCadIncompletosWidget(false)}
+
         ${mcRenderFiltrosBar(filtros, true)}
 
         ${apoioFiltrado.length > 0 ? `<div style="margin:14px 0 -4px;font-size:11.5px;color:#64748b">👁 Você também vê <strong style="color:#a78bfa">${apoioFiltrado.length}</strong> clientes da Beatriz (apoio · somente leitura — continuam na carteira dela).</div>` : ''}
@@ -6855,6 +6857,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     setTimeout(() => mcLoadAniversariantesWidget(), 80);
     setTimeout(() => mcLoadGamificacaoWidget(), 110);
     setTimeout(() => mcLoadPoolWidget(), 140);
+    setTimeout(() => mcLoadCadIncompletosWidget(), 170);
   }
 
   // ══════════════════════════════════════════════════════════
@@ -7061,6 +7064,119 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       if (inp && document.activeElement !== inp && _mcPoolBusca) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
     } catch (e) {
       console.warn('[mc] pool widget:', e);
+      cont.innerHTML = `<div style="padding:14px;color:#fca5a5;font-size:11.5px">Erro: ${escapeHtml(e.message || String(e))}</div>`;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // 🆕 Cadastros incompletos · recentes (pedido Dani 22/06)
+  // Últimos contatos do Bling (por empresa) sem cadastro completo.
+  // Listar TODOS seria inviável (20k+) → só os mais recentes, paginado.
+  // Mesma audiência do pool. Reusa _mcPoolEmpresa / _mcPoolEmpresaLabel.
+  // ══════════════════════════════════════════════════════════
+  let _mcCadIncPag = 0;
+  const _MC_CADINC_PP = 25;
+
+  function mcRenderCadIncompletosWidget(defaultOpen) {
+    if (!_mcPoolPodeVer()) return '';
+    const aberto = defaultOpen ? '' : ' style="display:none"';
+    return `
+      <div id="mc-cadinc-widget" style="margin-top:6px;margin-bottom:14px;background:rgba(245,158,11,0.04);border:1px solid rgba(245,158,11,0.22);border-radius:10px;padding:12px 14px">
+        <div onclick="window.c360CadIncToggle()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:13.5px;font-weight:700;color:#fbbf24">🆕 Cadastros incompletos · recentes · <span id="mc-cadinc-empresa-label">${_mcPoolEmpresaLabel()}</span></span>
+            <span id="mc-cadinc-resumo" style="font-size:11px;color:#64748b">…</span>
+          </div>
+          <span id="mc-cadinc-toggle-icon" style="font-size:11px;color:#94a3b8">${defaultOpen ? '▼' : '▶'}</span>
+        </div>
+        <div id="mc-cadinc-conteudo"${aberto}>
+          <div style="padding:14px 0;text-align:center;color:#64748b;font-size:12px">⏳ Carregando…</div>
+        </div>
+      </div>
+    `;
+  }
+
+  window.c360CadIncToggle = function() {
+    const c = document.getElementById('mc-cadinc-conteudo');
+    const ic = document.getElementById('mc-cadinc-toggle-icon');
+    if (!c) return;
+    const abrir = c.style.display === 'none';
+    c.style.display = abrir ? '' : 'none';
+    if (ic) ic.textContent = abrir ? '▼' : '▶';
+    if (abrir) mcLoadCadIncompletosWidget();
+  };
+
+  window.c360CadIncPag = function(delta) {
+    _mcCadIncPag = Math.max(0, _mcCadIncPag + delta);
+    mcLoadCadIncompletosWidget();
+    const w = document.getElementById('mc-cadinc-widget');
+    if (w) w.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+
+  window.c360CadIncAbrir = async function(nome) {
+    if (!nome) return;
+    if (typeof window.showClientDetail === 'function') {
+      await window.showClientDetail(encodeURIComponent(nome));
+    }
+  };
+
+  async function mcLoadCadIncompletosWidget() {
+    const cont = document.getElementById('mc-cadinc-conteudo');
+    const resumoEl = document.getElementById('mc-cadinc-resumo');
+    if (!cont) return;
+    try {
+      const emp = _mcPoolEmpresa();
+      const { data, error } = await state.sb.rpc('contatos_cadastro_incompleto', {
+        p_empresa: emp,
+        p_offset: _mcCadIncPag * _MC_CADINC_PP,
+        p_limit: _MC_CADINC_PP,
+      });
+      const labelEl = document.getElementById('mc-cadinc-empresa-label');
+      if (labelEl) labelEl.textContent = _mcPoolEmpresaLabel();
+      if (error) throw error;
+      const linhas = Array.isArray(data) ? data : [];
+      const total = linhas.length ? Number(linhas[0].total_count || 0) : 0;
+      if (resumoEl) resumoEl.textContent = total === 0 ? 'nenhum' : `${total.toLocaleString('pt-BR')} incompletos`;
+
+      const totPag = Math.max(1, Math.ceil(total / _MC_CADINC_PP));
+      if (_mcCadIncPag >= totPag) { _mcCadIncPag = totPag - 1; }
+
+      const tag = (t) => `<span style="font-size:10px;font-weight:600;color:#fbbf24;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);padding:1px 7px;border-radius:10px;white-space:nowrap">${escapeHtml(t)}</span>`;
+      const rows = linhas.map((c) => {
+        const nomeEsc = (c.contato_nome || '').replace(/'/g, '&#39;');
+        let cad = '—';
+        try { if (c.created_at) cad = new Date(c.created_at).toLocaleDateString('pt-BR'); } catch (e) {}
+        const tags = (Array.isArray(c.faltando) ? c.faltando : []).map(tag).join(' ');
+        const vend = c.vendedor_nome ? escapeHtml(c.vendedor_nome) : '<span style="color:#475569">sem vendedor</span>';
+        return `
+          <div style="display:grid;grid-template-columns:1fr auto;gap:8px;padding:10px 12px;align-items:center;border-bottom:1px solid rgba(255,255,255,0.04)">
+            <div style="min-width:0">
+              <a href="#" onclick="event.preventDefault();window.c360CadIncAbrir&&window.c360CadIncAbrir('${nomeEsc}')" style="font-size:13px;font-weight:600;color:#e2e8f0;text-decoration:none">${escapeHtml(c.contato_nome)}</a>
+              <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px">${tags}</div>
+              <div style="font-size:10.5px;color:#64748b;margin-top:3px">cadastrado ${cad} · ${vend}</div>
+            </div>
+            <button onclick="window.c360CadIncAbrir&&window.c360CadIncAbrir('${nomeEsc}')" style="padding:6px 12px;border-radius:5px;border:none;background:#d97706;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">Abrir →</button>
+          </div>`;
+      }).join('');
+
+      const ini = _mcCadIncPag * _MC_CADINC_PP;
+      const fim = Math.min(ini + _MC_CADINC_PP, total);
+      const pager = total <= _MC_CADINC_PP ? '' : `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 4px 2px">
+          <button onclick="window.c360CadIncPag(-1)" ${_mcCadIncPag === 0 ? 'disabled' : ''} style="padding:5px 12px;border-radius:5px;border:1px solid rgba(255,255,255,0.18);background:${_mcCadIncPag === 0 ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.06)'};color:${_mcCadIncPag === 0 ? '#475569' : '#e2e8f0'};cursor:${_mcCadIncPag === 0 ? 'default' : 'pointer'};font-size:11px">◀ Anterior</button>
+          <span style="font-size:11px;color:#94a3b8">${total === 0 ? 0 : ini + 1}–${fim} de ${total.toLocaleString('pt-BR')} · pág. ${_mcCadIncPag + 1}/${totPag}</span>
+          <button onclick="window.c360CadIncPag(1)" ${_mcCadIncPag >= totPag - 1 ? 'disabled' : ''} style="padding:5px 12px;border-radius:5px;border:1px solid rgba(255,255,255,0.18);background:${_mcCadIncPag >= totPag - 1 ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.06)'};color:${_mcCadIncPag >= totPag - 1 ? '#475569' : '#e2e8f0'};cursor:${_mcCadIncPag >= totPag - 1 ? 'default' : 'pointer'};font-size:11px">Próxima ▶</button>
+        </div>`;
+
+      cont.innerHTML = `
+        <div style="padding-top:8px;font-size:10.5px;color:#64748b;font-style:italic;margin-bottom:8px">
+          💡 Últimos clientes cadastrados em <strong>${_mcPoolEmpresaLabel()}</strong> com <strong style="color:#fbbf24">cadastro incompleto</strong> (falta CPF, telefone/celular ou data de nascimento). Mais recentes primeiro. Abra e complete no Bling — o DMS sincroniza sozinho.
+        </div>
+        <div>${total === 0 ? '<div style="padding:18px;text-align:center;color:#64748b;font-size:12px">🎉 Nenhum cadastro incompleto recente</div>' : rows}</div>
+        ${pager}
+      `;
+    } catch (e) {
+      console.warn('[mc] cadastros incompletos widget:', e);
       cont.innerHTML = `<div style="padding:14px;color:#fca5a5;font-size:11.5px">Erro: ${escapeHtml(e.message || String(e))}</div>`;
     }
   }
@@ -7902,6 +8018,8 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
 
         ${mcRenderPoolWidget(false)}
 
+        ${mcRenderCadIncompletosWidget(false)}
+
         <div style="margin-bottom:24px">
           ${mcRenderRankingsBloco(ranking, totalFat)}
         </div>
@@ -7918,6 +8036,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     setTimeout(() => mcLoadAniversariantesWidget(), 80);
     setTimeout(() => mcLoadGamificacaoWidget(), 110);
     setTimeout(() => mcLoadPoolWidget(), 140);
+    setTimeout(() => mcLoadCadIncompletosWidget(), 170);
   }
 
   // ─── Helpers de UI ───
