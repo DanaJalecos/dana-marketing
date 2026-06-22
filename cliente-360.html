@@ -400,7 +400,14 @@ function showPage(pageId) {
         activeBtn.setAttribute('aria-current', 'page');
         activeBtn.style.backgroundColor = 'rgba(255,255,255,0.08)';
     }
-    window.scrollTo(0, 0);
+    // Ao VOLTAR para a lista de clientes, restaura a posicao de scroll salva
+    // (em vez de forcar o topo). As demais paginas vao para o topo normalmente.
+    if (pageId === 'clientes' && window._c360ListScroll != null) {
+        var _cy = window._c360ListScroll;
+        requestAnimationFrame(function () { window.scrollTo(0, _cy); });
+    } else {
+        window.scrollTo(0, 0);
+    }
 }
 
 function showClientDetail(clientId) {
@@ -1082,6 +1089,6 @@ if (document.readyState === 'loading') {
 }
 
 </script>
-<script src="./cliente-360-boot.js?v=91"></script>
+<script src="./cliente-360-boot.js?v=92"></script>
 </body>
 </html>

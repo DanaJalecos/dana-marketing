@@ -4512,6 +4512,20 @@ select.input { cursor: pointer; }
   </div>
 </div>
 
+<!-- ════════ PROGRAMA DE EMBAIXADOR (benefícios/checklist) ════════ -->
+<div class="modal-overlay" id="modal-emb-beneficios">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <div class="modal-title">📋 Programa de Embaixador <span id="emb-benef-nome" style="color:var(--text3);font-weight:600;font-size:13px"></span></div>
+      <button class="modal-close" onclick="closeModal('emb-beneficios')">×</button>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Acompanhe os benefícios do programa pra cada embaixador. Marque o status conforme avança.</div>
+    <div id="emb-benef-lista" style="display:flex;flex-direction:column;gap:8px">
+      <div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">⏳ Carregando…</div>
+    </div>
+  </div>
+</div>
+
 <!-- ════════ PERSONAS ════════ -->
 <div class="view" id="view-personas">
 <div style="padding:24px 28px">
@@ -21929,6 +21943,86 @@ function influIaBoasVindas(influId, cand) {
   openModal('influ-ia');
   _influIaRun('boas_vindas');
 }
+
+// ── Programa de Embaixador: checklist de benefícios (tabela embaixador_beneficios) ──
+const EMB_BENEFICIOS_DEFS = [
+  { tipo: 'recebimento', icon: '📦', titulo: 'Recebidos (1ª peça)', desc: 'Ganha a primeira peça via caixa de recebidos.' },
+  { tipo: 'exclusividade', icon: '🤝', titulo: 'Exclusividade com a Dana', desc: 'Posta só usando a marca (exclusividade).' },
+  { tipo: 'gravacao', icon: '🎬', titulo: 'Gravação de conteúdo', desc: 'Nossa equipe grava imagem pessoal e profissional.' },
+  { tipo: 'padronizacao', icon: '🥼', titulo: 'Parceria de padronização', desc: 'Padronização da clínica, alunos e equipe.' },
+  { tipo: 'cupom', icon: '🏷️', titulo: 'Cupom pros alunos', desc: 'Cupom de desconto exclusivo pros alunos.' },
+];
+const EMB_STATUS_OPTS = [
+  { v: 'pendente', label: 'Pendente', cor: '#94a3b8' },
+  { v: 'em_andamento', label: 'Em andamento', cor: '#f59e0b' },
+  { v: 'concluido', label: 'Concluído', cor: '#10b981' },
+  { v: 'cancelado', label: 'Cancelado', cor: '#ef4444' },
+];
+let _embBenefCtx = null;
+
+function embBeneficiosAbrir(influId) {
+  const i = _influenciadoresCache.find(x => String(x.id) === String(influId));
+  _embBenefCtx = { influId, nome: i?.nome || '', cupom: i?.codigo_cupom || '' };
+  const n = document.getElementById('emb-benef-nome'); if (n) n.textContent = i?.nome ? '· ' + i.nome : '';
+  openModal('emb-beneficios');
+  embBeneficiosLoad();
+}
+
+async function embBeneficiosLoad() {
+  const el = document.getElementById('emb-benef-lista');
+  if (!el || !_embBenefCtx) return;
+  el.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">⏳ Carregando…</div>';
+  try {
+    const { data, error } = await sb.from('embaixador_beneficios')
+      .select('tipo,status,data_conclusao,observacoes').eq('influenciador_id', _embBenefCtx.influId);
+    if (error) throw error;
+    const map = {}; (data || []).forEach(r => { map[r.tipo] = r; });
+    const canEdit = currentProfile?.cargo === 'admin' || userPermissoes['influenciadores'] !== false;
+    el.innerHTML = EMB_BENEFICIOS_DEFS.map(d => {
+      const cur = map[d.tipo]; const st = cur?.status || 'pendente';
+      const opt = EMB_STATUS_OPTS.find(o => o.v === st) || EMB_STATUS_OPTS[0];
+      const extra = (d.tipo === 'cupom' && _embBenefCtx.cupom) ? ` · <strong style="color:var(--text)">${esc(_embBenefCtx.cupom)}</strong>` : '';
+      const concl = cur?.data_conclusao ? ' · concluído em ' + new Date(cur.data_conclusao + 'T00:00:00').toLocaleDateString('pt-BR') : '';
+      const ctrl = canEdit
+        ? `<select onchange="embBeneficiosSet('${d.tipo}', this.value)" style="font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:${opt.cor};font-weight:700;cursor:pointer">
+             ${EMB_STATUS_OPTS.map(o => `<option value="${o.v}" ${o.v === st ? 'selected' : ''}>${o.label}</option>`).join('')}
+           </select>`
+        : `<span style="font-size:11px;font-weight:700;color:${opt.cor}">${opt.label}</span>`;
+      return `<div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:10px 12px">
+        <div style="font-size:18px">${d.icon}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12.5px;font-weight:700">${d.titulo}${extra}</div>
+          <div style="font-size:10.5px;color:var(--text3);margin-top:1px">${d.desc}${concl}</div>
+        </div>
+        ${ctrl}
+      </div>`;
+    }).join('');
+  } catch (e) {
+    el.innerHTML = `<div style="color:#ef4444;font-size:12px;padding:14px">Erro: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+async function embBeneficiosSet(tipo, status) {
+  if (!_embBenefCtx) return;
+  try {
+    const row = {
+      influenciador_id: _embBenefCtx.influId,
+      tipo: tipo,
+      status: status,
+      data_conclusao: status === 'concluido' ? new Date().toISOString().slice(0, 10) : null,
+      criado_por: currentProfile?.id || null,
+      criado_por_nome: currentProfile?.nome || null,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await sb.from('embaixador_beneficios').upsert(row, { onConflict: 'influenciador_id,tipo' });
+    if (error) throw error;
+    showToast('✅ Benefício atualizado');
+    embBeneficiosLoad();
+  } catch (e) {
+    showToast('❌ ' + (e.message || 'Erro ao salvar'));
+  }
+}
+
 async function _influIaRun(action) {
   if (!_influIaCtx) return;
   const out = document.getElementById('influ-ia-out');
@@ -22019,6 +22113,7 @@ function renderEmbaixadores() {
       ${canEdit ? `<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="abrirModalEditarInfluenciador('${i.id}')">✏️ Editar</button>
         <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="influAbrirPainel('${i.id}')">💰 Painel</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="embBeneficiosAbrir('${i.id}')">📋 Benefícios</button>
         <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="influIaAbrir('${i.id}')">🤖 IA</button>
       </div>` : ''}
     </div>`;

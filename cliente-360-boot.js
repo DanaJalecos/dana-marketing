@@ -898,6 +898,8 @@
 
   // ─── Detalhe do cliente (Fase 2 · Commit 2) ───
   window.showClientDetail = async function(clienteId) {
+    // Salva a posicao de scroll da lista para restaurar ao VOLTAR (UX: nao pular pro topo)
+    window._c360ListScroll = window.scrollY || document.documentElement.scrollTop || 0;
     const nome = decodeURIComponent(clienteId);
     state.currentContatoNome = nome;
     window._c360TimelineLoaded = false; // reseta cache da Timeline (Onda #2)
@@ -1693,6 +1695,7 @@
             <span class="inline-flex items-center rounded-full font-medium text-xs px-2.5 py-1 ${risco.cls} border">Risco: ${risco.label}</span>
             ${inadimpHtml}
             ${posvendaPendenteHtml}
+            ${(function(){var f=[];if(!(c.telefone||c.celular))f.push('telefone/celular');if(!c.numero_documento)f.push('CPF/CNPJ');return f.length?'<span title="Faltando: '+f.join(', ')+'" style="display:inline-flex;align-items:center;gap:4px;background:rgba(245,158,11,0.14);color:#fbbf24;border:1px solid rgba(245,158,11,0.4);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">📋 Cadastro incompleto</span>':'';})()}
           </div>
           <div style="font-size:13px;color:#94a3b8;margin-bottom:4px">${fone ? escapeHtml(fone) : '<span style="color:#475569">sem telefone</span>'}${c.uf ? ' · '+c.uf : ''}${doc ? ' · '+escapeHtml(doc) : ''}</div>
           <div style="font-size:12px;color:#64748b">${EMPRESA_LABELS[c.empresa] || c.empresa}${tipo ? ' · '+tipo : ''}</div>
@@ -6859,6 +6862,45 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     }
   };
 
+  // Sugestão de produtos pra um cliente do pool (sob demanda) — reusa mix_para_cliente.
+  window.c360PoolSugerir = async function(nome, idx) {
+    const box = document.getElementById('mc-pool-sug-' + idx);
+    if (!box) return;
+    if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+    box.style.display = '';
+    box.innerHTML = '<div style="padding:8px 0;color:#64748b;font-size:11px">⏳ Buscando produtos pra oferecer…</div>';
+    try {
+      const { data, error } = await state.sb.rpc('mix_para_cliente', {
+        p_contato_nome: nome, p_empresa: _mcPoolEmpresa(), p_limite_por_produto: 4
+      });
+      if (error) throw error;
+      const rows = Array.isArray(data) ? data : [];
+      if (!rows.length) {
+        box.innerHTML = '<div style="padding:8px 0;color:#64748b;font-size:11px">Sem sugestão de produto pra esse cliente ainda (poucas compras).</div>';
+        return;
+      }
+      const seen = new Set(); const sug = [];
+      rows.sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0)).forEach(s => {
+        const key = s.produto_sugerido_codigo || s.produto_sugerido_desc;
+        if (key && !seen.has(key)) { seen.add(key); sug.push(s); }
+      });
+      box.innerHTML = `
+        <div style="font-size:10.5px;color:#93c5fd;font-weight:600;margin:2px 0 6px">💡 Produtos pra oferecer (quem comprou parecido também levou):</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:6px">
+          ${sug.slice(0, 6).map(s => `
+            <div style="display:flex;gap:8px;padding:7px;background:rgba(255,255,255,0.03);border-radius:6px;align-items:center">
+              <div style="width:34px;height:34px;background:rgba(168,139,250,0.1);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">🛒</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:11px;color:#e2e8f0;font-weight:600;line-height:1.25">${escapeHtml((s.nome_curado || s.produto_sugerido_desc || s.produto_sugerido_codigo || '').slice(0, 50))}</div>
+                <div style="font-size:9.5px;color:#94a3b8;margin-top:1px">${s.co_ocorrencias}× junto · ${Math.round(Number(s.confidence || 0) * 100)}% chance</div>
+              </div>
+            </div>`).join('')}
+        </div>`;
+    } catch (e) {
+      box.innerHTML = `<div style="padding:8px 0;color:#fca5a5;font-size:11px">Erro: ${escapeHtml(e.message || String(e))}</div>`;
+    }
+  };
+
   async function mcLoadPoolWidget() {
     const cont = document.getElementById('mc-pool-conteudo');
     const resumoEl = document.getElementById('mc-pool-resumo');
@@ -6883,20 +6925,24 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
       if (_mcPoolPag >= totPag) { _mcPoolPag = totPag - 1; }
 
       const fmtBRL = (v) => 'R$ ' + Math.round(Number(v)||0).toLocaleString('pt-BR');
-      const rows = linhas.map(c => {
+      const rows = linhas.map((c, i) => {
         const nomeEsc = (c.contato_nome || '').replace(/'/g,'&#39;');
         const uc = c.ultima_compra ? new Date(c.ultima_compra + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
         return `
-          <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.04);align-items:center">
-            <div style="min-width:0">
-              <a href="#" onclick="event.preventDefault();window.c360PoolAbrirCliente&&window.c360PoolAbrirCliente('${nomeEsc}')" style="font-size:13px;font-weight:600;color:#e2e8f0;text-decoration:none">${escapeHtml(c.contato_nome)}</a>
-              <div style="font-size:11px;color:#94a3b8;margin-top:2px">${escapeHtml(c.segmento||'—')} · ${c.total_pedidos||0} pedido(s) · últ. compra ${uc}</div>
+          <div style="border-bottom:1px solid rgba(255,255,255,0.04)">
+            <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:8px;padding:10px 12px;align-items:center">
+              <div style="min-width:0">
+                <a href="#" onclick="event.preventDefault();window.c360PoolAbrirCliente&&window.c360PoolAbrirCliente('${nomeEsc}')" style="font-size:13px;font-weight:600;color:#e2e8f0;text-decoration:none">${escapeHtml(c.contato_nome)}</a>
+                <div style="font-size:11px;color:#94a3b8;margin-top:2px">${escapeHtml(c.segmento||'—')} · ${c.total_pedidos||0} pedido(s) · últ. compra ${uc}</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:12px;font-weight:700;color:#86efac">${fmtBRL(c.total_gasto)}</div>
+                <div style="font-size:10px;color:#64748b">score ${c.score||0}</div>
+              </div>
+              <button onclick="window.c360PoolSugerir&&window.c360PoolSugerir('${nomeEsc}',${i})" title="Ver produtos pra oferecer" style="padding:6px 10px;border-radius:5px;border:1px solid rgba(96,165,250,0.4);background:rgba(96,165,250,0.08);color:#93c5fd;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">💡 Produtos</button>
+              <button onclick="window.c360PoolAbrirCliente&&window.c360PoolAbrirCliente('${nomeEsc}')" style="padding:6px 12px;border-radius:5px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">Trabalhar →</button>
             </div>
-            <div style="text-align:right">
-              <div style="font-size:12px;font-weight:700;color:#86efac">${fmtBRL(c.total_gasto)}</div>
-              <div style="font-size:10px;color:#64748b">score ${c.score||0}</div>
-            </div>
-            <button onclick="window.c360PoolAbrirCliente&&window.c360PoolAbrirCliente('${nomeEsc}')" style="padding:6px 12px;border-radius:5px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap">Trabalhar →</button>
+            <div id="mc-pool-sug-${i}" style="display:none;padding:0 12px 10px"></div>
           </div>`;
       }).join('');
 
