@@ -14806,11 +14806,15 @@ function setupRealtimeSubscriptions() {
     const fechar = () => { card.style.transform = 'translateY(30px)'; card.style.opacity = '0'; setTimeout(() => card.remove(), 400); };
     card.addEventListener('click', (e) => {
       if (e.target?.dataset?.fechar === '1') { fechar(); return; }
-      if (e.target?.dataset?.ver === '1') {
+      // Abre o sino ao clicar em qualquer parte do card (menos o X).
+      // stopPropagation impede o handler global "clicar-fora-fecha" de fechar
+      // o painel no MESMO clique; o setTimeout garante a abertura após o evento.
+      e.stopPropagation();
+      fechar();
+      setTimeout(() => {
         const panel = document.getElementById('notif-panel');
         if (panel && !panel.classList.contains('open') && typeof toggleNotif === 'function') toggleNotif();
-        fechar();
-      }
+      }, 0);
     });
     setTimeout(fechar, 14000);  // auto-fecha em 14s
   };
