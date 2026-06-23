@@ -1146,6 +1146,9 @@
       sugestaoPanel.parentNode.insertBefore(cadPanel, sugestaoPanel.nextSibling);
     })();
 
+    // 📄 Contato da Nota (Mercado Livre) — assíncrono, aditivo (só aparece p/ cliente do ML)
+    injectMlNfPanel(contatoId, empresa);
+
     // Histórico de status (audit trail) — carrega async
     setTimeout(() => _carregarHistoricoStatus(contatoId, empresa), 50);
 
@@ -1265,6 +1268,63 @@
     panel.style.boxShadow = '0 0 0 2px rgba(245,158,11,0.55)';
     setTimeout(function () { panel.style.boxShadow = 'none'; }, 1200);
   };
+
+  // Copia um valor pro clipboard (botão "copiar" do painel da nota ML)
+  window.c360Copiar = function (btn) {
+    try {
+      navigator.clipboard.writeText((btn && btn.dataset.copy) || '');
+      if (btn) { var o = btn.textContent; btn.textContent = 'copiado!'; setTimeout(function () { btn.textContent = o; }, 1200); }
+    } catch (e) { /* silencioso */ }
+  };
+
+  // 📄 Painel "Contato da Nota (Mercado Livre)" — busca on-demand via edge ml-contato-nf.
+  // Aditivo e tolerante a falha: só renderiza pra cliente do ML; nunca quebra o detalhe.
+  async function injectMlNfPanel(contatoId, empresa) {
+    if (!contatoId) return;
+    try {
+      const { data, error } = await state.sb.functions.invoke('ml-contato-nf', {
+        body: { contato_id: contatoId, empresa: empresa },
+      });
+      if (error || !data || data.ml !== true) return; // não é cliente ML → nada
+      if (document.getElementById('c360-mlnf-panel')) return;
+      const host = document.getElementById('page-cliente-1');
+      if (!host) return;
+
+      const div = document.createElement('div');
+      div.id = 'c360-mlnf-panel';
+      div.style.cssText = 'margin:0 auto 20px;padding:14px 16px;background:rgba(245,200,90,0.05);border:1px solid rgba(245,200,90,0.28);border-radius:10px;max-width:1200px;width:calc(100% - 40px)';
+
+      if (data.pending) {
+        div.innerHTML = '<div style="font-size:12px;color:#94a3b8">🛒 <strong style="color:#fbbf24">Cliente Mercado Livre</strong> — buscando contato da nota… recarregue em instantes.</div>';
+      } else if (!data.nome_completo && !data.cpf) {
+        div.innerHTML = '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:13.5px;font-weight:700;color:#fbbf24">🛒 Cliente Mercado Livre</span><span style="font-size:11px;color:#64748b">— sem dados de nota disponíveis na API do ML</span></div>';
+      } else {
+        const e = data.endereco || {};
+        const linhaEnd = [
+          [e.logradouro, e.numero].filter(Boolean).join(', '),
+          e.bairro, [e.cidade, e.uf].filter(Boolean).join('/'), e.cep,
+        ].filter(Boolean).join(' · ');
+        const row = function (label, val, copy) {
+          if (!val) return '';
+          return '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap">'
+            + '<span style="font-size:11px;color:#64748b;min-width:74px">' + label + '</span>'
+            + '<span style="font-size:13px;color:#e2e8f0;font-weight:600">' + escapeHtml(String(val)) + '</span>'
+            + (copy ? '<button data-copy="' + escapeHtml(String(val)) + '" onclick="c360Copiar(this)" title="Copiar" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#94a3b8;border-radius:5px;cursor:pointer;font-size:10px;padding:2px 7px">copiar</button>' : '')
+            + '</div>';
+        };
+        div.innerHTML =
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px"><span style="font-size:13.5px;font-weight:700;color:#fbbf24">📄 Contato da Nota (Mercado Livre)</span><span style="font-size:10.5px;color:#64748b">dados reais do emissor de notas</span></div>'
+          + row('Nome', data.nome_completo, true)
+          + row('CPF/CNPJ', data.cpf, true)
+          + (linhaEnd ? row('Endereço', linhaEnd, false) : '')
+          + '<div style="font-size:10px;color:#64748b;margin-top:8px">💬 O ML não libera telefone/e-mail do comprador — o pós-venda direto é pela mensageria do próprio Mercado Livre.</div>';
+      }
+      // Insere logo após o painel de cadastro/sugestão (mesma área dos outros painéis)
+      const anchor = document.getElementById('c360-cadastro-panel') || document.getElementById('c360-sugestao-panel');
+      if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(div, anchor.nextSibling);
+      else host.insertBefore(div, host.firstChild);
+    } catch (e) { /* aditivo — falha em silêncio */ }
+  }
 
   window.c360SaveMetadata = async function(contatoId, empresa) {
     const btn = document.getElementById('c360-meta-save');
