@@ -955,6 +955,9 @@
         c._inadimplencia = inad; c._ciclo = ciclo; c._cicloBenchmark = bench;
         c.data_nascimento = (nascResult && !nascResult.error && nascResult.data)
           ? nascResult.data.data_nascimento : (c.data_nascimento || null);
+        // Cliente do Mercado Livre (loja 205337834)? Se sim, NÃO mostra "cadastro incompleto"
+        // (ML não fornece nascimento/telefone — o contato real vem no painel da Nota).
+        c._ehML = (pedidos || []).some(function (p) { return Number(p.loja_id) === 205337834; });
       }
       renderClientDetail(c, nome, pedidos, fav);
       // Injeta painel de metadata (status/tel_alt/observacao) logo abaixo do header
@@ -1110,8 +1113,9 @@
 
     // Painel: 📋 Cadastro incompleto (accordion como o de oferta sugerida).
     // Só aparece se faltar CPF/CNPJ, telefone/celular OU data de nascimento.
+    // Pula cliente do Mercado Livre (ML não fornece nascimento/telefone).
     (function () {
-      if (!cliente) return;
+      if (!cliente || cliente._ehML) return;
       var campos = [
         { label: 'CPF / CNPJ',          val: cliente.numero_documento,             fmt: function (v) { return String(v); } },
         { label: 'Telefone / Celular',  val: (cliente.celular || cliente.telefone), fmt: function (v) { return String(v); } },
@@ -1919,7 +1923,7 @@
             <span class="inline-flex items-center rounded-full font-medium text-xs px-2.5 py-1 ${risco.cls} border">Risco: ${risco.label}</span>
             ${inadimpHtml}
             ${posvendaPendenteHtml}
-            ${(function(){var f=[];if(!(c.telefone||c.celular))f.push('telefone/celular');if(!c.numero_documento)f.push('CPF/CNPJ');if(!c.data_nascimento)f.push('data de nascimento');return f.length?'<span onclick="c360CadastroAbrir()" title="Faltando: '+f.join(', ')+' — clique para ver" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;background:rgba(245,158,11,0.14);color:#fbbf24;border:1px solid rgba(245,158,11,0.4);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">📋 Cadastro incompleto</span>':'';})()}
+            ${(function(){if(c._ehML)return'';var f=[];if(!(c.telefone||c.celular))f.push('telefone/celular');if(!c.numero_documento)f.push('CPF/CNPJ');if(!c.data_nascimento)f.push('data de nascimento');return f.length?'<span onclick="c360CadastroAbrir()" title="Faltando: '+f.join(', ')+' — clique para ver" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;background:rgba(245,158,11,0.14);color:#fbbf24;border:1px solid rgba(245,158,11,0.4);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">📋 Cadastro incompleto</span>':'';})()}
           </div>
           <div style="font-size:13px;color:#94a3b8;margin-bottom:4px">${fone ? escapeHtml(fone) : '<span style="color:#475569">sem telefone</span>'}${c.uf ? ' · '+c.uf : ''}${doc ? ' · '+escapeHtml(doc) : ''}</div>
           <div style="font-size:12px;color:#64748b">${EMPRESA_LABELS[c.empresa] || c.empresa}${tipo ? ' · '+tipo : ''}</div>
