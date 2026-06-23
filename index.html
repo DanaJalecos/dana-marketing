@@ -2976,6 +2976,7 @@ select.input { cursor: pointer; }
       <div class="notif-head">
         <span>Alertas <span style="font-size:10px;color:var(--text3);font-weight:500" id="alertas-count-label">carregando...</span></span>
         <span style="display:flex;gap:10px;align-items:center">
+          <a onclick="event.stopPropagation();toggleNotifMute()" style="font-size:14px;cursor:pointer;line-height:1" id="notif-mute-toggle" title="Som das notificações">🔔</a>
           <a onclick="event.stopPropagation();marcarTodasAlertasLidas()" style="font-size:11px;font-weight:600;color:var(--blue);cursor:pointer;text-decoration:underline" id="mark-all-read-btn">Marcar todas lidas</a>
           <a onclick="event.stopPropagation();apagarAlertasLidas()" style="font-size:11px;font-weight:600;color:var(--red);cursor:pointer;text-decoration:underline;display:none" id="delete-read-btn" title="Apagar permanentemente as notificações lidas">🗑 Apagar lidas</a>
         </span>
@@ -14742,6 +14743,78 @@ function setupRealtimeSubscriptions() {
     setTimeout(fechar, 15000);
   };
 
+  // ─── Som de notificação (Web Audio, sem arquivo) — "ding-dong" curto ───
+  // Respeita o mudo do usuário (localStorage). Falha em silêncio se o browser
+  // bloquear áudio antes de um gesto do usuário.
+  window.tocarSomNotificacao = function() {
+    try {
+      if (localStorage.getItem('dms_notif_mute') === '1') return;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      const ctx = window._notifAudioCtx || (window._notifAudioCtx = new AC());
+      if (ctx.state === 'suspended') ctx.resume();
+      const now = ctx.currentTime;
+      [880, 1174.66].forEach((freq, i) => {       // A5 → D6
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        const t = now + i * 0.14;
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.linearRampToValueAtTime(0.16, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0008, t + 0.32);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(t); osc.stop(t + 0.34);
+      });
+    } catch (e) { /* silencioso */ }
+  };
+
+  // ─── Liga/desliga som das notificações (persistente) ───
+  window.toggleNotifMute = function() {
+    const mutado = localStorage.getItem('dms_notif_mute') === '1';
+    localStorage.setItem('dms_notif_mute', mutado ? '0' : '1');
+    if (typeof syncNotifMuteIcon === 'function') syncNotifMuteIcon();
+    if (typeof showToast === 'function') showToast(mutado ? '🔔 Som das notificações ligado' : '🔕 Som das notificações desligado');
+    if (mutado && typeof tocarSomNotificacao === 'function') tocarSomNotificacao(); // preview ao ligar
+  };
+  window.syncNotifMuteIcon = function() {
+    const el = document.getElementById('notif-mute-toggle');
+    if (!el) return;
+    const mutado = localStorage.getItem('dms_notif_mute') === '1';
+    el.textContent = mutado ? '🔕' : '🔔';
+    el.title = mutado ? 'Som desligado — clique pra ligar' : 'Som ligado — clique pra silenciar';
+  };
+
+  // ─── Popup grande de "boas-vindas": 1x ao abrir o sistema, se houver não-lidas ───
+  window.mostrarPopupBoasVindas = function(qtd) {
+    if (!qtd || qtd < 1) return;
+    if (document.getElementById('notif-boasvindas-card')) return;
+    const card = document.createElement('div');
+    card.id = 'notif-boasvindas-card';
+    card.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;max-width:330px;background:#0a0a0a;border:1px solid #2563eb;border-left:4px solid #2563eb;border-radius:12px;padding:16px 18px;box-shadow:0 16px 50px rgba(0,0,0,0.55);transform:translateY(30px);opacity:0;transition:all .4s cubic-bezier(0.2,0.9,0.3,1);font-family:DM Sans,system-ui,sans-serif;background-image:linear-gradient(135deg,rgba(37,99,235,0.12) 0%,rgba(0,0,0,0) 60%)';
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px">
+        <div style="font-size:11px;color:#60a5fa;text-transform:uppercase;letter-spacing:0.5px;font-weight:700">🔔 Bem-vindo(a) de volta</div>
+        <button type="button" data-fechar="1" style="background:transparent;border:none;color:#64748b;cursor:pointer;font-size:18px;line-height:1;padding:0">×</button>
+      </div>
+      <div style="font-size:14.5px;color:#f1f5f9;font-weight:700;margin-bottom:4px">Você tem ${qtd} notificaç${qtd === 1 ? 'ão nova' : 'ões novas'}</div>
+      <div style="font-size:12px;color:#94a3b8;line-height:1.4;margin-bottom:12px">Clique pra abrir o sino e ver o que rolou enquanto você esteve fora.</div>
+      <button type="button" data-ver="1" style="width:100%;padding:9px;border-radius:8px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-size:13px;font-weight:700">Ver notificações</button>
+    `;
+    document.body.appendChild(card);
+    requestAnimationFrame(() => { card.style.transform = 'translateY(0)'; card.style.opacity = '1'; });
+    const fechar = () => { card.style.transform = 'translateY(30px)'; card.style.opacity = '0'; setTimeout(() => card.remove(), 400); };
+    card.addEventListener('click', (e) => {
+      if (e.target?.dataset?.fechar === '1') { fechar(); return; }
+      if (e.target?.dataset?.ver === '1') {
+        const panel = document.getElementById('notif-panel');
+        if (panel && !panel.classList.contains('open') && typeof toggleNotif === 'function') toggleNotif();
+        fechar();
+      }
+    });
+    setTimeout(fechar, 14000);  // auto-fecha em 14s
+  };
+
   sb.channel('realtime-alertas')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'alertas' }, (payload) => {
       const a = payload.new;
@@ -14752,8 +14825,10 @@ function setupRealtimeSubscriptions() {
       const aud = a?.audiencia || 'pessoal';
       if (aud === 'dados_empresa' && !podeVerDadosEmpresa()) return;
       loadAlertas();
-      // Alerta pessoal pra mim: popup grande clicável (15s); demais: toast curto
-      if (aud === 'pessoal' && a?.destinatario_id === currentUser?.id) {
+      // Qualquer alerta direcionado a MIM (menção, atribuição, criativo, comentário…):
+      // som + popup grande clicável (15s). Alertas globais (sem destinatário) só toast.
+      if (a?.destinatario_id && a.destinatario_id === currentUser?.id) {
+        tocarSomNotificacao();
         mostrarPopupAlertaPessoal(a);
       } else if (a?.titulo) {
         showToast('🔔 ' + a.titulo);
@@ -14906,6 +14981,15 @@ async function loadAlertas() {
 
     renderAlertasContainer();
     updateNotifDot();
+    if (typeof syncNotifMuteIcon === 'function') syncNotifMuteIcon();
+    // Popup de boas-vindas: 1x por sessão (ao abrir o sistema), se houver não-lidas
+    if (!window._notifBoasVindasFeito) {
+      window._notifBoasVindasFeito = true;
+      const naoLidas = _alertasCache.filter(a => !a.lido).length;
+      if (naoLidas > 0 && typeof mostrarPopupBoasVindas === 'function') {
+        setTimeout(() => mostrarPopupBoasVindas(naoLidas), 1200);
+      }
+    }
   } catch(e) { console.warn('Alertas error:', e.message); }
 }
 
@@ -16712,6 +16796,11 @@ async function enviarComentarioTarefa() {
         link_label: 'Abrir tarefa',
         audiencia: 'pessoal',
         dados: { tarefa_id: tarefaId, comentario_id: inserted?.id }
+      });
+      // E-mail pra pessoa mencionada
+      enviarEmailNotificacao('mencao_comentario', uid, tarefaId, {
+        titulo, de: meuNome, comentario: msg,
+        link: location.origin + '/tarefas-e-kanban?abrir=' + encodeURIComponent(tarefaId),
       });
     }
     // Responsável (se diferente de mim e não já mencionado)
@@ -26255,6 +26344,7 @@ async function doLogout() {
   // Limpa caches do usuário anterior pra não vazar dados no próximo login
   try {
     _alertasCache = [];
+    window._notifBoasVindasFeito = false; // re-mostra o popup de boas-vindas no próximo login
     if (typeof updateNotifDot === 'function') updateNotifDot();
     _mentionsUsers = null;
     _comentariosCache = {};
@@ -33054,6 +33144,11 @@ const aiChatInterval = setInterval(() => {
             link_label: 'Ver campanha',
             dados: { campanha_id: campanhaId, funcoes },
           }).catch(e => console.warn('[ci] alerta falhou (nao bloqueante)', e));
+          // E-mail pra pessoa atribuída
+          enviarEmailNotificacao('atribuicao_campanha', profileId, campanhaId, {
+            titulo: camp?.nome || 'campanha', de: currentProfile?.nome, funcoes,
+            link: location.origin + '/campanhas-internas?abrir=' + encodeURIComponent(campanhaId),
+          });
         }
       }
       showToast(membroId ? 'Atribuição atualizada' : 'Pessoa atribuída');
@@ -33780,6 +33875,11 @@ const aiChatInterval = setInterval(() => {
         link_label: 'Ver campanha',
         dados: { campanha_id: campanhaId },
       }).catch(() => {});
+      // E-mail pra pessoa mencionada
+      enviarEmailNotificacao('mencao_campanha', mid, campanhaId, {
+        titulo: camp?.nome || 'campanha', de: currentProfile?.nome, comentario: texto,
+        link: location.origin + '/campanhas-internas?abrir=' + encodeURIComponent(campanhaId),
+      });
     }
     await ciLoadComentarios(campanhaId);
     ciRefrescarViewAberta();
