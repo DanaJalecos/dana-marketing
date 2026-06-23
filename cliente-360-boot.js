@@ -3874,34 +3874,51 @@
   };
 
   // ─── Dashboard principal (Commit 3) ───
-  const dashCache = { matriz: null, bc: null };
+  const dashCache = {};  // chaveado por escopo: "matriz:all" (admin/gerente) ou "matriz:<profileId>" (vendedor)
+
+  // Dashboard: admin + gerente_comercial veem TODOS os clientes; demais cargos (vendedores) veem só a carteira.
+  function c360DashEscopoTotal() {
+    return ['admin', 'gerente_comercial'].includes(state.profile?.cargo || '');
+  }
+  function c360DashCacheKey() {
+    return state.empresa + (c360DashEscopoTotal() ? ':all' : ':' + (state.profile?.id || 'none'));
+  }
 
   async function loadDashboardResumo() {
     try {
-      // Cache 5min
-      const cached = dashCache[state.empresa];
+      // Garante que o perfil (cargo/id) está carregado pra decidir o escopo
+      if (!state.profile && typeof mcLoadPerms === 'function') { try { await mcLoadPerms(); } catch (e) {} }
+      const escopoTotal = c360DashEscopoTotal();
+      const meuId = state.profile?.id || null;
+      const ck = c360DashCacheKey();
+      const cached = dashCache[ck];
       if (cached && Date.now() - cached.ts < CACHE_TTL) {
-        renderDashboard(cached.data);
+        renderDashboard(cached.data, escopoTotal);
         return;
       }
-      const { data, error } = await state.sb
-        .from('cliente_scoring_resumo')
-        .select('*')
-        .eq('empresa', state.empresa)
-        .maybeSingle();
+      let data, error;
+      if (escopoTotal) {
+        const r = await state.sb.from('cliente_scoring_resumo').select('*').eq('empresa', state.empresa).maybeSingle();
+        data = r.data; error = r.error;
+      } else {
+        if (!meuId) { renderDashboardErro('Sem perfil pra escopar o dashboard.'); return; }
+        const r = await state.sb.rpc('cliente_scoring_resumo_vendedor', { p_empresa: state.empresa, p_profile_id: meuId });
+        error = r.error;
+        data = Array.isArray(r.data) ? r.data[0] : r.data;
+      }
       if (error) {
         console.warn('[c360] dash resumo erro:', error?.message || error);
         renderDashboardErro(error?.message || 'Erro ao carregar resumo');
         return;
       }
       if (!data) {
-        console.warn('[c360] dash resumo SEM DADOS (empresa=' + state.empresa + ')');
-        renderDashboardErro('Sem dados pra empresa "' + state.empresa + '" na view cliente_scoring_resumo. A view existe mas nao retornou linhas — pode ser RLS ou empresa errada.');
+        renderDashboardErro(escopoTotal
+          ? ('Sem dados pra empresa "' + state.empresa + '" na view cliente_scoring_resumo.')
+          : 'Sua carteira ainda não tem clientes nesta empresa.');
         return;
       }
-      console.log('[c360] dash resumo OK:', data);
-      dashCache[state.empresa] = { data, ts: Date.now() };
-      renderDashboard(data);
+      dashCache[ck] = { data, ts: Date.now() };
+      renderDashboard(data, escopoTotal);
     } catch (e) {
       console.error('[c360] dash exception:', e);
       renderDashboardErro('Exception: ' + (e?.message || e));
@@ -3926,9 +3943,10 @@
       </div>`;
   }
 
-  function renderDashboard(r) {
+  function renderDashboard(r, escopoTotal) {
     const page = document.getElementById('page-dashboard');
     if (!page) return;
+    if (escopoTotal === undefined) escopoTotal = c360DashEscopoTotal();
 
     // 4 alertas inteligentes
     const alertCard = (icon, label, sub, n, color, filterFn) => `
@@ -3961,7 +3979,7 @@
   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px">
     <div>
       <h1 style="margin:0 0 6px;font-size:28px;font-weight:700;color:#f1f5f9;font-family:'Playfair Display',serif">Dashboard</h1>
-      <div style="font-size:13px;color:#94a3b8">Visão executiva do relacionamento com clientes — ${EMPRESA_LABELS[state.empresa] || state.empresa}</div>
+      <div style="font-size:13px;color:#94a3b8">${escopoTotal ? 'Visão executiva do relacionamento com clientes' : '🛒 Sua carteira de clientes'} — ${EMPRESA_LABELS[state.empresa] || state.empresa}</div>
     </div>
     <button onclick="window.c360ReloadDashboard()" class="c360-reload-btn" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:#e2e8f0;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:6px">🔄 Atualizar</button>
   </div>
@@ -4020,6 +4038,8 @@
     // os clientes de score baixo — justamente o público destes alertas).
     const tiposRpc = ['prontos_recompra', 'vips_sem_comprar', 'novos_sem_2a', 'alto_potencial'];
     if (tiposRpc.includes(tipo)) {
+      // Vendedor (escopo carteira) não tem a aba "Clientes" → abre a lista num modal escopado
+      if (!c360DashEscopoTotal()) { if (typeof window.c360DashAlertaModal === 'function') window.c360DashAlertaModal(tipo); return; }
       try {
         const { data, error } = await state.sb.rpc('clientes_alerta', { p_empresa: state.empresa, p_tipo: tipo });
         if (error) throw error;
@@ -4042,9 +4062,48 @@
   };
 
   window.c360ReloadDashboard = async function() {
-    dashCache[state.empresa] = null;
+    dashCache[c360DashCacheKey()] = null;
     await loadDashboardResumo();
     if (typeof showToast === 'function') showToast('Métricas atualizadas', 'success');
+  };
+
+  // Modal de drill-down dos alertas do Dashboard pro VENDEDOR (que não tem a aba Clientes).
+  // Lista os clientes da carteira dele naquele alerta; clicar abre o detalhe.
+  window.c360DashAlertaModal = async function(tipo) {
+    const meuId = state.profile?.id || null;
+    if (!meuId) return;
+    const LABELS = { prontos_recompra: '↗ Prontos para recompra', vips_sem_comprar: '◆ VIPs sem comprar', novos_sem_2a: '👥 Novos sem 2ª compra', alto_potencial: '🎯 Alto potencial' };
+    const old = document.getElementById('c360-dashalert-ov'); if (old) old.remove();
+    const ov = document.createElement('div');
+    ov.id = 'c360-dashalert-ov';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;padding:20px';
+    ov.innerHTML = '<div style="background:#0b0f17;border:1px solid rgba(255,255,255,0.12);border-radius:14px;max-width:640px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,0.08)">'
+      + '<div style="font-size:15px;font-weight:700;color:#f1f5f9">' + (LABELS[tipo] || 'Clientes') + '</div>'
+      + '<button onclick="var o=document.getElementById(\'c360-dashalert-ov\'); if(o) o.remove();" style="background:transparent;border:none;color:#94a3b8;font-size:22px;cursor:pointer;line-height:1">×</button></div>'
+      + '<div id="c360-dashalert-body" style="overflow-y:auto;padding:6px 0"><div style="padding:24px;text-align:center;color:#64748b;font-size:13px">⏳ Carregando…</div></div></div>';
+    ov.addEventListener('click', function (e) { if (e.target === ov) ov.remove(); });
+    document.body.appendChild(ov);
+    try {
+      const { data, error } = await state.sb.rpc('clientes_alerta_vendedor', { p_empresa: state.empresa, p_tipo: tipo, p_profile_id: meuId });
+      if (error) throw error;
+      const lista = Array.isArray(data) ? data : [];
+      const body = document.getElementById('c360-dashalert-body');
+      if (!body) return;
+      if (!lista.length) { body.innerHTML = '<div style="padding:24px;text-align:center;color:#64748b;font-size:13px">Nenhum cliente neste alerta 🎉</div>'; return; }
+      const fmtBRLd = (v) => 'R$ ' + Math.round(Number(v) || 0).toLocaleString('pt-BR');
+      body.innerHTML = lista.map(function (c) {
+        const nomeEsc = (c.contato_nome || '').replace(/'/g, '&#39;');
+        const uc = c.ultima_compra ? new Date(c.ultima_compra + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
+        return '<div onclick="var o=document.getElementById(\'c360-dashalert-ov\'); if(o) o.remove(); window.showClientDetail&&window.showClientDetail(encodeURIComponent(\'' + nomeEsc + '\'))" style="padding:11px 18px;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;display:flex;justify-content:space-between;gap:10px;align-items:center" onmouseover="this.style.background=\'rgba(255,255,255,0.03)\'" onmouseout="this.style.background=\'\'">'
+          + '<div style="min-width:0"><div style="font-size:13px;font-weight:600;color:#e2e8f0">' + escapeHtml(c.contato_nome || '—') + '</div>'
+          + '<div style="font-size:11px;color:#94a3b8;margin-top:2px">' + escapeHtml(c.segmento || '—') + ' · ' + (c.total_pedidos || 0) + ' pedido(s) · últ. ' + uc + '</div></div>'
+          + '<div style="text-align:right;flex-shrink:0"><div style="font-size:12px;font-weight:700;color:#86efac">' + fmtBRLd(c.total_gasto) + '</div><div style="font-size:10px;color:#64748b">score ' + (c.score || 0) + '</div></div></div>';
+      }).join('');
+    } catch (e) {
+      const body = document.getElementById('c360-dashalert-body');
+      if (body) body.innerHTML = '<div style="padding:24px;color:#fca5a5;font-size:12.5px">Erro: ' + escapeHtml(e.message || String(e)) + '</div>';
+    }
   };
 
   // ═══════════════════════════════════════════════════════════
