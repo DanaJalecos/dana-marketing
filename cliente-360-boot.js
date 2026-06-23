@@ -1149,6 +1149,9 @@
     // 📄 Contato da Nota (Mercado Livre) — assíncrono, aditivo (só aparece p/ cliente do ML)
     injectMlNfPanel(contatoId, empresa);
 
+    // 💬 Mensagens do ML — só admin/gerente_comercial/Luís + cliente do ML
+    injectMlMensagensPanel(contatoId, empresa);
+
     // Histórico de status (audit trail) — carrega async
     setTimeout(() => _carregarHistoricoStatus(contatoId, empresa), 50);
 
@@ -1325,6 +1328,96 @@
       else host.insertBefore(div, host.firstChild);
     } catch (e) { /* aditivo — falha em silêncio */ }
   }
+
+  // ─── 💬 Mensageria do Mercado Livre (gated: admin, gerente_comercial, Luís) ───
+  function c360PodeMsgML() {
+    const cargo = state.profile?.cargo || '';
+    return ['admin', 'gerente_comercial'].includes(cargo) || state.profile?.id === '440ee115-12d1-4b85-97f6-0bfea94fb271';
+  }
+  window._c360MlMsgCtx = null;
+
+  async function injectMlMensagensPanel(contatoId, empresa) {
+    if (!contatoId || !c360PodeMsgML()) return;
+    try {
+      const { data, error } = await state.sb.functions.invoke('ml-mensagens', { body: { mode: 'list', contato_id: contatoId, empresa: empresa } });
+      if (error || !data || data.ml !== true) return; // não é cliente ML (ou sem acesso) → nada
+      if (document.getElementById('c360-mlmsg-panel')) return;
+      const host = document.getElementById('page-cliente-1');
+      if (!host) return;
+
+      window._c360MlMsgCtx = { contato_id: contatoId, empresa: empresa, pack: data.pack, buyer_id: data.buyer_id };
+      const div = document.createElement('div');
+      div.id = 'c360-mlmsg-panel';
+      div.style.cssText = 'margin:0 auto 20px;padding:14px 16px;background:rgba(255,229,100,0.04);border:1px solid rgba(255,200,60,0.25);border-radius:10px;max-width:1200px;width:calc(100% - 40px)';
+
+      let corpo;
+      if (data.pending) {
+        corpo = '<div style="font-size:12px;color:#94a3b8">🛒 Token do ML indisponível agora — recarregue em instantes.</div>';
+      } else {
+        const msgs = Array.isArray(data.mensagens) ? data.mensagens : [];
+        const bolhas = msgs.length ? msgs.map(function (m) {
+          const euVend = m.de === 'vendedor';
+          let dt = '';
+          try { if (m.data) dt = new Date(m.data).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch (e) {}
+          return '<div style="display:flex;justify-content:' + (euVend ? 'flex-end' : 'flex-start') + ';margin-bottom:6px">'
+            + '<div style="max-width:78%;padding:7px 10px;border-radius:10px;font-size:12.5px;line-height:1.4;white-space:pre-wrap;'
+            + (euVend ? 'background:rgba(34,197,94,0.14);color:#dcfce7;border:1px solid rgba(34,197,94,0.3)' : 'background:rgba(255,255,255,0.06);color:#e2e8f0;border:1px solid rgba(255,255,255,0.1)') + '">'
+            + escapeHtml(m.texto) + '<div style="font-size:9.5px;color:#64748b;margin-top:3px;text-align:right">' + (euVend ? 'Você' : escapeHtml(data.buyer_nick || 'Cliente')) + ' · ' + dt + '</div></div></div>';
+        }).join('') : '<div style="padding:16px;text-align:center;color:#64748b;font-size:12px">Nenhuma mensagem ainda. Inicie a conversa abaixo 👇</div>';
+        corpo = '<div id="c360-mlmsg-conversa" style="max-height:300px;overflow-y:auto;padding:6px 2px;margin-bottom:10px">' + bolhas + '</div>'
+          + '<div style="display:flex;gap:8px;align-items:flex-end">'
+          + '<textarea id="c360-mlmsg-input" rows="2" placeholder="Escreva uma mensagem pro cliente no Mercado Livre…" style="flex:1;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.04);color:#e2e8f0;font-size:12.5px;resize:vertical;font-family:inherit"></textarea>'
+          + '<button id="c360-mlmsg-send" onclick="c360MlMsgEnviar()" style="padding:9px 16px;border-radius:8px;border:none;background:#16a34a;color:#fff;cursor:pointer;font-size:12.5px;font-weight:700;white-space:nowrap">Enviar →</button></div>'
+          + '<div style="font-size:10px;color:#64748b;margin-top:6px">💬 Conversa do pedido ML mais recente deste cliente. As respostas vão pela mensageria do Mercado Livre.</div>';
+      }
+      div.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font-size:13.5px;font-weight:700;color:#fbbf24">💬 Mensagens (Mercado Livre)</span>'
+        + (data.buyer_nick ? '<span style="font-size:10.5px;color:#64748b">com ' + escapeHtml(data.buyer_nick) + '</span>' : '') + '</div>' + corpo;
+
+      const anchor = document.getElementById('c360-mlnf-panel') || document.getElementById('c360-cadastro-panel') || document.getElementById('c360-sugestao-panel');
+      if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(div, anchor.nextSibling);
+      else host.insertBefore(div, host.firstChild);
+      const conv = document.getElementById('c360-mlmsg-conversa');
+      if (conv) conv.scrollTop = conv.scrollHeight;
+    } catch (e) { /* aditivo — falha em silêncio */ }
+  }
+
+  window.c360MlMsgEnviar = async function () {
+    const ctx = window._c360MlMsgCtx;
+    const inp = document.getElementById('c360-mlmsg-input');
+    const btn = document.getElementById('c360-mlmsg-send');
+    if (!ctx || !inp) return;
+    const txt = (inp.value || '').trim();
+    if (!txt) return;
+    if (!ctx.pack || !ctx.buyer_id) { if (typeof showToast === 'function') showToast('Sem pedido ML pra responder'); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Enviando…'; }
+    try {
+      const { data, error } = await state.sb.functions.invoke('ml-mensagens', {
+        body: { mode: 'send', pack: ctx.pack, buyer_id: ctx.buyer_id, text: txt },
+      });
+      if (error || !data || data.ok !== true) {
+        if (typeof showToast === 'function') showToast('Falha ao enviar: ' + ((data && data.error) || (error && error.message) || 'erro'));
+        if (btn) { btn.disabled = false; btn.textContent = 'Enviar →'; }
+        return;
+      }
+      const conv = document.getElementById('c360-mlmsg-conversa');
+      if (conv) {
+        const vazio = conv.querySelector('div[style*="text-align:center"]');
+        if (vazio) conv.innerHTML = '';
+        let dt = '';
+        try { dt = new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch (e) {}
+        const b = document.createElement('div');
+        b.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:6px';
+        b.innerHTML = '<div style="max-width:78%;padding:7px 10px;border-radius:10px;font-size:12.5px;line-height:1.4;white-space:pre-wrap;background:rgba(34,197,94,0.14);color:#dcfce7;border:1px solid rgba(34,197,94,0.3)">' + escapeHtml(txt) + '<div style="font-size:9.5px;color:#64748b;margin-top:3px;text-align:right">Você · ' + dt + '</div></div>';
+        conv.appendChild(b); conv.scrollTop = conv.scrollHeight;
+      }
+      inp.value = '';
+      if (typeof showToast === 'function') showToast('Mensagem enviada ✓');
+    } catch (e) {
+      if (typeof showToast === 'function') showToast('Erro ao enviar');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Enviar →'; }
+    }
+  };
 
   window.c360SaveMetadata = async function(contatoId, empresa) {
     const btn = document.getElementById('c360-meta-save');
