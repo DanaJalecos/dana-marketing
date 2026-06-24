@@ -899,10 +899,9 @@
   // ─── Detalhe do cliente (Fase 2 · Commit 2) ───
   window.showClientDetail = async function(clienteId) {
     // Salva a posicao de scroll da lista para restaurar ao VOLTAR (UX: nao pular pro topo).
-    // ATENCAO: o scroll do C360 e do container #main-content-wrapper (overflow:auto),
-    // NAO da window — por isso window.scrollY vinha sempre 0.
-    const _scEl = document.getElementById('main-content-wrapper');
-    window._c360ListScroll = _scEl ? _scEl.scrollTop : (window.scrollY || document.documentElement.scrollTop || 0);
+    // O scroll do C360 e do DOCUMENTO do iframe (window.scrollY) — confirmado ao vivo: o
+    // #main-content-wrapper cresce com o conteudo e nao rola; quem rola e o documentElement.
+    window._c360ListScroll = window.scrollY || document.documentElement.scrollTop || 0;
     // Guarda DE QUAL lista o detalhe foi aberto (Clientes vs Meus Clientes) — usado pelo
     // botao "Voltar" e pelo back do navegador pra voltar exatamente pra mesma tela.
     try {
@@ -934,8 +933,7 @@
     page.innerHTML = '<div style="padding:40px;text-align:center;color:rgba(255,255,255,0.5)">⏳ Carregando dados de ' + escapeHtml(nome) + '...</div>';
     document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
     page.classList.add('active');
-    if (_scEl) _scEl.scrollTop = 0;  // detalhe abre no topo (scroll e do container, nao da window)
-    window.scrollTo(0,0);
+    window.scrollTo(0,0);  // detalhe abre no topo
 
     try {
       // Cliente completo + pedidos + inadimplência (Fase 2) + ciclo (Fase 4) + benchmark (Fase 4)
@@ -4762,13 +4760,18 @@
   // nao no topo nem no Dashboard.
   function _c360RestoreScroll(y) {
     if (!y) return;
-    const el = document.getElementById('main-content-wrapper');  // o scroll e DESTE container
-    let tries = 0;
+    // O scroll e do documento do iframe (window). A lista (Meus Clientes) REMONTA de forma
+    // assincrona (passa por "Carregando" -> altura encolhe -> scroll zera), entao re-aplicamos
+    // a posicao a cada frame por ~1.6s, em vez de parar no 1o acerto. Cancela se o user rolar.
+    let frames = 0, cancel = false;
+    const stop = function () { cancel = true; };
+    window.addEventListener('wheel', stop, { once: true, passive: true });
+    window.addEventListener('touchstart', stop, { once: true, passive: true });
+    window.addEventListener('keydown', stop, { once: true });
     (function attempt() {
-      if (el) el.scrollTop = y; else window.scrollTo(0, y);
-      const cur = el ? el.scrollTop : (window.scrollY || document.documentElement.scrollTop || 0);
-      // a lista (Meus Clientes) monta de forma assincrona; tenta ate alcancar y (ou desistir)
-      if (cur < y - 2 && ++tries < 60) requestAnimationFrame(attempt);
+      if (cancel) return;
+      if (Math.abs((window.scrollY || document.documentElement.scrollTop || 0) - y) > 2) window.scrollTo(0, y);
+      if (++frames < 100) requestAnimationFrame(attempt);
     })();
   }
   function _c360VoltarParaLista() {
