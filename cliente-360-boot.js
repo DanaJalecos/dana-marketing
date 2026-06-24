@@ -4760,18 +4760,23 @@
   // nao no topo nem no Dashboard.
   function _c360RestoreScroll(y) {
     if (!y) return;
-    // O scroll e do documento do iframe (window). A lista (Meus Clientes) REMONTA de forma
-    // assincrona (passa por "Carregando" -> altura encolhe -> scroll zera), entao re-aplicamos
-    // a posicao a cada frame por ~1.6s, em vez de parar no 1o acerto. Cancela se o user rolar.
-    let frames = 0, cancel = false;
+    // O scroll e do documento do iframe (window). Ao voltar, a lista (Meus Clientes) REMONTA de
+    // forma assincrona passando por: conteudo antigo (alto) -> "Carregando" (altura ~0, o scroll
+    // zera) -> lista nova (alto). Esse ciclo leva ~2s (medido ao vivo). Por isso re-aplicamos a
+    // posicao a cada frame por ~2.8s de tempo REAL (performance.now) — parar antes (no 1o acerto
+    // ou por contagem de frames) cai no topo porque o "Carregando" zera depois. Cancela na hora
+    // se o usuario rolar/tocar/teclar, pra nao travar a navegacao dele.
+    let cancel = false;
     const stop = function () { cancel = true; };
+    const now = function () { return (window.performance && performance.now) ? performance.now() : Date.now(); };
     window.addEventListener('wheel', stop, { once: true, passive: true });
     window.addEventListener('touchstart', stop, { once: true, passive: true });
     window.addEventListener('keydown', stop, { once: true });
+    const t0 = now();
     (function attempt() {
       if (cancel) return;
       if (Math.abs((window.scrollY || document.documentElement.scrollTop || 0) - y) > 2) window.scrollTo(0, y);
-      if (++frames < 100) requestAnimationFrame(attempt);
+      if (now() - t0 < 2800) requestAnimationFrame(attempt);
     })();
   }
   function _c360VoltarParaLista() {
