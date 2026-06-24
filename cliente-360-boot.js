@@ -900,6 +900,21 @@
   window.showClientDetail = async function(clienteId) {
     // Salva a posicao de scroll da lista para restaurar ao VOLTAR (UX: nao pular pro topo)
     window._c360ListScroll = window.scrollY || document.documentElement.scrollTop || 0;
+    // Guarda DE QUAL lista o detalhe foi aberto (Clientes vs Meus Clientes) — usado pelo
+    // botao "Voltar" e pelo back do navegador pra voltar exatamente pra mesma tela.
+    try {
+      const _act = document.querySelector('.page-section.active');
+      if (_act && _act.id && _act.id !== 'page-cliente-1') window._c360DetailReturnPage = _act.id.replace('page-', '');
+    } catch (_e) {}
+    // Cria uma entrada no historico do navegador para o detalhe. Sem isso, o "voltar" do
+    // Chrome cai na entrada anterior (dashboard); com isso, o popstate volta pra lista.
+    try {
+      if (window.history && window.history.state && window.history.state.c360detail) {
+        window.history.replaceState({ c360detail: 1 }, '');   // navegou entre clientes: nao empilha de novo
+      } else if (window.history && window.history.pushState) {
+        window.history.pushState({ c360detail: 1 }, '');      // 1o detalhe vindo da lista: empilha
+      }
+    } catch (_e) {}
     const nome = decodeURIComponent(clienteId);
     state.currentContatoNome = nome;
     window._c360TimelineLoaded = false; // reseta cache da Timeline (Onda #2)
@@ -1771,7 +1786,7 @@
     const page = document.getElementById('page-cliente-1');
     if (!page) return;
     if (!c) {
-      page.innerHTML = '<div style="padding:40px;text-align:center"><button onclick="showPage(\'clientes\')" style="color:#94a3b8;background:none;border:none;cursor:pointer;margin-bottom:20px">← Voltar</button><div style="color:rgba(255,255,255,0.5)">Cliente "'+escapeHtml(nome)+'" nao encontrado na empresa atual.</div></div>';
+      page.innerHTML = '<div style="padding:40px;text-align:center"><button onclick="c360VoltarLista()" style="color:#94a3b8;background:none;border:none;cursor:pointer;margin-bottom:20px">← Voltar</button><div style="color:rgba(255,255,255,0.5)">Cliente "'+escapeHtml(nome)+'" nao encontrado na empresa atual.</div></div>';
       return;
     }
 
@@ -1904,11 +1919,15 @@
             </div>`;
         }).join('');
 
+    // Botao "Voltar": volta exatamente pra lista de origem (Clientes ou Meus Clientes),
+    // restaurando a posicao de scroll. c360VoltarLista() unifica botao + back do navegador.
+    const _retPg = window._c360DetailReturnPage || 'clientes';
+    const _retLbl = _retPg === 'meus-clientes' ? 'Voltar para Meus Clientes' : 'Voltar para Clientes';
     page.innerHTML = `
 <div style="padding:24px;max-width:1200px;margin:0 auto">
-  <button onclick="showPage('clientes')" style="display:flex;align-items:center;gap:8px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;margin-bottom:20px;padding:0;font-family:Inter,sans-serif">
+  <button onclick="c360VoltarLista()" style="display:flex;align-items:center;gap:8px;background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:14px;margin-bottom:20px;padding:0;font-family:Inter,sans-serif">
     <svg fill="none" height="16" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24" width="16"><polyline points="15 18 9 12 15 6"></polyline></svg>
-    Voltar para Clientes
+    ${_retLbl}
   </button>
 
   <!-- Header -->
@@ -4732,6 +4751,40 @@
       }
     } catch (e) {}
   }, 100);
+
+  // ─── Voltar do detalhe pra lista (botao "Voltar" + back/forward do navegador) ───
+  // Objetivo (Juan, 24/06): voltar do detalhe de um cliente deve cair EXATAMENTE na
+  // mesma tela de onde abriu (Clientes ou Meus Clientes) e na MESMA posicao de scroll —
+  // nao no topo nem no Dashboard.
+  function _c360RestoreScroll(y) {
+    if (!y) return;
+    let tries = 0;
+    (function attempt() {
+      window.scrollTo(0, y);
+      const cur = window.scrollY || document.documentElement.scrollTop || 0;
+      // a lista (Meus Clientes) monta de forma assincrona; tenta ate alcancar y (ou desistir)
+      if (cur < y - 2 && ++tries < 60) requestAnimationFrame(attempt);
+    })();
+  }
+  function _c360VoltarParaLista() {
+    const ret = window._c360DetailReturnPage || 'clientes';
+    const y = window._c360ListScroll || 0;
+    window.__c360_silent_change = true;  // ao voltar, nao empilha entrada nova no historico do pai
+    try { if (typeof window.showPage === 'function') window.showPage(ret); }
+    finally { setTimeout(function () { window.__c360_silent_change = false; }, 0); }
+    _c360RestoreScroll(y);
+  }
+  // Chamado pelo botao "Voltar" do detalhe. Se houver entrada de detalhe no historico,
+  // usa o back nativo (unifica com a setinha do Chrome); senao volta direto.
+  window.c360VoltarLista = function () {
+    if (window.history && window.history.state && window.history.state.c360detail) window.history.back();
+    else _c360VoltarParaLista();
+  };
+  // Back/forward do navegador: se o detalhe esta aberto, volta pra lista de origem.
+  window.addEventListener('popstate', function () {
+    const det = document.getElementById('page-cliente-1');
+    if (det && det.classList.contains('active')) _c360VoltarParaLista();
+  });
 
   // Expoe helper pra c360SetEmpresa poder chamar
   window.c360ReRenderSegmentosIfActive = async function() {
