@@ -898,8 +898,11 @@
 
   // ─── Detalhe do cliente (Fase 2 · Commit 2) ───
   window.showClientDetail = async function(clienteId) {
-    // Salva a posicao de scroll da lista para restaurar ao VOLTAR (UX: nao pular pro topo)
-    window._c360ListScroll = window.scrollY || document.documentElement.scrollTop || 0;
+    // Salva a posicao de scroll da lista para restaurar ao VOLTAR (UX: nao pular pro topo).
+    // ATENCAO: o scroll do C360 e do container #main-content-wrapper (overflow:auto),
+    // NAO da window — por isso window.scrollY vinha sempre 0.
+    const _scEl = document.getElementById('main-content-wrapper');
+    window._c360ListScroll = _scEl ? _scEl.scrollTop : (window.scrollY || document.documentElement.scrollTop || 0);
     // Guarda DE QUAL lista o detalhe foi aberto (Clientes vs Meus Clientes) — usado pelo
     // botao "Voltar" e pelo back do navegador pra voltar exatamente pra mesma tela.
     try {
@@ -931,6 +934,7 @@
     page.innerHTML = '<div style="padding:40px;text-align:center;color:rgba(255,255,255,0.5)">⏳ Carregando dados de ' + escapeHtml(nome) + '...</div>';
     document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
     page.classList.add('active');
+    if (_scEl) _scEl.scrollTop = 0;  // detalhe abre no topo (scroll e do container, nao da window)
     window.scrollTo(0,0);
 
     try {
@@ -4758,10 +4762,11 @@
   // nao no topo nem no Dashboard.
   function _c360RestoreScroll(y) {
     if (!y) return;
+    const el = document.getElementById('main-content-wrapper');  // o scroll e DESTE container
     let tries = 0;
     (function attempt() {
-      window.scrollTo(0, y);
-      const cur = window.scrollY || document.documentElement.scrollTop || 0;
+      if (el) el.scrollTop = y; else window.scrollTo(0, y);
+      const cur = el ? el.scrollTop : (window.scrollY || document.documentElement.scrollTop || 0);
       // a lista (Meus Clientes) monta de forma assincrona; tenta ate alcancar y (ou desistir)
       if (cur < y - 2 && ++tries < 60) requestAnimationFrame(attempt);
     })();
