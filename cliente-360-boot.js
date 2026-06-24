@@ -7290,7 +7290,7 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
   // Listar TODOS seria inviável (20k+) → só os mais recentes, paginado.
   // Mesma audiência do pool. Reusa _mcPoolEmpresa / _mcPoolEmpresaLabel.
   // ══════════════════════════════════════════════════════════
-  let _mcCadIncPag = 0;
+  let _mcCadIncPag = 0, _mcCadIncProfileFiltro = '', _mcCadIncBusca = '', _mcCadIncBuscaTimer = null;
   const _MC_CADINC_PP = 25;
 
   function mcRenderCadIncompletosWidget(defaultOpen) {
@@ -7336,16 +7336,34 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
     }
   };
 
+  // Filtro de vendedor (só admin/gerente_comercial) e busca por nome
+  window.c360CadIncFiltroVend = function(v) {
+    _mcCadIncProfileFiltro = v || '';
+    _mcCadIncPag = 0;
+    mcLoadCadIncompletosWidget();
+  };
+  window.c360CadIncBusca = function(v) {
+    _mcCadIncBusca = v || '';
+    clearTimeout(_mcCadIncBuscaTimer);
+    _mcCadIncBuscaTimer = setTimeout(function () { _mcCadIncPag = 0; mcLoadCadIncompletosWidget(); }, 300);
+  };
+
   async function mcLoadCadIncompletosWidget() {
     const cont = document.getElementById('mc-cadinc-conteudo');
     const resumoEl = document.getElementById('mc-cadinc-resumo');
     if (!cont) return;
     try {
       const emp = _mcPoolEmpresa();
+      // Escopo: admin/gerente_comercial veem todos (com filtro+busca); demais veem só a carteira.
+      const escopoTotal = (typeof c360DashEscopoTotal === 'function') ? c360DashEscopoTotal() : false;
+      const profileFiltro = escopoTotal ? (_mcCadIncProfileFiltro || null) : (state.profile?.id || null);
+      const busca = (_mcCadIncBusca || '').trim() || null;
       const { data, error } = await state.sb.rpc('contatos_cadastro_incompleto', {
         p_empresa: emp,
         p_offset: _mcCadIncPag * _MC_CADINC_PP,
         p_limit: _MC_CADINC_PP,
+        p_profile_id: profileFiltro,
+        p_busca: busca,
       });
       const labelEl = document.getElementById('mc-cadinc-empresa-label');
       if (labelEl) labelEl.textContent = _mcPoolEmpresaLabel();
@@ -7384,13 +7402,29 @@ ${msgExemplo ? `<div class="msg-box"><div class="msg-title">💬 Mensagem modelo
           <button onclick="window.c360CadIncPag(1)" ${_mcCadIncPag >= totPag - 1 ? 'disabled' : ''} style="padding:5px 12px;border-radius:5px;border:1px solid rgba(255,255,255,0.18);background:${_mcCadIncPag >= totPag - 1 ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.06)'};color:${_mcCadIncPag >= totPag - 1 ? '#475569' : '#e2e8f0'};cursor:${_mcCadIncPag >= totPag - 1 ? 'default' : 'pointer'};font-size:11px">Próxima ▶</button>
         </div>`;
 
-      cont.innerHTML = `
-        <div style="padding-top:8px;font-size:10.5px;color:#64748b;font-style:italic;margin-bottom:8px">
-          💡 Últimos clientes cadastrados em <strong>${_mcPoolEmpresaLabel()}</strong> com <strong style="color:#fbbf24">cadastro incompleto</strong> (falta CPF, telefone/celular ou data de nascimento). Mais recentes primeiro. Abra e complete no Bling — o DMS sincroniza sozinho.
-        </div>
-        <div>${total === 0 ? '<div style="padding:18px;text-align:center;color:#64748b;font-size:12px">🎉 Nenhum cadastro incompleto recente</div>' : rows}</div>
-        ${pager}
-      `;
+      // Controles (filtro de vendedor + busca) — só pra admin/gerente_comercial
+      let controles = '';
+      if (escopoTotal) {
+        const seen = new Map();
+        (state.mcAdminVendedores || []).forEach(function (v) {
+          if (v.vendedor_profile_id && !seen.has(v.vendedor_profile_id)) seen.set(v.vendedor_profile_id, v.vendedor_nome || '—');
+        });
+        let opts = '<option value="">Todos os vendedores</option>';
+        seen.forEach(function (nome, id) { opts += '<option value="' + id + '"' + (_mcCadIncProfileFiltro === id ? ' selected' : '') + '>' + escapeHtml(nome) + '</option>'; });
+        controles = '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">'
+          + '<select onchange="window.c360CadIncFiltroVend(this.value)" style="flex-shrink:0;padding:7px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:#0b0f17;color:#e2e8f0;font-size:12px;outline:none">' + opts + '</select>'
+          + '<input id="mc-cadinc-busca" type="text" placeholder="🔍 Buscar cliente por nome…" value="' + escapeHtml(_mcCadIncBusca) + '" oninput="window.c360CadIncBusca(this.value)" style="flex:1;min-width:150px;box-sizing:border-box;padding:7px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.04);color:#e2e8f0;font-size:12px;outline:none">'
+          + '</div>';
+      }
+      const introTxt = escopoTotal
+        ? ('💡 Clientes de <strong>' + _mcPoolEmpresaLabel() + '</strong> com <strong style="color:#fbbf24">cadastro incompleto</strong> (falta CPF, telefone/celular ou nascimento). Filtre por vendedor ou busque pelo nome. Abra e complete no Bling.')
+        : ('💡 <strong>Seus clientes</strong> em <strong>' + _mcPoolEmpresaLabel() + '</strong> com <strong style="color:#fbbf24">cadastro incompleto</strong>. Abra e complete no Bling — o DMS sincroniza sozinho.');
+      cont.innerHTML = controles
+        + '<div style="padding-top:4px;font-size:10.5px;color:#64748b;font-style:italic;margin-bottom:8px">' + introTxt + '</div>'
+        + '<div>' + (total === 0 ? '<div style="padding:18px;text-align:center;color:#64748b;font-size:12px">🎉 Nenhum cadastro incompleto' + (busca ? ' com esse nome' : '') + '</div>' : rows) + '</div>'
+        + pager;
+      const inpB = document.getElementById('mc-cadinc-busca');
+      if (inpB && document.activeElement !== inpB && _mcCadIncBusca) { inpB.focus(); inpB.setSelectionRange(inpB.value.length, inpB.value.length); }
     } catch (e) {
       console.warn('[mc] cadastros incompletos widget:', e);
       cont.innerHTML = `<div style="padding:14px;color:#fca5a5;font-size:11.5px">Erro: ${escapeHtml(e.message || String(e))}</div>`;
