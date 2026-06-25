@@ -1133,11 +1133,14 @@
     // Pula cliente do Mercado Livre (ML não fornece nascimento/telefone).
     (function () {
       if (!cliente || cliente._ehML) return;
+      // PJ (CNPJ) nao tem data de nascimento — exige nascimento SO de PF (CPF = 11 digitos).
+      var _docDig = String(cliente.numero_documento || '').replace(/[^0-9]/g, '').length;
+      var _ehPF = _docDig === 11;
       var campos = [
         { label: 'CPF / CNPJ',          val: cliente.numero_documento,             fmt: function (v) { return String(v); } },
         { label: 'Telefone / Celular',  val: (cliente.celular || cliente.telefone), fmt: function (v) { return String(v); } },
-        { label: 'Data de nascimento',  val: cliente.data_nascimento,              fmt: function (v) { try { var p = String(v).slice(0, 10).split('-'); return p[2] + '/' + p[1] + '/' + p[0]; } catch (e) { return String(v); } } },
       ];
+      if (_ehPF) campos.push({ label: 'Data de nascimento', val: cliente.data_nascimento, fmt: function (v) { try { var p = String(v).slice(0, 10).split('-'); return p[2] + '/' + p[1] + '/' + p[0]; } catch (e) { return String(v); } } });
       var faltando = campos.filter(function (k) { return !k.val; });
       if (!faltando.length) return; // cadastro completo → nem renderiza o painel
       var linhas = campos.map(function (k) {
@@ -1944,7 +1947,7 @@
             <span class="inline-flex items-center rounded-full font-medium text-xs px-2.5 py-1 ${risco.cls} border">Risco: ${risco.label}</span>
             ${inadimpHtml}
             ${posvendaPendenteHtml}
-            ${(function(){if(c._ehML)return'';var f=[];if(!(c.telefone||c.celular))f.push('telefone/celular');if(!c.numero_documento)f.push('CPF/CNPJ');if(!c.data_nascimento)f.push('data de nascimento');return f.length?'<span onclick="c360CadastroAbrir()" title="Faltando: '+f.join(', ')+' — clique para ver" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;background:rgba(245,158,11,0.14);color:#fbbf24;border:1px solid rgba(245,158,11,0.4);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">📋 Cadastro incompleto</span>':'';})()}
+            ${(function(){if(c._ehML)return'';var _dig=String(c.numero_documento||'').replace(/[^0-9]/g,'').length;var f=[];if(!(c.telefone||c.celular))f.push('telefone/celular');if(!c.numero_documento)f.push('CPF/CNPJ');if(_dig===11&&!c.data_nascimento)f.push('data de nascimento');return f.length?'<span onclick="c360CadastroAbrir()" title="Faltando: '+f.join(', ')+' — clique para ver" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;background:rgba(245,158,11,0.14);color:#fbbf24;border:1px solid rgba(245,158,11,0.4);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">📋 Cadastro incompleto</span>':'';})()}
           </div>
           <div style="font-size:13px;color:#94a3b8;margin-bottom:4px">${fone ? escapeHtml(fone) : '<span style="color:#475569">sem telefone</span>'}${c.uf ? ' · '+c.uf : ''}${doc ? ' · '+escapeHtml(doc) : ''}</div>
           <div style="font-size:12px;color:#64748b">${EMPRESA_LABELS[c.empresa] || c.empresa}${tipo ? ' · '+tipo : ''}</div>
